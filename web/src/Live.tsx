@@ -26,6 +26,7 @@ import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
 import { ActivityFeed } from "./Activity";
+import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 
 declare global {
@@ -303,6 +304,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   const [events, setEvents] = useState<TradeEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newPilot, setNewPilot] = useState("");
+  const [reviewing, setReviewing] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -396,14 +398,8 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
                 {state.paused ? "Unpause" : "Pause pilot"}
               </button>
               {draft && (
-                <button
-                  className="btn"
-                  onClick={run(async () => {
-                    const { mandate } = toMandate(draft.proposal, universeOf(deployment), Number(totalUsd(state.assets) / 10n ** 18n) || 1);
-                    await call("Apply drafted mandate", "setMandate", [mandate.assets, mandate.limits]);
-                  })}
-                >
-                  Apply drafted mandate
+                <button className="btn" onClick={() => setReviewing(true)}>
+                  Review drafted mandate
                 </button>
               )}
               {roles.feeBps > 0 && (
@@ -434,6 +430,22 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           </div>
         )}
       </Card>
+
+      {reviewing && draft && isOwner && (() => {
+        const { mandate } = toMandate(draft.proposal, universeOf(deployment), Number(totalUsd(state.assets) / 10n ** 18n) || 1);
+        return (
+          <MandateDiffCard
+            state={state}
+            next={mandate}
+            symbolOf={(t) => symbolOf(t as Address)}
+            onCancel={() => setReviewing(false)}
+            onSign={run(async () => {
+              await call("Sign the new mandate", "setMandate", [mandate.assets, mandate.limits]);
+              setReviewing(false);
+            })}
+          />
+        );
+      })()}
 
       <ReportCard
         title="Weekly report"
