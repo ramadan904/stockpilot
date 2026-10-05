@@ -73,7 +73,7 @@ goes through only if all of these hold, checked against oracle prices inside the
 | Rule | Error if broken |
 |---|---|
 | Both assets are in the mandate, and the trade goes through the venue you chose | `AssetNotInMandate`, `NoAdapter` |
-| The trade is at most `maxTradeUsd`, and today's volume stays under `dailyLimitUsd` | `TradeTooLarge`, `DailyLimitExceeded` |
+| The trade is at most `maxTradeUsd`, and fits a budget of `dailyLimitUsd` that refills continuously over 24 hours (no midnight reset to burst through) | `TradeTooLarge`, `DailyLimitExceeded` |
 | At least `cooldown` seconds since the last trade | `CooldownActive` |
 | Every price is younger than `maxPriceAge` (no trading on a closed market's stale price) | `StalePrice` |
 | What arrived is worth at least `1 - maxSlippageBps` of what left, at oracle prices, measured from the vault's own balances (not the venue's word) | `SlippageExceeded`, `InsufficientOutput` |
@@ -82,6 +82,10 @@ goes through only if all of these hold, checked against oracle prices inside the
 The last rule is the core idea. Within the bands, the pilot has discretion. Outside them, it may only repair drift,
 never create it. So the worst a compromised or confused pilot can do is trade within your bands, within your daily cap,
 at near-oracle prices.
+
+A hosted pilot can be paid by an optional management fee set in the vault: at most 2% a year, taken pro-rata from every
+asset so it never moves the weights, paused while the vault is paused, settled before every withdrawal, and cancellable
+by the owner at any time (`setFee(0, 0)`).
 
 You keep custody: `withdraw` works at any time, even when paused. `pause` can be pulled by you or by the pilot itself;
 only you can `unpause`. `setPilot(0)` revokes the agent in one transaction. Ownership moves in two steps and cannot be
@@ -95,6 +99,9 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`contracts/PilotVault.sol`](contracts/PilotVault.sol) | The vault and its mandate checks |
 | [`contracts/PilotVaultFactory.sol`](contracts/PilotVaultFactory.sol) | One vault per user, created with its first mandate in one transaction, plus a registry |
 | [`contracts/interfaces/ISwapAdapter.sol`](contracts/interfaces/ISwapAdapter.sol) | The venue interface. Any DEX or RFQ desk can sit behind it |
+| [`contracts/adapters/UniswapV3Adapter.sol`](contracts/adapters/UniswapV3Adapter.sol) | Venue for any Uniswap V3-style DEX; the pilot may pass a multi-hop route, which is checked to start and end at the right tokens |
+| [`contracts/adapters/PythPriceFeed.sol`](contracts/adapters/PythPriceFeed.sol) | A Pyth price as a Chainlink-style feed; refuses prices whose confidence interval is too wide |
+| [`scripts/deploy-production.ts`](scripts/deploy-production.ts) | Config-driven deploy onto a chain with real assets, feeds and a DEX ([`deploy/`](deploy)) |
 | [`contracts/mocks/`](contracts/mocks) | Testnet stand-ins: stock tokens, Chainlink-shaped feeds, an oracle-priced market maker, and a hostile adapter for tests |
 | [`agent/model.ts`](agent/model.ts) | An exact BigInt model of the vault's checks, so the pilot knows before sending whether a trade will pass |
 | [`agent/planner.ts`](agent/planner.ts) | The pilot's brain: deterministic threshold rebalancing that only proposes trades the model accepts |
@@ -142,7 +149,6 @@ This is a hackathon build. The contracts are tested but **not audited**; do not 
 - Prices come from oracles. A wrong oracle price is the main trust assumption: the slippage and band checks are only
   as good as the feed.
 - Tokens dropped from a mandate stay in the vault, unpriced, until the owner withdraws them or lists them again.
-- The daily limit resets at 00:00 UTC rather than on a rolling 24-hour window.
 - Market hours: tokenized stocks may trade around the clock, but feeds for some may pause. The vault refuses to trade
   on a price older than `maxPriceAge`, and the pilot holds.
 

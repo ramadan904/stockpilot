@@ -5,6 +5,7 @@ import {
   BPS,
   WAD,
   amountFor,
+  available,
   check,
   totalValue,
   valueOf,
@@ -105,9 +106,10 @@ export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER):
   const deficit = -gap(buy);
   if (excess <= 0n || deficit <= 0n) return { action: "hold", reason: "Nothing is overweight enough to sell.", drift: d };
 
-  let usd = min(excess, deficit, state.limits.maxTradeUsd, state.remainingToday);
+  const budget = available(state);
+  let usd = min(excess, deficit, state.limits.maxTradeUsd, budget);
   if (usd < opts.minTradeUsd) {
-    const why = state.remainingToday < opts.minTradeUsd ? "Today's trading limit is used up." : "Drift is too small to trade.";
+    const why = budget < opts.minTradeUsd ? "The 24-hour trading limit is used up for now." : "Drift is too small to trade.";
     return { action: "hold", reason: why, drift: d };
   }
 

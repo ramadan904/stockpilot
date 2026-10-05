@@ -55,7 +55,8 @@ describe("PilotVault", () => {
       const [holdings] = await vault.read.portfolio();
       const tslaRow = holdings.find((h) => h.token === getAddress(tsla.address))!;
       expect(Number(tslaRow.weightBps)).to.be.within(2500, 3000);
-      expect(await vault.read.remainingToday()).to.equal(usd(20_000 - 700));
+      expect(await vault.read.tradeBudget() >= usd(20_000 - 700)).to.equal(true);
+      expect(await vault.read.tradeBudget() < usd(20_000 - 699)).to.equal(true);
     });
 
     it("allows discretionary tilts that stay inside the bands", async () => {
@@ -110,25 +111,41 @@ describe("PilotVault", () => {
       await vaultAsPilot.write.rebalance([tsla.address, usdg.address, parseUnits("2", 18), 0n, NO_ROUTE, WHY]);
     });
 
-    it("caps daily volume and resets it the next day", async () => {
-      const { vault, vaultAsPilot, mandate, aapl, nvda, tslaFeed, aaplFeed, nvdaFeed } =
-        await loadFixture(deployStockPilot);
+    it("caps volume over any 24 hours with a budget that refills continuously", async () => {
+      const { vault, vaultAsPilot, mandate, aapl, nvda, tslaFeed, aaplFeed, nvdaFeed } = await loadFixture(deployStockPilot);
       const feeds = [tslaFeed, aaplFeed, nvdaFeed];
       await vault.write.setMandate([wide(mandate), { ...DEFAULT_LIMITS, dailyLimitUsd: usd(1_000), cooldown: 0 }]);
-      await time.increaseTo(Math.ceil((await time.latest()) / 86_400) * 86_400 + 60); // start of a fresh day
-      await refresh(feeds);
+      expect(await vault.read.tradeBudget()).to.equal(usd(1_000));
 
       await vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("3", 18), 0n, NO_ROUTE, WHY]); // $600
       await expect(
         vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("2.5", 18), 0n, NO_ROUTE, WHY]), // $500
       ).to.be.rejectedWith("DailyLimitExceeded");
       await vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("2", 18), 0n, NO_ROUTE, WHY]); // $400
-      expect(await vault.read.remainingToday()).to.equal(0n);
+      expect(await vault.read.tradeBudget() < usd(1)).to.equal(true);
 
-      await time.increase(86_400);
+      // Twelve hours later, half the limit is back: $500 fits, $600 does not.
+      await time.increase(43_200);
       await refresh(feeds);
-      expect(await vault.read.remainingToday()).to.equal(usd(1_000));
-      await vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("2.5", 18), 0n, NO_ROUTE, WHY]);
+      await expect(
+        vaultAsPilot.write.rebalance([nvda.address, aapl.address, parseUnits("4.8", 18), 0n, NO_ROUTE, WHY]), // $600
+      ).to.be.rejectedWith("DailyLimitExceeded");
+      await vaultAsPilot.write.rebalance([nvda.address, aapl.address, parseUnits("3.6", 18), 0n, NO_ROUTE, WHY]); // $450
+
+      // After a full day it is back to the cap, and never above it.
+      await time.increase(3 * 86_400);
+      await refresh(feeds);
+      expect(await vault.read.tradeBudget()).to.equal(usd(1_000));
+    });
+
+    it("re-mandating cannot be used to reset the budget", async () => {
+      const { vault, vaultAsPilot, mandate, aapl, nvda } = await loadFixture(deployStockPilot);
+      await vault.write.setMandate([wide(mandate), { ...DEFAULT_LIMITS, dailyLimitUsd: usd(1_000), cooldown: 0 }]);
+      await vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("4", 18), 0n, NO_ROUTE, WHY]); // $800
+      await vault.write.setMandate([wide(mandate), { ...DEFAULT_LIMITS, dailyLimitUsd: usd(1_000), cooldown: 0 }]);
+      expect(await vault.read.tradeBudget() < usd(201)).to.equal(true);
+      await vault.write.setMandate([wide(mandate), { ...DEFAULT_LIMITS, dailyLimitUsd: usd(100), cooldown: 0 }]);
+      expect(await vault.read.tradeBudget() <= usd(100)).to.equal(true);
     });
 
     it("enforces a cooldown between trades", async () => {
@@ -257,6 +274,72 @@ describe("PilotVault", () => {
       const { vaultAsPilot, hostile, aapl, nvda } = await loadFixture(withHostileAdapter);
       await hostile.write.configure([0, parseUnits("1.6", 18), "0x"]); // $200 of AAPL for $200 of NVDA
       await vaultAsPilot.write.rebalance([aapl.address, nvda.address, parseUnits("1", 18), 0n, NO_ROUTE, WHY]);
+    });
+  });
+
+  describe("management fee", () => {
+    const YEAR = 365 * 86_400;
+
+    it("is taken pro-rata from every asset, so weights do not move", async () => {
+      const { vault, stranger, usdg, tsla } = await loadFixture(deployStockPilot);
+      await vault.write.setFee([stranger.account.address, 100]); // 1% a year
+      const [before] = await vault.read.portfolio();
+      await time.increase(YEAR / 2);
+      await vault.write.collectFee();
+
+      const [after] = await vault.read.portfolio();
+      for (let i = 0; i < after.length; i++) {
+        // Unchanged up to the last basis point of rounding.
+        expect(Number(after[i].weightBps - before[i].weightBps)).to.be.within(-1, 1);
+        const taken = before[i].balance - after[i].balance;
+        // Half a year at 1%: 0.5% of each balance, give or take the few seconds between transactions.
+        const expected = before[i].balance / 200n;
+        expect(taken >= expected && taken < (expected * 1001n) / 1000n).to.equal(true);
+      }
+      expect(await usdg.read.balanceOf([stranger.account.address]) > 0n).to.equal(true);
+      expect(await tsla.read.balanceOf([stranger.account.address]) > 0n).to.equal(true);
+    });
+
+    it("is capped at 2% a year, needs a recipient, and only the owner can set it", async () => {
+      const { vault, vaultAsPilot, stranger } = await loadFixture(deployStockPilot);
+      await expect(vault.write.setFee([stranger.account.address, 201])).to.be.rejectedWith("FeeTooHigh");
+      await expect(vault.write.setFee([zeroAddress, 50])).to.be.rejectedWith("ZeroAddress");
+      await expect(vaultAsPilot.write.setFee([stranger.account.address, 200])).to.be.rejectedWith("OwnableUnauthorizedAccount");
+      await vault.write.setFee([stranger.account.address, 200]);
+      await vault.write.setFee([zeroAddress, 0]); // the owner can cancel any time
+    });
+
+    it("does not accrue while the vault is paused", async () => {
+      const { vault, stranger, aapl } = await loadFixture(deployStockPilot);
+      await vault.write.setFee([stranger.account.address, 200]);
+      await vault.write.pause();
+      const paid = await aapl.read.balanceOf([stranger.account.address]); // a few seconds' worth, settled at pause
+      await time.increase(YEAR);
+      await vault.write.unpause();
+      await vault.write.collectFee();
+      const later = await aapl.read.balanceOf([stranger.account.address]);
+      // A year paused would have cost 2%, i.e. 0.25 AAPL; a few seconds costs dust.
+      expect(later - paid < parseUnits("0.000001", 18)).to.equal(true);
+    });
+
+    it("is settled before a withdrawal, which then takes what is left", async () => {
+      const { vault, owner, stranger, aapl } = await loadFixture(deployStockPilot);
+      await vault.write.setFee([stranger.account.address, 200]);
+      await time.increase(YEAR);
+      await vault.write.withdraw([aapl.address, parseUnits("12.5", 18), owner.account.address]); // the full original amount
+      const toRecipient = await aapl.read.balanceOf([stranger.account.address]);
+      const toOwner = await aapl.read.balanceOf([owner.account.address]);
+      expect(toRecipient + toOwner).to.equal(parseUnits("12.5", 18));
+      expect(toRecipient >= parseUnits("0.25", 18)).to.equal(true);
+      expect(await aapl.read.balanceOf([vault.address])).to.equal(0n);
+    });
+
+    it("reports what is owed without moving anything", async () => {
+      const { vault, stranger } = await loadFixture(deployStockPilot);
+      await vault.write.setFee([stranger.account.address, 100]);
+      await time.increase(YEAR);
+      const owed = await vault.read.feeOwed();
+      expect(owed.every((x) => x > 0n)).to.equal(true);
     });
   });
 

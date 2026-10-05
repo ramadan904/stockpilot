@@ -32,8 +32,9 @@ export interface VaultState {
   assets: AssetState[];
   limits: Limits;
   lastTradeAt: bigint;
-  /** USD volume the pilot can still trade today, 18 decimals. */
-  remainingToday: bigint;
+  /** Trade budget (USD, 18 decimals) as of `budgetUpdatedAt`. It refills at dailyLimitUsd per day; see available(). */
+  budgetUsd: bigint;
+  budgetUpdatedAt: bigint;
   paused: boolean;
   /** Chain time the state was read at. */
   now: bigint;
@@ -94,7 +95,7 @@ export function check(state: VaultState, trade: Trade, amountOut: bigint, minAmo
   const totalBefore = totalValue(state.assets);
   const valueIn = valueOf(trade.amountIn, sell.price, sell.decimals);
   if (valueIn > limits.maxTradeUsd) return { ok: false, reason: "TradeTooLarge" };
-  if (valueIn > state.remainingToday) return { ok: false, reason: "DailyLimitExceeded" };
+  if (valueIn > available(state)) return { ok: false, reason: "DailyLimitExceeded" };
   if (trade.amountIn > sell.balance) return { ok: false, reason: "InsufficientBalance" };
   if (amountOut < minAmountOut) return { ok: false, reason: "InsufficientOutput" };
 
@@ -115,6 +116,18 @@ export function check(state: VaultState, trade: Trade, amountOut: bigint, minAmo
     }
   }
   return { ok: true, valueIn, valueOut };
+}
+
+/** Same as PilotVault._available: the budget refilled linearly over 24 hours, capped at the daily limit. */
+export function available(state: Pick<VaultState, "budgetUsd" | "budgetUpdatedAt" | "limits" | "now">) {
+  const cap = state.limits.dailyLimitUsd;
+  const refilled = state.budgetUsd + (cap * (state.now - state.budgetUpdatedAt)) / 86_400n;
+  return refilled > cap ? cap : refilled;
+}
+
+/** The state after a trade of `valueUsd` lands at `state.now`: what the vault records for the budget and cooldown. */
+export function afterSpend<T extends VaultState>(state: T, valueUsd: bigint): T {
+  return { ...state, budgetUsd: available(state) - valueUsd, budgetUpdatedAt: state.now, lastTradeAt: state.now };
 }
 
 export function eq(a: string, b: string) {

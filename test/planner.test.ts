@@ -62,7 +62,7 @@ describe("agent/planner", () => {
     await f.nvdaFeed.write.setPrice([px(250)]); // NVDA doubles
     const run = await fly(f);
     expect(run.hold).to.match(/limit is used up/);
-    expect(await f.vault.read.remainingToday() < usd(10)).to.equal(true);
+    expect(await f.vault.read.tradeBudget() < usd(10)).to.equal(true);
   });
 
   it("will not trade on stale prices or while paused", async () => {

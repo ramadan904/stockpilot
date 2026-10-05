@@ -12,13 +12,14 @@ import {
   type EIP1193Provider,
   type Hash,
   type WalletClient,
+  zeroAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { LISTINGS } from "../../agent/listings";
 import { toMandate } from "../../agent/mandate";
 import { readVault, sendTrade } from "../../agent/chain";
-import type { VaultState } from "../../agent/model";
+import { available, type VaultState } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import type { Draft } from "./App";
@@ -201,6 +202,7 @@ function universeOf(d: Deployment) {
 function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null; onCreated: (v: Address) => void }) {
   const [pilot, setPilot] = useState<string>(ctx.wallet.address);
   const [fund, setFund] = useState(10_000);
+  const [feePct, setFeePct] = useState(0);
   const { wallet, deployment, client, send, run } = ctx;
   const w = wallet.client;
 
@@ -215,7 +217,8 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
         address: deployment.factory,
         abi: pilotVaultFactoryAbi,
         functionName: "createVault",
-        args: [pilot as Address, deployment.marketMaker, mandate.assets, mandate.limits],
+        // A hosted pilot is paid by an annual fee to the pilot's address; 0 means none.
+        args: [pilot as Address, deployment.marketMaker, mandate.assets, mandate.limits, feePct > 0 ? (pilot as Address) : zeroAddress, Math.round(feePct * 100)],
       }),
     );
     const list = (await client.readContract({ address: deployment.factory, abi: pilotVaultFactoryAbi, functionName: "vaultsOf", args: [wallet.address] })) as Address[];
@@ -253,6 +256,10 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
           <p className="muted small">
             Use a separate key for the pilot in production. Using your own address here lets you run the pilot from this page.
           </p>
+          <label className="field" style={{ marginBottom: 10 }}>
+            Pilot fee (% a year, max 2; 0 if you run the pilot yourself)
+            <input type="number" min={0} max={2} step={0.05} value={feePct} onChange={(e) => setFeePct(Math.min(2, Math.max(0, Number(e.target.value))))} />
+          </label>
           <div className="row">
             <label className="field" style={{ width: 160 }}>
               Fund with (test USD)
@@ -274,17 +281,24 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   const { wallet, client, send, run, deployment } = ctx;
   const w = wallet.client;
   const [state, setState] = useState<VaultState | null>(null);
-  const [roles, setRoles] = useState<{ owner: Address; pilot: Address } | null>(null);
+  const [roles, setRoles] = useState<{ owner: Address; pilot: Address; feeBps: number; feeRecipient: Address } | null>(null);
   const [events, setEvents] = useState<TradeEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newPilot, setNewPilot] = useState("");
 
   useEffect(() => {
     (async () => {
-      const read = (functionName: "owner" | "pilot") => client.readContract({ address: vault, abi: pilotVaultAbi, functionName }) as Promise<Address>;
-      const [s, owner, pilot] = await Promise.all([readVault(client, pilotVaultAbi as Abi, vault), read("owner"), read("pilot")]);
+      const read = <T,>(functionName: "owner" | "pilot" | "feeBps" | "feeRecipient") =>
+        client.readContract({ address: vault, abi: pilotVaultAbi, functionName }) as Promise<T>;
+      const [s, owner, pilot, feeBps, feeRecipient] = await Promise.all([
+        readVault(client, pilotVaultAbi as Abi, vault),
+        read<Address>("owner"),
+        read<Address>("pilot"),
+        read<number>("feeBps"),
+        read<Address>("feeRecipient"),
+      ]);
       setState(s);
-      setRoles({ owner, pilot });
+      setRoles({ owner, pilot, feeBps: Number(feeBps), feeRecipient });
       const head = await client.getBlockNumber();
       const logs = await client.getContractEvents({
         address: vault,
@@ -323,12 +337,16 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
             <div className="value">{usd(totalUsd(state.assets))}</div>
           </div>
           <div className="stat">
-            <div className="label">Pilot can trade today</div>
-            <div className="value">{usd(state.remainingToday, false)}</div>
+            <div className="label">Pilot can trade now (24h budget)</div>
+            <div className="value">{usd(available(state), false)}</div>
           </div>
           <div className="stat">
             <div className="label">Your role</div>
             <div className="value" style={{ fontSize: 16 }}>{[isOwner && "Owner", isPilot && "Pilot"].filter(Boolean).join(" + ") || "Viewer"}</div>
+          </div>
+          <div className="stat">
+            <div className="label">Pilot fee</div>
+            <div className="value" style={{ fontSize: 16 }}>{roles.feeBps === 0 ? "None" : `${(roles.feeBps / 100).toFixed(2)}% a year`}</div>
           </div>
         </div>
         <div className="table-scroll">
@@ -370,6 +388,11 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
                   Apply drafted mandate
                 </button>
               )}
+              {roles.feeBps > 0 && (
+                <button className="btn" onClick={run(() => call("Cancel pilot fee", "setFee", [zeroAddress, 0]))}>
+                  Cancel fee
+                </button>
+              )}
               <button
                 className="btn danger"
                 onClick={run(async () => {
@@ -387,7 +410,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
             <button className="btn" disabled={!isAddress(newPilot)} onClick={run(() => call("Set pilot", "setPilot", [newPilot]))}>
               Set pilot
             </button>
-            <button className="btn danger" onClick={run(() => call("Revoke pilot", "setPilot", ["0x0000000000000000000000000000000000000000"]))}>
+            <button className="btn danger" onClick={run(() => call("Revoke pilot", "setPilot", [zeroAddress]))}>
               Revoke
             </button>
           </div>

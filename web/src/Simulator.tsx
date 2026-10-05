@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Mandate } from "../../agent/mandate";
-import { amountFor, type AssetState, type Trade } from "../../agent/model";
+import { amountFor, available, type AssetState, type Trade } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { advance, createSim, hashOf, isStable, movePrice, randomDay, rebalance, vaultState, type Sim } from "./sim";
 import { Card, HoldingsTable, totalUsd, usd, valueUsd } from "./ui";
@@ -95,7 +95,7 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
           <div className="stats">
             <Stat label="Portfolio value" value={usd(total)} />
             <Stat label="Since start" value={`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} tone={change >= 0 ? "up" : "down"} />
-            <Stat label="Pilot can still trade today" value={usd(state.remainingToday, false)} />
+            <Stat label="Pilot can trade now (24h budget)" value={usd(available(state), false)} />
             <Stat label="Vault" value={sim.paused ? "Paused" : sim.marketClosed ? "Market closed" : "Active"} />
           </div>
           <div className="table-scroll">
@@ -262,7 +262,7 @@ function buildAttacks(sim: Sim): Attack[] {
     {
       name: "Accept a terrible fill",
       desc: "Trade through a venue paying 5% under the oracle price, e.g. to a colluding market maker.",
-      run: (s) => tryTrade({ ...ready(s), feeBps: 500 }, { tokenIn: source.token, tokenOut: hottest.token, amountIn: chunk(source, s.limits.maxTradeUsd / 10n) }),
+      run: (s) => tryTrade({ ...ready(s), venueFeeBps: 500 }, { tokenIn: source.token, tokenOut: hottest.token, amountIn: chunk(source, s.limits.maxTradeUsd / 10n) }),
     },
     {
       name: "Trade on a stale price",

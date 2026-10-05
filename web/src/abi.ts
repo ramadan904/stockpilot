@@ -76,6 +76,16 @@ export const pilotVaultAbi = [
         "internalType": "struct PilotVault.Limits",
         "name": "limits_",
         "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "feeRecipient_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "feeBps_",
+        "type": "uint16"
       }
     ],
     "stateMutability": "nonpayable",
@@ -134,12 +144,12 @@ export const pilotVaultAbi = [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "wouldSpendUsd",
+        "name": "valueUsd",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "dailyLimitUsd",
+        "name": "availableUsd",
         "type": "uint256"
       }
     ],
@@ -170,6 +180,11 @@ export const pilotVaultAbi = [
   {
     "inputs": [],
     "name": "ExpectedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "FeeTooHigh",
     "type": "error"
   },
   {
@@ -414,6 +429,50 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "Deposited",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "FeeCollected",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "feeBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "FeeSet",
     "type": "event"
   },
   {
@@ -669,6 +728,19 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "MAX_FEE_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_SLIPPAGE_BPS",
     "outputs": [
       {
@@ -746,7 +818,7 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "currentDay",
+    "name": "budgetUpdatedAt",
     "outputs": [
       {
         "internalType": "uint64",
@@ -755,6 +827,26 @@ export const pilotVaultAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "budgetUsd",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "collectFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -773,6 +865,58 @@ export const pilotVaultAbi = [
     "name": "deposit",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeAccruedAt",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeOwed",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "owed",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeRecipient",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -999,19 +1143,6 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "remainingToday",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "pure",
@@ -1026,6 +1157,24 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "setAdapter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "bps",
+        "type": "uint16"
+      }
+    ],
+    "name": "setFee",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1112,12 +1261,12 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "spentToday",
+    "name": "tokens",
     "outputs": [
       {
-        "internalType": "uint128",
+        "internalType": "address[]",
         "name": "",
-        "type": "uint128"
+        "type": "address[]"
       }
     ],
     "stateMutability": "view",
@@ -1125,12 +1274,12 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
-    "name": "tokens",
+    "name": "tradeBudget",
     "outputs": [
       {
-        "internalType": "address[]",
+        "internalType": "uint256",
         "name": "",
-        "type": "address[]"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1283,6 +1432,16 @@ export const pilotVaultFactoryAbi = [
         "internalType": "struct PilotVault.Limits",
         "name": "limits",
         "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "feeRecipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "feeBps",
+        "type": "uint16"
       }
     ],
     "name": "createVault",

@@ -5,7 +5,7 @@
 
 import hre from "hardhat";
 import { readFileSync } from "node:fs";
-import { parseUnits, type Address } from "viem";
+import { parseUnits, zeroAddress, type Address } from "viem";
 import { fmtUsd } from "../agent/planner";
 import { propose } from "../agent/strategist";
 import { LISTINGS, universeOf, type Stack } from "./lib/stack";
@@ -24,7 +24,7 @@ async function main() {
 
   const factory = await hre.viem.getContractAt("PilotVaultFactory", stack.factory as Address);
   await client.waitForTransactionReceipt({
-    hash: await factory.write.createVault([pilot, stack.marketMaker as Address, strategy.mandate.assets, strategy.mandate.limits]),
+    hash: await factory.write.createVault([pilot, stack.marketMaker as Address, strategy.mandate.assets, strategy.mandate.limits, zeroAddress, 0]),
   });
   const vaults = await factory.read.vaultsOf([owner.account.address]);
   const vault = await hre.viem.getContractAt("PilotVault", vaults[vaults.length - 1]);

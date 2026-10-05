@@ -24,11 +24,12 @@ export async function readVault(client: Reader, vaultAbi: Abi, vault: Address): 
     targetBps: number;
     bandBps: number;
   };
-  const [[holdings], limits, lastTradeAt, remainingToday, paused, block] = await Promise.all([
+  const [[holdings], limits, lastTradeAt, budgetUsd, budgetUpdatedAt, paused, block] = await Promise.all([
     read<readonly [Holding[], bigint]>("portfolio"),
     read<readonly [bigint, bigint, number, number, number]>("limits"),
     read<bigint>("lastTradeAt"),
-    read<bigint>("remainingToday"),
+    read<bigint>("budgetUsd"),
+    read<bigint>("budgetUpdatedAt"),
     read<boolean>("paused"),
     client.getBlock(),
   ]);
@@ -63,7 +64,8 @@ export async function readVault(client: Reader, vaultAbi: Abi, vault: Address): 
       cooldown: Number(limits[4]),
     },
     lastTradeAt,
-    remainingToday,
+    budgetUsd,
+    budgetUpdatedAt,
     paused,
     now: block.timestamp,
   };

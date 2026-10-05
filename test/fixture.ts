@@ -1,5 +1,5 @@
 import hre from "hardhat";
-import { parseUnits, type Address } from "viem";
+import { parseUnits, zeroAddress, type Address } from "viem";
 
 export const usd = (n: number | string) => parseUnits(String(n), 18);
 export const px = (n: number | string) => parseUnits(String(n), 8);
@@ -52,7 +52,7 @@ export async function deployStockPilot() {
     { token: nvda.address, feed: nvdaFeed.address, targetBps: 2500, bandBps: 500 },
   ];
 
-  const hash = await factory.write.createVault([pilot.account.address, mm.address, mandate, DEFAULT_LIMITS]);
+  const hash = await factory.write.createVault([pilot.account.address, mm.address, mandate, DEFAULT_LIMITS, zeroAddress, 0]);
   await publicClient.waitForTransactionReceipt({ hash });
   const [vaultAddress] = await factory.read.vaultsOf([owner.account.address]);
   const vault = await hre.viem.getContractAt("PilotVault", vaultAddress);

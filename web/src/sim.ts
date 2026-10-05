@@ -5,18 +5,18 @@
 import { keccak256, toHex, zeroAddress, type Address } from "viem";
 import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
-import { BPS, WAD, amountFor, check, valueOf, type AssetState, type Trade, type VaultState, type Verdict } from "../../agent/model";
+import { BPS, WAD, afterSpend, amountFor, check, valueOf, type AssetState, type Trade, type VaultState, type Verdict } from "../../agent/model";
 
 export interface Sim {
   assets: AssetState[];
   limits: Mandate["limits"];
   now: bigint;
   lastTradeAt: bigint;
-  day: bigint;
-  spentToday: bigint;
+  budgetUsd: bigint;
+  budgetUpdatedAt: bigint;
   paused: boolean;
   /** Venue fee in bps; raise it to simulate a bad fill. */
-  feeBps: number;
+  venueFeeBps: number;
   /** While closed, stock feeds stop updating and go stale. */
   marketClosed: boolean;
 }
@@ -41,18 +41,27 @@ export function createSim(mandate: Mandate, usd: number): Sim {
       bandBps: target.bandBps,
     };
   });
-  return { assets, limits: mandate.limits, now, lastTradeAt: 0n, day: now / 86_400n, spentToday: 0n, paused: false, feeBps: 10, marketClosed: false };
+  return {
+    assets,
+    limits: mandate.limits,
+    now,
+    lastTradeAt: 0n,
+    budgetUsd: mandate.limits.dailyLimitUsd,
+    budgetUpdatedAt: now,
+    paused: false,
+    venueFeeBps: 10,
+    marketClosed: false,
+  };
 }
 
 export function vaultState(sim: Sim): VaultState {
-  const spent = sim.now / 86_400n === sim.day ? sim.spentToday : 0n;
-  const cap = sim.limits.dailyLimitUsd;
   return {
     address: zeroAddress,
     assets: sim.assets,
     limits: sim.limits,
     lastTradeAt: sim.lastTradeAt,
-    remainingToday: spent >= cap ? 0n : cap - spent,
+    budgetUsd: sim.budgetUsd,
+    budgetUpdatedAt: sim.budgetUpdatedAt,
     paused: sim.paused,
     now: sim.now,
   };
@@ -92,7 +101,7 @@ export function quote(sim: Sim, trade: Trade) {
   const sell = sim.assets.find((a) => a.token === trade.tokenIn)!;
   const buy = sim.assets.find((a) => a.token === trade.tokenOut)!;
   const valueIn = valueOf(trade.amountIn, sell.price, sell.decimals);
-  return amountFor((valueIn * (BPS - BigInt(sim.feeBps))) / BPS, buy.price, buy.decimals);
+  return amountFor((valueIn * (BPS - BigInt(sim.venueFeeBps))) / BPS, buy.price, buy.decimals);
 }
 
 /** Submit a trade to the simulated vault: it runs only if the vault's rules accept it. */
@@ -100,15 +109,14 @@ export function rebalance(sim: Sim, trade: Trade, minAmountOut = 0n): { sim: Sim
   const amountOut = quote(sim, trade);
   const verdict = check(vaultState(sim), trade, amountOut, minAmountOut);
   if (!verdict.ok) return { sim, verdict, amountOut };
-  const today = sim.now / 86_400n;
-  const spent = today === sim.day ? sim.spentToday : 0n;
+  const spent = afterSpend(vaultState(sim), verdict.valueIn);
   return {
     verdict,
     amountOut,
     sim: {
       ...sim,
-      day: today,
-      spentToday: spent + verdict.valueIn,
+      budgetUsd: spent.budgetUsd,
+      budgetUpdatedAt: spent.budgetUpdatedAt,
       lastTradeAt: sim.now,
       assets: sim.assets.map((a) =>
         a.token === trade.tokenIn

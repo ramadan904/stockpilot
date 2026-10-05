@@ -1,6 +1,6 @@
 import hre from "hardhat";
 import { expect } from "chai";
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { parseUnits } from "viem";
 import { readVault } from "../agent/chain";
 import { check } from "../agent/model";
@@ -26,9 +26,25 @@ describe("agent/model matches PilotVault", () => {
     return f;
   }
 
-  for (const seed of [1, 2, 3]) {
-    it(`agrees on 120 random trades (seed ${seed})`, async () => {
-      const f = await loadFixture(fixture);
+  /** Tight budget and a cooldown, with the clock jumping around: exercises the rolling budget, cooldown and staleness. */
+  async function timeFixture() {
+    const f = await deployStockPilot();
+    await f.vault.write.setMandate([
+      f.mandate.map((m) => ({ ...m, bandBps: 2000 })),
+      { maxTradeUsd: usd(3_000), dailyLimitUsd: usd(2_500), maxSlippageBps: 80, maxPriceAge: 3_600, cooldown: 120 },
+    ]);
+    return f;
+  }
+
+  for (const [seed, fx, label] of [
+    [1, fixture, "band and slippage"],
+    [2, fixture, "band and slippage"],
+    [3, fixture, "band and slippage"],
+    [4, timeFixture, "budget, cooldown and stale prices"],
+    [5, timeFixture, "budget, cooldown and stale prices"],
+  ] as const) {
+    it(`agrees on 120 random trades: ${label} (seed ${seed})`, async () => {
+      const f = await loadFixture(fx);
       const rand = rng(seed);
       const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
       const stocks = [
@@ -45,6 +61,11 @@ describe("agent/model matches PilotVault", () => {
           await feed.write.setPrice([px((base * (0.6 + rand() * 0.8)).toFixed(4))]);
         }
         if (rand() < 0.15) await f.mm.write.setFee([BigInt(Math.floor(rand() * 120))]);
+        if (fx === timeFixture && rand() < 0.35) {
+          await time.increase(Math.floor(rand() * 5_400));
+          // Usually the market is open and feeds keep updating; sometimes they go stale.
+          if (rand() < 0.8) for (const [feed] of stocks) await feed.write.setPrice([(await feed.read.latestRoundData())[1]]);
+        }
 
         const tokenIn = pick(tokens);
         let tokenOut = pick(tokens);
@@ -56,7 +77,8 @@ describe("agent/model matches PilotVault", () => {
         if (amountIn === 0n) continue;
 
         const state = await readVault(f.publicClient, f.vault.abi, f.vault.address);
-        state.now += 1n; // the trade lands in the next block
+        state.now += 1n; // the trade lands in the next block, at exactly this time
+        await time.setNextBlockTimestamp(state.now);
         const amountOut = await f.mm.read.quote([tokenIn.address, tokenOut.address, amountIn]);
         const verdict = check(state, { tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn }, amountOut);
 
@@ -74,7 +96,8 @@ describe("agent/model matches PilotVault", () => {
 
       // Make sure the run exercised both sides of the rules, not just one.
       expect(outcomes.accepted ?? 0).to.be.greaterThan(10);
-      expect(outcomes.OutsideBand ?? 0).to.be.greaterThan(5);
+      if (fx === fixture) expect(outcomes.OutsideBand ?? 0).to.be.greaterThan(5);
+      else for (const r of ["DailyLimitExceeded", "CooldownActive", "StalePrice"]) expect(outcomes[r] ?? 0, r).to.be.greaterThan(0);
     });
   }
 

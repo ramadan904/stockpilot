@@ -48,6 +48,8 @@ async function main() {
       stack.marketMaker as Address,
       strategy.mandate.assets,
       strategy.mandate.limits,
+      pilotWallet.account.address, // the hosted pilot is paid
+      50, // 0.5% a year, taken pro-rata
     ]),
   });
   const [vaultAddress] = await factory.read.vaultsOf([owner.account.address]);

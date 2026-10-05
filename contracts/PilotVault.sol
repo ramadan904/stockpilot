@@ -20,7 +20,8 @@ import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
 /// The pilot can only call `rebalance`, and every trade must pass these checks against oracle prices:
 ///
 /// 1. Both assets are in the mandate, and the venue is the one the owner chose.
-/// 2. The trade is no bigger than `maxTradeUsd`, and today's traded volume stays under `dailyLimitUsd`.
+/// 2. The trade is no bigger than `maxTradeUsd`, and fits the trade budget: up to `dailyLimitUsd`, refilling
+///    continuously over 24 hours, so there is no midnight reset to burst through.
 /// 3. At least `cooldown` seconds have passed since the previous trade.
 /// 4. Every price used is younger than `maxPriceAge`.
 /// 5. What came back is worth at least `(1 - maxSlippageBps)` of what went out, at oracle prices.
@@ -29,6 +30,9 @@ import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
 ///
 /// Rule 6 is what turns an agent with trading rights into a pilot with a mandate: it may tilt the portfolio within
 /// the bands, and it may always move an asset back toward its target, but it can never concentrate the portfolio.
+///
+/// A hosted pilot is paid by an optional management fee: at most 2% a year, taken pro-rata from every asset so it
+/// never moves the weights, never accruing while the vault is paused, and cancellable by the owner at any time.
 contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -36,6 +40,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant MAX_ASSETS = 8;
     /// @notice Hard ceiling on the slippage an owner may allow, so a typo cannot hand the pilot a blank cheque.
     uint256 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Hard ceiling on the annual management fee: 2%.
+    uint256 public constant MAX_FEE_BPS = 200;
+    uint256 private constant YEAR = 365 days;
     uint256 private constant WAD = 1e18;
 
     /// @notice One asset of the mandate, as the owner passes it in.
@@ -96,14 +103,21 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public mandateVersion;
 
     uint64 public lastTradeAt;
-    uint64 public currentDay;
-    uint128 public spentToday;
+    /// @notice Trade budget (USD, 18 decimals) as of `budgetUpdatedAt`; see `tradeBudget()` for the live figure.
+    uint128 public budgetUsd;
+    uint64 public budgetUpdatedAt;
+
+    address public feeRecipient;
+    uint16 public feeBps;
+    uint64 public feeAccruedAt;
 
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
     event Deposited(address indexed from, address indexed token, uint256 amount);
     event Withdrawn(address indexed to, address indexed token, uint256 amount);
+    event FeeSet(address indexed recipient, uint256 feeBps);
+    event FeeCollected(address indexed recipient, address indexed token, uint256 amount);
     /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
     event Rebalanced(
         address indexed tokenIn,
@@ -132,7 +146,8 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     error ZeroAmount();
     error CooldownActive(uint256 nextTradeAt);
     error TradeTooLarge(uint256 valueUsd, uint256 maxTradeUsd);
-    error DailyLimitExceeded(uint256 wouldSpendUsd, uint256 dailyLimitUsd);
+    error DailyLimitExceeded(uint256 valueUsd, uint256 availableUsd);
+    error FeeTooHigh();
     error InvalidPrice(address feed);
     error StalePrice(address feed, uint256 updatedAt);
     error AdapterOverspent(uint256 spent, uint256 amountIn);
@@ -151,13 +166,17 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         address pilot_,
         address adapter_,
         AssetConfig[] memory assets_,
-        Limits memory limits_
+        Limits memory limits_,
+        address feeRecipient_,
+        uint16 feeBps_
     ) Ownable(owner_) {
         pilot = pilot_;
         adapter = adapter_;
         emit PilotSet(pilot_);
         emit AdapterSet(adapter_);
         _setMandate(assets_, limits_);
+        feeAccruedAt = uint64(block.timestamp);
+        _setFee(feeRecipient_, feeBps_);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -166,8 +185,15 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Replace the whole mandate. Tokens dropped from it stay in the vault, unpriced and untradeable by the
     /// pilot, until the owner withdraws them or lists them again.
-    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external onlyOwner {
+    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external onlyOwner nonReentrant {
+        _collectFee(); // settle on the old asset list
         _setMandate(assets_, limits_);
+    }
+
+    /// @notice Set or cancel the management fee. Fees accrued so far are paid at the old rate first.
+    function setFee(address recipient, uint16 bps) external onlyOwner nonReentrant {
+        _collectFee();
+        _setFee(recipient, bps);
     }
 
     /// @notice Set the agent allowed to trade. `address(0)` revokes it.
@@ -185,17 +211,21 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Withdraw any token, any time, paused or not.
     function withdraw(address token, uint256 amount, address to) external onlyOwner nonReentrant {
         if (to == address(0)) revert ZeroAddress();
+        _collectFee(); // pay what is owed before the balance shrinks
+        if (amount > IERC20(token).balanceOf(address(this))) amount = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransfer(to, amount);
         emit Withdrawn(to, token, amount);
     }
 
     /// @notice Stop the pilot. The owner or the pilot itself can pull this brake; only the owner can release it.
-    function pause() external {
+    function pause() external nonReentrant {
         if (msg.sender != owner() && msg.sender != pilot) revert NotOwnerOrPilot();
+        _collectFee(); // fees stop accruing from here
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyOwner nonReentrant {
+        _collectFee(); // restarts the fee clock without charging for the pause
         _unpause();
     }
 
@@ -207,6 +237,11 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     // ------------------------------------------------------------------------------------------------------------
     // Anyone
     // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Pay the management fee accrued so far. Anyone can call it; the fee only ever goes to `feeRecipient`.
+    function collectFee() external nonReentrant {
+        _collectFee();
+    }
 
     /// @notice Add funds. Plain transfers work too; this just records who sent what.
     function deposit(address token, uint256 amount) external nonReentrant {
@@ -282,11 +317,21 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         }
     }
 
-    /// @notice USD volume (18 decimals) the pilot can still trade today.
-    function remainingToday() external view returns (uint256) {
-        uint256 spent = block.timestamp / 1 days == currentDay ? spentToday : 0;
-        uint256 cap = limits.dailyLimitUsd;
-        return spent >= cap ? 0 : cap - spent;
+    /// @notice USD volume (18 decimals) the pilot can trade right now. Refills at `dailyLimitUsd` per 24 hours, up to
+    /// `dailyLimitUsd`.
+    function tradeBudget() external view returns (uint256) {
+        return _available(limits.dailyLimitUsd);
+    }
+
+    /// @notice Fee owed right now, per asset in mandate order, at current balances.
+    function feeOwed() external view returns (uint256[] memory owed) {
+        uint256 n = _tokens.length;
+        owed = new uint256[](n);
+        uint256 elapsed = block.timestamp - feeAccruedAt;
+        if (feeBps == 0 || paused()) return owed;
+        for (uint256 i; i < n; ++i) {
+            owed[i] = _feeOn(IERC20(_tokens[i]).balanceOf(address(this)), elapsed);
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -322,16 +367,53 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         }
         if (sum != BPS) revert TargetsMustSumTo100Percent(sum);
 
+        // The budget carries over (capped at the new limit), so re-mandating can't be used to reset it.
+        uint256 budget = mandateVersion == 0 ? lim.dailyLimitUsd : _available(limits.dailyLimitUsd);
+        budgetUsd = uint128(budget > lim.dailyLimitUsd ? lim.dailyLimitUsd : budget);
+        budgetUpdatedAt = uint64(block.timestamp);
         limits = lim;
         emit MandateSet(++mandateVersion, cfg, lim);
     }
 
+    function _available(uint256 cap) internal view returns (uint256) {
+        uint256 refilled = uint256(budgetUsd) + (cap * (block.timestamp - budgetUpdatedAt)) / 1 days;
+        return refilled > cap ? cap : refilled;
+    }
+
     function _spend(uint256 valueUsd, uint256 dailyLimit) internal {
-        uint64 today = uint64(block.timestamp / 1 days);
-        uint256 spent = today == currentDay ? spentToday : 0;
-        if (spent + valueUsd > dailyLimit) revert DailyLimitExceeded(spent + valueUsd, dailyLimit);
-        currentDay = today;
-        spentToday = uint128(spent + valueUsd);
+        uint256 available = _available(dailyLimit);
+        if (valueUsd > available) revert DailyLimitExceeded(valueUsd, available);
+        budgetUsd = uint128(available - valueUsd);
+        budgetUpdatedAt = uint64(block.timestamp);
+    }
+
+    function _setFee(address recipient, uint16 bps) internal {
+        if (bps > MAX_FEE_BPS) revert FeeTooHigh();
+        if (bps != 0 && recipient == address(0)) revert ZeroAddress();
+        feeRecipient = recipient;
+        feeBps = bps;
+        emit FeeSet(recipient, bps);
+    }
+
+    /// @dev Pays the fee accrued since `feeAccruedAt` in kind, the same fraction of every listed asset, so weights are
+    /// untouched. Nothing accrues while paused.
+    function _collectFee() internal {
+        uint256 elapsed = block.timestamp - feeAccruedAt;
+        feeAccruedAt = uint64(block.timestamp);
+        address recipient = feeRecipient;
+        if (feeBps == 0 || elapsed == 0 || paused()) return;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            IERC20 token = IERC20(_tokens[i]);
+            uint256 amount = _feeOn(token.balanceOf(address(this)), elapsed);
+            if (amount == 0) continue;
+            token.safeTransfer(recipient, amount);
+            emit FeeCollected(recipient, address(token), amount);
+        }
+    }
+
+    function _feeOn(uint256 balance, uint256 elapsed) internal view returns (uint256) {
+        return Math.mulDiv(balance, uint256(feeBps) * elapsed, BPS * YEAR);
     }
 
     function _checkCooldown() internal view {
