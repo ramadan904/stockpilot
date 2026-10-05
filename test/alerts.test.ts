@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { zeroAddress, type Address } from "viem";
-import { activeSubscriptions, deliverDigest, digestDue, digestText, routedNotifier, sendEmail, subscriptionMessage, verifySubscription, type Subscription, type UnsignedSubscription } from "../agent/alerts";
+import { activeSubscriptions, checkInReminder, deliverDigest, digestDue, digestText, routedNotifier, sendEmail, subscriptionMessage, verifySubscription, type Subscription, type UnsignedSubscription } from "../agent/alerts";
 import { handleSubscribe } from "../agent/api";
 import { basicReport } from "../agent/report";
 
@@ -102,6 +102,34 @@ describe("agent/alerts", () => {
       delete process.env.SUBSCRIPTION_SINK_URL;
     }
     void zeroAddress;
+  });
+});
+
+describe("inheritance check-in reminders", () => {
+  const DAY = 86_400;
+  const HEIR = "0x3333333333333333333333333333333333333333" as Address;
+  const status = (claimableAt: number, period = 90 * DAY) => ({ heir: HEIR, period, claimableAt });
+  const NOW = 1_800_000_000;
+
+  it("stays quiet without an heir and early in the period", () => {
+    expect(checkInReminder(VAULT, { heir: zeroAddress, period: 0, claimableAt: 0 }, NOW)).to.equal(null);
+    expect(checkInReminder(VAULT, status(NOW + 60 * DAY), NOW)).to.equal(null); // 30 of 90 days gone
+    expect(checkInReminder(VAULT, status(NOW + 23 * DAY), NOW)).to.equal(null); // just under three quarters
+  });
+
+  it("warns in the last quarter (or last week, if longer), at most once a day, and says how to stop it", () => {
+    const r = checkInReminder(VAULT, status(NOW + 20 * DAY), NOW)!;
+    expect(r.subject).to.equal("Check in: your StockPilot heir can claim your vault in 20 days");
+    expect(r.text).to.include(HEIR).and.include("I'm here").and.include("pilot's trades do not count");
+    expect(checkInReminder(VAULT, status(NOW + 20 * DAY), NOW, NOW - 3_600)).to.equal(null);
+    expect(checkInReminder(VAULT, status(NOW + 20 * DAY), NOW, NOW - DAY)).to.not.equal(null);
+    // A 30-day period: the last week, not just the last 7.5 days.
+    expect(checkInReminder(VAULT, status(NOW + 7 * DAY, 30 * DAY), NOW)!.subject).to.include("in 7 days");
+    expect(checkInReminder(VAULT, status(NOW + 1, 30 * DAY), NOW)!.subject).to.include("in 1 day");
+  });
+
+  it("says plainly when the heir can already claim", () => {
+    expect(checkInReminder(VAULT, status(NOW - 5), NOW)!.subject).to.equal("Your StockPilot heir can now claim your vault");
   });
 });
 

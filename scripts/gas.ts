@@ -73,6 +73,11 @@ async function main() {
       rows.push([`${n} assets`, "Unpause", await gas(await vault.write.unpause())]);
       rows.push([`${n} assets`, "Set pilot", await gas(await vault.write.setPilot([pilot.account.address]))]);
       rows.push([`${n} assets`, "Set or cancel fee", await gas(await vault.write.setFee([zeroAddress, 0]))]);
+      rows.push([`${n} assets`, "Name an heir", await gas(await vault.write.setHeir([recipient.account.address, 90 * 86_400]))]);
+      rows.push([`${n} assets`, "Check in (proof of life)", await gas(await vault.write.checkIn())]);
+      await hre.network.provider.send("evm_increaseTime", [90 * 86_400]);
+      const asHeir = await hre.viem.getContractAt("PilotVault", vault.address, { client: { wallet: recipient } });
+      rows.push([`${n} assets`, "Heir claims the vault", await gas(await asHeir.write.claimInheritance())]);
     }
   }
 

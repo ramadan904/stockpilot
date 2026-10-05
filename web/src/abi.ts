@@ -108,6 +108,11 @@ export const pilotVaultAbi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "InactivityOutOfRange",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -124,6 +129,11 @@ export const pilotVaultAbi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "InvalidHeir",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -137,6 +147,11 @@ export const pilotVaultAbi = [
   {
     "inputs": [],
     "name": "NoAdapter",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotHeir",
     "type": "error"
   },
   {
@@ -190,6 +205,17 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "claimableAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "OwnerStillActive",
     "type": "error"
   },
   {
@@ -400,6 +426,44 @@ export const pilotVaultAbi = [
     "inputs": [
       {
         "indexed": true,
+        "internalType": "address",
+        "name": "heir",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "inactivityPeriod",
+        "type": "uint32"
+      }
+    ],
+    "name": "HeirSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "heir",
+        "type": "address"
+      }
+    ],
+    "name": "InheritanceClaimed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "uint256",
         "name": "version",
         "type": "uint256"
@@ -467,6 +531,12 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "MandateSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [],
+    "name": "OwnerCheckedIn",
     "type": "event"
   },
   {
@@ -661,7 +731,33 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "MAX_INACTIVITY",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_SLIPPAGE_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_INACTIVITY",
     "outputs": [
       {
         "internalType": "uint256",
@@ -764,6 +860,20 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "checkIn",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "claimInheritance",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "collectFee",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -834,6 +944,45 @@ export const pilotVaultAbi = [
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "heir",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "inactivityPeriod",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "inheritanceClaimableAt",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -929,6 +1078,19 @@ export const pilotVaultAbi = [
     "name": "initialize",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastOwnerActivity",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -1187,6 +1349,24 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "setFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "heir_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint32",
+        "name": "period",
+        "type": "uint32"
+      }
+    ],
+    "name": "setHeir",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

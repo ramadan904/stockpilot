@@ -12,12 +12,13 @@
 //
 // Owner alerts: SUBSCRIPTIONS points at a JSON array of subscriptions signed by vault owners (the web app produces
 // them; see agent/alerts.ts). Each owner gets their vault's trades and errors, and a daily digest if they asked.
+// Owners who named an heir are reminded to check in before the heir can claim.
 // Email goes through Resend when RESEND_API_KEY is set (ALERT_FROM sets the sender); webhooks need nothing.
 
 import hre from "hardhat";
 import { existsSync, readFileSync } from "node:fs";
 import type { Address } from "viem";
-import { activeSubscriptions, deliverDigest, digestDue, routedNotifier, type EmailConfig, type Subscription } from "./alerts";
+import { activeSubscriptions, checkInReminder, deliverDigest, deliverReminder, digestDue, routedNotifier, type EmailConfig, type Subscription } from "./alerts";
 import { digestFacts } from "./digest";
 import { collectFees, describe, fleetTick, webhookNotifier, type FleetConfig, type FleetEvent } from "./fleet";
 import { writeReport } from "./reporter";
@@ -47,6 +48,7 @@ async function main() {
   const owners = routedNotifier(() => subs, email);
   const digestSent = new Map<string, number>();
   const digestFrom = new Map<string, bigint>();
+  const reminded = new Map<string, number>();
 
   const cfg: FleetConfig = {
     client: client as never,
@@ -108,6 +110,18 @@ async function main() {
         digestFrom.set(sub.vault.toLowerCase(), upTo + 1n);
         count(state, "digest");
         console.log(`  digest sent for ${sub.vault}: ${report.headline}`);
+      }
+      // Inheritance: remind subscribed owners to check in before their heir can claim.
+      for (const sub of subs.values()) {
+        const v = sub.vault as Address;
+        const read = (functionName: "heir" | "inactivityPeriod" | "inheritanceClaimableAt") => client.readContract({ address: v, abi: vaultAbi, functionName });
+        const [heir, period, claimableAt] = (await Promise.all([read("heir"), read("inactivityPeriod"), read("inheritanceClaimableAt")])) as [Address, number, bigint];
+        const r = checkInReminder(v, { heir, period: Number(period), claimableAt: Number(claimableAt) }, now, reminded.get(v.toLowerCase()));
+        if (!r) continue;
+        await deliverReminder(sub, r, email);
+        reminded.set(v.toLowerCase(), now);
+        count(state, "check_in_reminder");
+        console.log(`  check-in reminder for ${v}: ${r.subject}`);
       }
     },
   });

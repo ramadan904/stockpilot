@@ -9,6 +9,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 |---|---|---|
 | **Owner** (the user) | Withdraw anything at any time (paused or not), set or replace the mandate, set the pilot and the venue, set or cancel the fee, pause and unpause, transfer ownership in two steps | Renounce ownership (it would lock funds) |
 | **Pilot** (an agent or the hosted fleet) | Call `rebalance` within the mandate; pause (an emergency brake) | Withdraw, change the mandate, venue, pilot or fee, unpause |
+| **Heir** (optional, named by the owner) | Take ownership after the owner has done nothing with the vault for the whole inactivity period (30 days to 10 years) | Anything before then; anything at all once the owner acts, renames or removes the heir, or hands the vault to someone else |
 | **Fee recipient** | Receive the fee, at most 2% a year | Anything else |
 | **Anyone** | Deposit; trigger `collectFee` (which only ever pays the fee recipient) | Anything else |
 | **Venue adapter** (chosen by the owner) | Swap the exact amount the vault approves for one trade | Move anything else; its claims about output are ignored |
@@ -17,7 +18,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 
 | Threat | Mitigation | Where it is tested |
 |---|---|---|
-| A compromised or confused pilot drains the vault | The pilot can only call `rebalance`; every trade is checked against the mandate at oracle prices; custody functions are owner-only | `test/PilotVault.test.ts` (custody), `test/invariants.test.ts` (pilot never paid, over 450 random actions) |
+| A compromised or confused pilot drains the vault | The pilot can only call `rebalance`; every trade is checked against the mandate at oracle prices; custody functions are owner-only | `test/PilotVault.test.ts` (custody), `test/invariants.test.ts` (pilot never paid, over 600 random actions) |
 | The pilot concentrates the portfolio | Band rule: no asset may end outside its band unless the trade moved it toward target without crossing | `test/PilotVault.test.ts`, `test/model.test.ts` (600 random trades, exact agreement) |
 | Churn or bursts | Per-trade cap, a 24-hour budget that refills continuously (no midnight reset), cooldown | `test/PilotVault.test.ts`, `test/model.test.ts` |
 | Sandwiching, a colluding venue, a venue that lies | Output measured from the vault's own balances and valued at oracle prices; `maxSlippageBps` capped at 10%; approvals reset to zero after each trade | `HostileAdapter` tests, `test/adapters.test.ts` |
@@ -28,6 +29,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 | A pilot rewrites its own limits by re-mandating | Only the owner can set the mandate; the spent budget carries over a re-mandate | `test/PilotVault.test.ts` |
 | Someone redirects an owner's alerts | Subscriptions are signed messages; the fleet and `/api/subscribe` accept only signatures by the vault's current onchain owner, and edits after signing invalidate them | `test/alerts.test.ts` |
 | A pilot lies in the marketplace (a fake name, an inflated record) | `PilotRegistry` grants nothing: a vault trusts only the address its owner set, within the mandate. Names are self-described, so the web app shows each pilot's address and a track record computed from vault events and balances, never one the pilot reports; trades count only after the vault's latest `PilotSet` | `test/registry.test.ts` |
+| An heir takes the vault while the owner is alive and well | The heir can claim only after a full inactivity period (at least 30 days) with no owner action; every owner action restarts the clock, and the pilot's activity never does; the fleet emails and posts check-in reminders in the last quarter of the period; a change of owner clears the heir | `test/inheritance.test.ts`, `test/invariants.test.ts` (claims succeed exactly when allowed, over 600 random actions), `test/alerts.test.ts` |
 | A vault clone taken over by initialising it | Each vault is a minimal proxy created and initialised in one factory transaction; `initialize` runs once; the shared implementation is locked in its constructor and can never be initialised | `test/PilotVault.test.ts` (clones) |
 | Funds locked forever | `renounceOwnership` reverts; ownership moves in two steps; `withdraw` clamps to the balance | `test/PilotVault.test.ts`, `test/invariants.test.ts` (owner always withdraws everything) |
 
@@ -53,7 +55,7 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `unused-return` | The venue's returned `amountOut` and the feed's round ids are ignored | Deliberate: the vault never trusts the venue's claim, and round ids carry no information the vault uses. |
 | `incorrect-equality` | Comparisons with zero (`total == 0`, `amount == 0`, `feeBps == 0`) | Guards on exact zero, not on balances an attacker can nudge. |
 | `calls-loop` | Loops over listed tokens call `balanceOf`, feeds and transfers | Bounded at 8 assets chosen by the owner; fee collection tolerates a failing token. |
-| `timestamp` | Cooldown, budget, fee and staleness use `block.timestamp` | Intended; validator timestamp drift is seconds against windows of minutes to days. |
+| `timestamp` | Cooldown, budget, fee, staleness and the inheritance deadline use `block.timestamp` | Intended; validator timestamp drift is seconds against windows of minutes to days (30 days at least for inheritance). |
 | `missing-zero-check` | `setPilot(0)`, `setAdapter(0)`, and the same two in `initialize` | Zero is the documented way to revoke the pilot or stop trading, from creation onwards. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |

@@ -111,3 +111,42 @@ test("marketplace: list yourself as a pilot, then hire a listed pilot for a new 
   await expect(page.getByRole("radio", { name: /Patient rebalancer/ })).toContainText(/Flies [1-9]\d* vaults? worth/);
   expect(errors).toEqual([]);
 });
+
+test("inheritance: name an heir, go silent, and the heir takes over the vault", async ({ page }) => {
+  const errors = await pageErrors(page);
+  const HEIR = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // local dev account 2
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("button", { name: "Cash only" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  // Wait for the new vault to be funded and shown (earlier tests left other vaults on this account).
+  await expect(page.locator(".notice").filter({ hasText: "Deposit USDG: done." })).toBeVisible({ timeout: 60_000 });
+  const vaultAddress = await page.locator("[data-address]").first().getAttribute("data-address");
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Inheritance" }) });
+  await card.getByRole("button", { name: "Name an heir" }).click();
+  await card.getByLabel("Heir's address").fill(HEIR);
+  await card.getByLabel(/take over after this long/).selectOption("90");
+  await card.getByRole("button", { name: "Save heir" }).click();
+  await expect(card).toContainText("If the owner does nothing until", { timeout: 30_000 });
+  await expect(card).toContainText("(90 days)");
+
+  // Checking in restarts the clock; then the owner goes silent past the period.
+  await card.getByRole("button", { name: /Skip ahead/ }).click();
+  await expect(card.getByText("Heir can claim")).toBeVisible({ timeout: 30_000 });
+
+  // The heir opens the vault by address and claims it.
+  await page.getByRole("button", { name: "Switch to dev account 2" }).click();
+  await page.getByLabel("Vault address").fill(vaultAddress!);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(card).toContainText("You are the heir", { timeout: 30_000 });
+  await card.getByRole("button", { name: "Claim the vault" }).click();
+  await expect(page.locator(".stat").filter({ hasText: "Your role" })).toContainText("Owner", { timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Withdraw everything" })).toBeVisible();
+  const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
+  await expect(activity).toContainText("inherited the vault from");
+  expect(errors).toEqual([]);
+});

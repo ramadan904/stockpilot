@@ -132,3 +132,45 @@ export async function deliverDigest(sub: Subscription, report: Report, email: Em
     sub.email ? sendEmail(email, sub.email, `StockPilot daily: ${report.headline}`, text, fetchImpl) : null,
   ]);
 }
+
+export interface HeirStatus {
+  heir: Address;
+  /** Seconds of owner inactivity after which the heir may claim. */
+  period: number;
+  claimableAt: number;
+}
+
+/**
+ * Proof-of-life reminders, so an owner who is merely busy never loses the vault to their heir by accident. Nothing
+ * until three quarters of the period has passed (or the last 7 days, whichever is longer), then at most once a day.
+ */
+export function checkInReminder(vault: string, s: HeirStatus, now: number, lastSent?: number): { subject: string; text: string } | null {
+  if (/^0x0+$/.test(s.heir) || s.period === 0) return null;
+  const left = s.claimableAt - now;
+  if (left > Math.max(7 * 86_400, s.period / 4)) return null;
+  if (lastSent !== undefined && now - lastSent < 86_400) return null;
+  const when = new Date(s.claimableAt * 1000).toUTCString();
+  if (left <= 0)
+    return {
+      subject: "Your StockPilot heir can now claim your vault",
+      text: [
+        `Vault ${vault} has had no action from its owner for ${Math.round(s.period / 86_400)} days, so its heir ${s.heir} can take it over now.`,
+        "If you still hold the owner key, any action (or the \"I'm here\" button) stops this until the period runs out again.",
+      ].join("\n\n"),
+    };
+  const days = Math.ceil(left / 86_400);
+  return {
+    subject: `Check in: your StockPilot heir can claim your vault in ${days} day${days === 1 ? "" : "s"}`,
+    text: [
+      `Vault ${vault} names ${s.heir} as its heir. If you do nothing with the vault until ${when}, they can take it over.`,
+      "If all is well, open the vault and press \"I'm here\", or make any change: either restarts the clock. Your pilot's trades do not count; only you can.",
+    ].join("\n\n"),
+  };
+}
+
+export async function deliverReminder(sub: Subscription, reminder: { subject: string; text: string }, email: EmailConfig, fetchImpl: Fetch = fetch) {
+  await Promise.all([
+    sub.webhook ? postWebhook(sub.webhook, `${reminder.subject}\n\n${reminder.text}`, { kind: "check-in", vault: sub.vault }, fetchImpl) : null,
+    sub.email ? sendEmail(email, sub.email, reminder.subject, reminder.text, fetchImpl) : null,
+  ]);
+}

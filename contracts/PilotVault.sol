@@ -33,6 +33,10 @@ import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
 ///
 /// A hosted pilot is paid by an optional management fee: at most 2% a year, taken pro-rata from every asset so it
 /// never moves the weights, never accruing while the vault is paused, and cancellable by the owner at any time.
+///
+/// Inheritance: the owner may name an heir and an inactivity period (30 days to 10 years). Every owner action resets
+/// the clock; if the owner does nothing for the whole period (lost keys, incapacity, death), the heir can take
+/// ownership. The portfolio keeps being managed in the meantime. Ownership changing hands clears the heir.
 contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -43,6 +47,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Hard ceiling on the annual management fee: 2%.
     uint256 public constant MAX_FEE_BPS = 200;
     uint256 private constant YEAR = 365 days;
+    /// @notice Bounds on the inactivity period before an heir can take over.
+    uint256 public constant MIN_INACTIVITY = 30 days;
+    uint256 public constant MAX_INACTIVITY = 3650 days;
     uint256 private constant WAD = 1e18;
 
     /// @notice One asset of the mandate, as the owner passes it in.
@@ -113,6 +120,12 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
     bool private _initialized;
 
+    /// @notice Who may take ownership after `inactivityPeriod` seconds without any action by the owner.
+    address public heir;
+    uint32 public inactivityPeriod;
+    /// @notice When the owner last did anything with the vault (or became its owner).
+    uint64 public lastOwnerActivity;
+
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
@@ -120,6 +133,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     event Withdrawn(address indexed to, address indexed token, uint256 amount);
     event FeeSet(address indexed recipient, uint256 feeBps);
     event FeeCollected(address indexed recipient, address indexed token, uint256 amount);
+    event HeirSet(address indexed heir, uint32 inactivityPeriod);
+    event OwnerCheckedIn();
+    event InheritanceClaimed(address indexed previousOwner, address indexed heir);
     /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
     event Rebalanced(
         address indexed tokenIn,
@@ -158,9 +174,20 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     error OutsideBand(address token, uint256 weightBeforeWad, uint256 weightAfterWad);
     error RenounceDisabled();
     error AlreadyInitialized();
+    error NotHeir();
+    error InvalidHeir();
+    error InactivityOutOfRange();
+    error OwnerStillActive(uint256 claimableAt);
 
     modifier onlyPilot() {
         if (msg.sender != pilot) revert NotPilot();
+        _;
+    }
+
+    /// @dev Owner-only, and proof of life for inheritance.
+    modifier ownerAction() {
+        _checkOwner();
+        lastOwnerActivity = uint64(block.timestamp);
         _;
     }
 
@@ -200,31 +227,31 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Replace the whole mandate. Tokens dropped from it stay in the vault, unpriced and untradeable by the
     /// pilot, until the owner withdraws them or lists them again.
-    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external onlyOwner nonReentrant {
+    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external ownerAction nonReentrant {
         _collectFee(); // settle on the old asset list
         _setMandate(assets_, limits_);
     }
 
     /// @notice Set or cancel the management fee. Fees accrued so far are paid at the old rate first.
-    function setFee(address recipient, uint16 bps) external onlyOwner nonReentrant {
+    function setFee(address recipient, uint16 bps) external ownerAction nonReentrant {
         _collectFee();
         _setFee(recipient, bps);
     }
 
     /// @notice Set the agent allowed to trade. `address(0)` revokes it.
-    function setPilot(address pilot_) external onlyOwner {
+    function setPilot(address pilot_) external ownerAction {
         pilot = pilot_;
         emit PilotSet(pilot_);
     }
 
     /// @notice Set the venue the pilot trades through. `address(0)` stops all trading.
-    function setAdapter(address adapter_) external onlyOwner {
+    function setAdapter(address adapter_) external ownerAction {
         adapter = adapter_;
         emit AdapterSet(adapter_);
     }
 
     /// @notice Withdraw any token, any time, paused or not.
-    function withdraw(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+    function withdraw(address token, uint256 amount, address to) external ownerAction nonReentrant {
         if (to == address(0)) revert ZeroAddress();
         _collectFee(); // pay what is owed before the balance shrinks
         if (amount > IERC20(token).balanceOf(address(this))) amount = IERC20(token).balanceOf(address(this));
@@ -235,11 +262,12 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Stop the pilot. The owner or the pilot itself can pull this brake; only the owner can release it.
     function pause() external nonReentrant {
         if (msg.sender != owner() && msg.sender != pilot) revert NotOwnerOrPilot();
+        if (msg.sender == owner()) lastOwnerActivity = uint64(block.timestamp);
         _collectFee(); // fees stop accruing from here
         _pause();
     }
 
-    function unpause() external onlyOwner nonReentrant {
+    function unpause() external ownerAction nonReentrant {
         _collectFee(); // restarts the fee clock without charging for the pause
         _unpause();
     }
@@ -247,6 +275,63 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @dev Renouncing would lock the funds in the vault forever.
     function renounceOwnership() public pure override {
         revert RenounceDisabled();
+    }
+
+    /// @notice Start handing the vault to `newOwner` (who must accept). Counts as owner activity.
+    function transferOwnership(address newOwner) public override ownerAction {
+        super.transferOwnership(newOwner);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Inheritance
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Name an heir who may take ownership after `period` seconds without any owner action, or clear it with
+    /// `address(0)`. The clock restarts now.
+    function setHeir(address heir_, uint32 period) external ownerAction {
+        if (heir_ == address(0)) {
+            period = 0;
+        } else {
+            if (heir_ == owner()) revert InvalidHeir();
+            if (period < MIN_INACTIVITY || period > MAX_INACTIVITY) revert InactivityOutOfRange();
+        }
+        heir = heir_;
+        inactivityPeriod = period;
+        emit HeirSet(heir_, period);
+    }
+
+    /// @notice Proof of life: restarts the inactivity clock without changing anything else.
+    function checkIn() external ownerAction {
+        emit OwnerCheckedIn();
+    }
+
+    /// @notice The heir takes ownership once the owner has been inactive for the whole period. The pilot, mandate and
+    /// fee stay as they were; the new owner can change any of them, or withdraw everything.
+    function claimInheritance() external {
+        address h = heir;
+        if (h == address(0) || msg.sender != h) revert NotHeir();
+        uint256 at = inheritanceClaimableAt();
+        if (block.timestamp < at) revert OwnerStillActive(at);
+        address previous = owner();
+        _transferOwnership(h);
+        emit InheritanceClaimed(previous, h);
+    }
+
+    /// @notice When the heir may claim, if the owner does nothing until then; 0 without an heir.
+    function inheritanceClaimableAt() public view returns (uint256) {
+        return heir == address(0) ? 0 : uint256(lastOwnerActivity) + inactivityPeriod;
+    }
+
+    /// @dev Every change of owner (creation, a two-step transfer, an inheritance) restarts the clock and clears the
+    /// heir: the previous owner's choice of heir is not the new owner's.
+    function _transferOwnership(address newOwner) internal override {
+        super._transferOwnership(newOwner);
+        lastOwnerActivity = uint64(block.timestamp);
+        if (heir != address(0)) {
+            heir = address(0);
+            inactivityPeriod = 0;
+            emit HeirSet(address(0), 0);
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -261,6 +346,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Add funds. Plain transfers work too, but skip the fee settlement below, so prefer this.
     function deposit(address token, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
+        if (msg.sender == owner()) lastOwnerActivity = uint64(block.timestamp);
         _collectFee(); // settle first, so new money is never charged for time it was not in the vault
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         emit Deposited(msg.sender, token, amount);

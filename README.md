@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 123 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, services, backtest
+npm test          # 134 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -99,6 +99,12 @@ You keep custody: `withdraw` works at any time, even when paused. `pause` can be
 only you can `unpause`. `setPilot(0)` revokes the agent in one transaction. Ownership moves in two steps and cannot be
 renounced, so funds can't be locked by accident. Each trade emits `keccak256(rationale)`, the hash of the pilot's
 written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the chain.
+
+**Inheritance.** A brokerage account can name a beneficiary; a wallet can't, so self-custodied stocks die with their
+key. The vault can: `setHeir(heir, period)` names an heir and an inactivity period (30 days to 10 years). Every owner
+action restarts the clock (`checkIn()` does nothing else); the pilot's trades never do. After a full period of silence
+the heir calls `claimInheritance()` and owns the vault, still managed, with its mandate and pilot. The fleet reminds
+subscribed owners to check in during the last quarter of the period, and a change of owner clears the heir.
 
 ## The pieces
 

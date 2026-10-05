@@ -30,6 +30,7 @@ import { AlertsCard } from "./Alerts";
 import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
+import { InheritanceCard } from "./Inheritance";
 
 declare global {
   interface Window {
@@ -37,8 +38,12 @@ declare global {
   }
 }
 
-// Hardhat's first dev account. Its key is public; it only ever exists on a local chain.
-const HARDHAT_DEV_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+// Hardhat's first two dev accounts. Their keys are public; they only ever exist on a local chain. The second one
+// lets you play a second person (an heir, a hired pilot) on the same machine.
+const HARDHAT_DEV_KEYS = [
+  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+] as const;
 
 type Wallet = { client: WalletClient; address: Address; kind: "injected" | "dev" };
 
@@ -62,7 +67,8 @@ export function Live({ draft }: { draft: Draft | null }) {
       args: [wallet.address],
     })) as Address[];
     setVaults(list);
-    setSelected((s) => (s && list.includes(s) ? s : (list[list.length - 1] ?? null)));
+    // Keep an open vault open even if this wallet did not create it (an inherited or shared vault).
+    setSelected((s) => s ?? list[list.length - 1] ?? null);
   }, [wallet, deployment, client]);
 
   useEffect(() => {
@@ -82,8 +88,8 @@ export function Live({ draft }: { draft: Draft | null }) {
     }
   }
 
-  function connectDev() {
-    const account = privateKeyToAccount(HARDHAT_DEV_KEY);
+  function connectDev(index = 0) {
+    const account = privateKeyToAccount(HARDHAT_DEV_KEYS[index]);
     setWallet({ client: createWalletClient({ account, chain: hardhat, transport: http() }), address: account.address, kind: "dev" });
     setStatus(null);
   }
@@ -131,7 +137,7 @@ export function Live({ draft }: { draft: Draft | null }) {
           </label>
           {wallet ? (
             <span className="pill ok" style={{ alignSelf: "end", marginBottom: 8 }}>
-              {wallet.kind === "dev" ? "Dev account " : ""}
+              {wallet.kind === "dev" ? `Dev account ${HARDHAT_DEV_KEYS.findIndex((k) => privateKeyToAccount(k).address === wallet.address) + 1} ` : ""}
               {shortAddr(wallet.address)}
             </span>
           ) : (
@@ -140,11 +146,20 @@ export function Live({ draft }: { draft: Draft | null }) {
                 Connect wallet
               </button>
               {chain.id === hardhat.id && (
-                <button className="btn" style={{ alignSelf: "end" }} onClick={connectDev}>
+                <button className="btn" style={{ alignSelf: "end" }} onClick={() => connectDev(0)}>
                   Use local dev account
                 </button>
               )}
             </>
+          )}
+          {wallet?.kind === "dev" && (
+            <button
+              className="btn small"
+              style={{ alignSelf: "end", marginBottom: 6 }}
+              onClick={() => connectDev(wallet.address === privateKeyToAccount(HARDHAT_DEV_KEYS[0]).address ? 1 : 0)}
+            >
+              Switch to dev account {wallet.address === privateKeyToAccount(HARDHAT_DEV_KEYS[0]).address ? 2 : 1}
+            </button>
           )}
         </div>
         {status && (
@@ -185,6 +200,7 @@ export function Live({ draft }: { draft: Draft | null }) {
                 ))}
               </Card>
             )}
+            <OpenVault onOpen={(v) => setSelected(v)} />
             {deployment?.registry && (
               <MarketplaceCard
                 key={`${wallet!.address}-${market.pilots.length}`}
@@ -370,7 +386,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   return (
     <>
       <Card
-        title={<>Vault <span className="mono">{shortAddr(vault)}</span></>}
+        title={<>Vault <span className="mono" title={vault} data-address={vault}>{shortAddr(vault)}</span></>}
         aside={<span className={`pill ${state.paused ? "bad" : "ok"}`}>{state.paused ? "Paused" : "Active"}</span>}
       >
         <div className="stats">
@@ -487,6 +503,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         })}
       />
 
+      <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
       <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
@@ -522,4 +539,22 @@ function short(e: unknown) {
 
 function shortAddr(a: string) {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+/** Open any vault by address: as an heir, a pilot, or just to look. */
+function OpenVault({ onOpen }: { onOpen: (v: Address) => void }) {
+  const [addr, setAddr] = useState("");
+  return (
+    <Card title="Open a vault">
+      <div className="row">
+        <input type="text" aria-label="Vault address" placeholder="Vault address, 0x…" value={addr} onChange={(e) => setAddr(e.target.value.trim())} spellCheck={false} style={{ flex: 1, minWidth: 200 }} />
+        <button className="btn" disabled={!isAddress(addr)} onClick={() => onOpen(addr as Address)}>
+          Open
+        </button>
+      </div>
+      <p className="muted small" style={{ marginBottom: 0 }}>
+        For a vault you are the heir or pilot of, or one someone shared with you.
+      </p>
+    </Card>
+  );
 }

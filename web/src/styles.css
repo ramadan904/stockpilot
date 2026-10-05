@@ -785,3 +785,22 @@ body.touring {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Inheritance clock */
+.clock {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.clock-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ok);
+}
+.clock-fill[data-tone="warn"] {
+  background: var(--warn);
+}
+.clock-fill[data-tone="bad"] {
+  background: var(--bad);
+}

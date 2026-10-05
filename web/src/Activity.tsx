@@ -157,6 +157,16 @@ function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pi
       return { ...base, kind: "control", text: `Vault paused by ${who(a.account)}` };
     case "Unpaused":
       return { ...base, kind: "control", text: `Vault unpaused by ${who(a.account)}` };
+    case "HeirSet":
+      return {
+        ...base,
+        kind: "control",
+        text: /^0x0+$/.test(String(a.heir)) ? "Heir removed" : `Heir set: ${short(String(a.heir))} may take over after ${Number(a.inactivityPeriod) / 86_400} days without any owner action`,
+      };
+    case "OwnerCheckedIn":
+      return { ...base, kind: "control", text: "Owner checked in: the inheritance clock restarted" };
+    case "InheritanceClaimed":
+      return { ...base, kind: "control", text: `${short(String(a.heir))} inherited the vault from ${short(String(a.previousOwner))}` };
     case "OwnershipTransferStarted":
       return { ...base, kind: "control", text: `Ownership transfer to ${short(String(a.newOwner))} started` };
     case "OwnershipTransferred":

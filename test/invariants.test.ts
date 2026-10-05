@@ -42,7 +42,7 @@ describe("vault invariants", () => {
   });
 
   for (const seed of [11, 12, 13]) {
-    it(`holds every invariant over 150 random actions by owner, pilot and strangers (seed ${seed})`, async () => {
+    it(`holds every invariant over 200 random actions by owner, pilot and strangers (seed ${seed})`, async () => {
       const f = await loadFixture(deployStockPilot);
       const rand = rng(seed);
       const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
@@ -52,6 +52,9 @@ describe("vault invariants", () => {
       const recipient = f.stranger.account.address;
       const owner = f.owner.account.address;
       const asStranger = await hre.viem.getContractAt("PilotVault", f.vault.address, { client: { wallet: f.stranger } });
+      const [, , , heirWallet] = await hre.viem.getWalletClients();
+      const asHeir = await hre.viem.getContractAt("PilotVault", f.vault.address, { client: { wallet: heirWallet } });
+      let inherited = 0;
 
       const pilotStart = await Promise.all(tokens.map((t) => t.read.balanceOf([pilotAddr])));
       const maxSeen = await Promise.all(tokens.map((t) => t.read.balanceOf([f.vault.address])));
@@ -63,11 +66,11 @@ describe("vault invariants", () => {
         for (const feed of feeds) await feed.write.setPrice([(await feed.read.latestRoundData())[1]]);
       };
 
-      for (let step = 0; step < 150; step++) {
+      for (let step = 0; step < 200; step++) {
         const recipientBefore = await Promise.all(tokens.map((t) => t.read.balanceOf([recipient])));
         const eventsBefore = (await f.vault.getEvents.Rebalanced({}, { fromBlock: 0n })).length;
         const wasPaused = await f.vault.read.paused();
-        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach"] as const);
+        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach", "setHeir", "heirClaim"] as const);
         counts[action] = (counts[action] ?? 0) + 1;
 
         try {
@@ -79,7 +82,8 @@ describe("vault invariants", () => {
               break;
             }
             case "time":
-              await time.increase(Math.floor(rand() * 2 * 86_400));
+              // Now and then a long silence from the owner, long enough for an heir to claim.
+              await time.increase(rand() < 0.15 ? 31 * 86_400 + Math.floor(rand() * 30 * 86_400) : Math.floor(rand() * 2 * 86_400));
               await refresh();
               break;
             case "plannedTrade": {
@@ -125,8 +129,28 @@ describe("vault invariants", () => {
                 () => f.vaultAsPilot.write.setAdapter([pilotAddr]),
                 () => f.vaultAsPilot.write.setMandate([f.mandate, { ...DEFAULT_LIMITS, maxTradeUsd: 10n ** 30n }]),
                 () => f.vaultAsPilot.write.unpause(),
+                () => f.vaultAsPilot.write.setHeir([pilotAddr, 30 * 86_400]),
+                () => f.vaultAsPilot.write.checkIn(),
               ]);
               await expect(attempt()).to.be.rejectedWith("OwnableUnauthorizedAccount");
+              break;
+            }
+            case "setHeir":
+              await f.vault.write.setHeir(rand() < 0.2 ? [zeroAddress, 0] : [heirWallet.account.address, 30 * 86_400 + Math.floor(rand() * 30 * 86_400)]);
+              break;
+            case "heirClaim": {
+              await expect(asStranger.write.claimInheritance()).to.be.rejectedWith("NotHeir");
+              const claimableAt = await f.vault.read.inheritanceClaimableAt();
+              const ok = await asHeir.write.claimInheritance().then(() => true, () => false);
+              // Invariant: the heir takes over exactly when named and the owner's silence has lasted the period.
+              const now = BigInt(await time.latest());
+              expect(ok, `step ${step}: claim at ${now}, claimable at ${claimableAt}`).to.equal(claimableAt !== 0n && now >= claimableAt);
+              if (ok) {
+                inherited++;
+                // Hand the vault back so the run can go on with the same owner.
+                await asHeir.write.transferOwnership([owner]);
+                await f.vault.write.acceptOwnership();
+              }
               break;
             }
           }
@@ -163,7 +187,8 @@ describe("vault invariants", () => {
         await f.vault.write.withdraw([t.address, 2n ** 255n, owner]);
         expect(await t.read.balanceOf([f.vault.address])).to.equal(0n);
       }
-      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(9);
+      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(11);
+      console.log(`      seed ${seed}: ${JSON.stringify(counts)}, inherited ${inherited}x`);
     });
   }
 });
