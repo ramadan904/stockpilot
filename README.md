@@ -148,6 +148,11 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Strategist** ([`test/strategist.test.ts`](test/strategist.test.ts)): a sloppy proposal (unknown assets, weights that
   don't add up, absurd bands) is repaired and every fix is reported; every preset mandate is accepted by the vault.
 
+## Gas
+
+A trade with every mandate check costs 155k gas with 2 assets and 285k with 8, under a cent at typical L2 gas prices.
+Full table for every action: [docs/GAS.md](docs/GAS.md) (`npm run gas`).
+
 ## Deploying to a testnet
 
 ```bash

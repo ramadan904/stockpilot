@@ -20,7 +20,8 @@
     "web:preview": "vite preview web",
     "fleet": "hardhat run agent/fleet-run.ts",
     "mcp": "ts-node --transpile-only agent/mcp-main.ts",
-    "relay": "hardhat run agent/relayer-run.ts"
+    "relay": "hardhat run agent/relayer-run.ts",
+    "gas": "hardhat run scripts/gas.ts"
   },
   "engines": {
     "node": ">=20"
