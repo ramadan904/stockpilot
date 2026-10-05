@@ -15,6 +15,7 @@ export function Strategist(props: {
   draft: Draft | null;
   onDraft: (goal: string, usd: number) => Promise<void>;
   onEdit: (p: Proposal) => void;
+  onRefine: (instruction: string) => Promise<void>;
   busy: boolean;
   error: string | null;
 }) {
@@ -56,14 +57,29 @@ export function Strategist(props: {
         {!draft ? (
           <p className="muted">Your draft appears here: target weights, how far each may drift, and how much the pilot may trade.</p>
         ) : (
-          <MandateEditor draft={draft} onEdit={props.onEdit} />
+          <MandateEditor draft={draft} onEdit={props.onEdit} onRefine={props.onRefine} />
         )}
       </Card>
     </div>
   );
 }
 
-function MandateEditor({ draft, onEdit }: { draft: Draft; onEdit: (p: Proposal) => void }) {
+function MandateEditor({ draft, onEdit, onRefine }: { draft: Draft; onEdit: (p: Proposal) => void; onRefine: (instruction: string) => Promise<void> }) {
+  const [instruction, setInstruction] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const submitRefine = async () => {
+    if (!instruction.trim()) return;
+    setRefining(true);
+    setRefineError(null);
+    try {
+      await onRefine(instruction);
+      setInstruction("");
+    } catch (e) {
+      setRefineError((e as Error).message);
+    }
+    setRefining(false);
+  };
   const p = draft.proposal;
   const sum = p.allocations.reduce((s, a) => s + a.weight_percent, 0);
   const setWeight = (symbol: string, w: number) =>
@@ -73,6 +89,31 @@ function MandateEditor({ draft, onEdit }: { draft: Draft; onEdit: (p: Proposal) 
   return (
     <>
       <p style={{ marginTop: 0 }}>{p.summary}</p>
+      <div className="row" style={{ marginBottom: 12, flexWrap: "nowrap" }}>
+        <input
+          type="text"
+          placeholder='Adjust in your own words, e.g. "less Tesla, more cash"'
+          aria-label="Adjust the mandate in your own words"
+          value={instruction}
+          maxLength={300}
+          onChange={(e) => setInstruction(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submitRefine()}
+        />
+        <button className="btn" disabled={refining || !instruction.trim()} onClick={submitRefine}>
+          {refining ? "Adjusting…" : "Adjust"}
+        </button>
+      </div>
+      {refineError && <p className="notice bad">{refineError}</p>}
+      {draft.changes && draft.changes.length > 0 && (
+        <div className="notice" style={{ marginBottom: 12 }}>
+          <strong className="small">Changed:</strong>
+          <ul className="small" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+            {draft.changes.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="alloc">
         {LISTINGS.map((l, i) => {
           const a = p.allocations.find((x) => x.symbol.toUpperCase() === l.symbol);

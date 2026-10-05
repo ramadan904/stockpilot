@@ -157,3 +157,96 @@ export function presetFor(goal: string, universe: Pick<UniverseAsset, "symbol" |
     daily_turnover_percent: 30,
   };
 }
+
+/** Plain-English lines describing what changed between two proposals, for the owner to review. */
+export function diffProposals(before: Proposal, after: Proposal): string[] {
+  const out: string[] = [];
+  const w = (p: Proposal, s: string) => p.allocations.find((a) => a.symbol.toUpperCase() === s)?.weight_percent ?? 0;
+  const symbols = [...new Set([...before.allocations, ...after.allocations].map((a) => a.symbol.toUpperCase()))];
+  for (const s of symbols) {
+    const [a, b] = [w(before, s), w(after, s)];
+    if (Math.abs(a - b) >= 0.05) out.push(`${s}: ${fmtPct(a)} → ${fmtPct(b)}`);
+  }
+  if (before.band_percent !== after.band_percent) out.push(`Drift band: ±${before.band_percent} → ±${after.band_percent} points`);
+  if (before.max_trade_percent !== after.max_trade_percent) out.push(`Max per trade: ${before.max_trade_percent}% → ${after.max_trade_percent}% of the portfolio`);
+  if (before.daily_turnover_percent !== after.daily_turnover_percent) out.push(`Max per day: ${before.daily_turnover_percent}% → ${after.daily_turnover_percent}% of the portfolio`);
+  if (before.risk_level !== after.risk_level) out.push(`Risk level: ${before.risk_level} → ${after.risk_level}`);
+  return out;
+}
+
+const fmtPct = (x: number) => `${Math.round(x * 10) / 10}%`;
+
+/**
+ * Offline stand-in for refining with Claude: understands "more/less X", "no X" / "drop X", "X to 10%", "more/less
+ * cash", "wider/narrower bands", "safer"/"riskier". Moves 5 points per "more/less", taking from or giving to the other
+ * assets in proportion. Returns null when it understood nothing.
+ */
+export function refineOffline(p: Proposal, instruction: string, stableSymbol = "USDG"): Proposal | null {
+  const text = ` ${instruction.toLowerCase().replace(/[,.;!]/g, " ")} `;
+  const weights = new Map(p.allocations.map((a) => [a.symbol.toUpperCase(), a.weight_percent]));
+  const symbols = [...weights.keys()];
+  const sym = (word: string) => {
+    const w = word.toUpperCase();
+    if (["CASH", "STABLES", "STABLECOIN", "DOLLARS"].includes(w)) return stableSymbol;
+    if (w === "TESLA") return "TSLA";
+    if (w === "APPLE") return "AAPL";
+    if (w === "NVIDIA") return "NVDA";
+    if (["S&P", "S&P500", "SP500", "INDEX"].includes(w)) return "SPY";
+    return symbols.includes(w) ? w : null;
+  };
+  // Collect what was asked for each named position first, then apply it all at once, so "less Tesla, more cash" moves
+  // points from Tesla to cash directly; only the net difference is spread over the positions nobody named.
+  const target = new Map<string, number>();
+  const want = (s: string, value: number) => target.set(s, Math.max(0, Math.min(100, value)));
+  const current = (s: string) => target.get(s) ?? weights.get(s)!;
+  let next = { ...p, allocations: p.allocations.map((a) => ({ ...a })) };
+  let understood = false;
+
+  for (const m of text.matchAll(/\b(\w[\w&]*)\s+(?:to|at)\s+(\d+(?:\.\d+)?)\s*%/g)) {
+    const s = sym(m[1]);
+    if (s) want(s, Number(m[2]));
+  }
+  for (const m of text.matchAll(/\b(more|less|fewer|no|drop|remove|without|add)\s+(\w[\w&]*)/g)) {
+    const s = sym(m[2]);
+    if (!s) continue;
+    if (m[1] === "more" || m[1] === "add") want(s, current(s) + 5);
+    else if (m[1] === "less" || m[1] === "fewer") want(s, current(s) - 5);
+    else want(s, 0);
+  }
+  if (/\b(safer|less risk|more conservative)\b/.test(text)) want(stableSymbol, current(stableSymbol) + 10);
+  if (/\b(riskier|more risk|more aggressive)\b/.test(text)) want(stableSymbol, current(stableSymbol) - 10);
+  if (/\b(wider|looser)\s+band/.test(text)) {
+    next.band_percent = Math.min(20, next.band_percent + 2);
+    understood = true;
+  }
+  if (/\b(narrower|tighter)\s+band/.test(text)) {
+    next.band_percent = Math.max(1, next.band_percent - 2);
+    understood = true;
+  }
+  if (target.size === 0 && !understood) return null;
+
+  const named = new Set(target.keys());
+  const net = [...target].reduce((t, [s, v]) => t + v - weights.get(s)!, 0);
+  for (const [s, v] of target) weights.set(s, v);
+  const others = symbols.filter((s) => !named.has(s));
+  const otherTotal = others.reduce((t, s) => t + weights.get(s)!, 0);
+  for (const s of others) {
+    const share = otherTotal > 0 ? weights.get(s)! / otherTotal : 1 / others.length;
+    weights.set(s, Math.max(0, weights.get(s)! - net * share));
+  }
+
+  next = {
+    ...next,
+    allocations: next.allocations.map((a) => ({ ...a, weight_percent: Math.round(weights.get(a.symbol.toUpperCase())! * 2) / 2 })),
+  };
+  const sum = next.allocations.reduce((t, a) => t + a.weight_percent, 0);
+  if (Math.abs(sum - 100) > 1e-9 && next.allocations.length) {
+    // Rounding to half points, or naming every position, can leave a remainder: give it to the largest position the
+    // owner did not name, or else the largest overall.
+    const pool = next.allocations.filter((a) => !named.has(a.symbol.toUpperCase()) && a.weight_percent > 0);
+    const big = (pool.length ? pool : next.allocations).reduce((m, a) => (a.weight_percent > m.weight_percent ? a : m));
+    big.weight_percent = Math.round((big.weight_percent + 100 - sum) * 10) / 10;
+  }
+  next.summary = `${p.summary} Adjusted: ${instruction.trim()}`;
+  return next;
+}

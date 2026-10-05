@@ -7,7 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { Proposal, presetFor, toMandate, type Strategy, type UniverseAsset } from "./mandate";
+import { Proposal, diffProposals, presetFor, refineOffline, toMandate, type Strategy, type UniverseAsset } from "./mandate";
 
 export * from "./mandate";
 
@@ -75,6 +75,51 @@ export async function draft(
   }
   if (!response.parsed_output) throw new Error(`The strategist returned no usable proposal (${response.stop_reason}).`);
   return { proposal: response.parsed_output, source: "claude" };
+}
+
+const REFINE = `You are revising a portfolio draft you made earlier, because the investor asked for a change. Apply
+their change faithfully and keep everything else as it was unless the change requires otherwise. Weights still add up to
+exactly 100 and use only the listed assets. Update the summary and the reasons that the change affects. If the request
+is unclear, make the smallest reasonable change. If it asks for something outside a portfolio of these assets, keep the
+draft unchanged and say so in the summary.`;
+
+/** Revise a proposal from a plain-English instruction. Without credentials, falls back to simple phrase parsing. */
+export async function refine(
+  proposal: Proposal,
+  instruction: string,
+  universe: Pick<UniverseAsset, "symbol" | "name" | "profile" | "stable">[],
+  portfolioUsd: number,
+  client: Anthropic | null = defaultClient(),
+): Promise<{ proposal: Proposal; source: Strategy["source"]; changes: string[] }> {
+  if (!client) {
+    const stable = universe.find((a) => a.stable)?.symbol ?? "USDG";
+    const next = refineOffline(proposal, instruction, stable);
+    if (!next) throw new Error('Offline mode understands phrases like "less TSLA", "more cash", "NVDA to 10%", "no AAPL" or "safer". Set ANTHROPIC_API_KEY for anything else.');
+    return { proposal: next, source: "preset", changes: diffProposals(proposal, next) };
+  }
+  const response = await client.beta.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: "medium", format: betaZodOutputFormat(Proposal) },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: `${SYSTEM}\n\n${REFINE}`,
+    messages: [
+      {
+        role: "user",
+        content:
+          `Assets available:\n${universe.map((a) => `- ${a.symbol} (${a.name}): ${a.profile}`).join("\n")}\n\n` +
+          `Portfolio size: about $${portfolioUsd.toLocaleString("en-US")}.\n\n` +
+          `Current draft, as JSON:\n${JSON.stringify(proposal)}\n\n` +
+          `The investor's change, in their words:\n"""${instruction}"""`,
+      },
+    ],
+  });
+  if (response.stop_reason === "refusal") {
+    throw new Error(`The strategist declined this request: ${response.stop_details?.explanation ?? "no reason given"}`);
+  }
+  if (!response.parsed_output) throw new Error(`The strategist returned no usable revision (${response.stop_reason}).`);
+  return { proposal: response.parsed_output, source: "claude", changes: diffProposals(proposal, response.parsed_output) };
 }
 
 /** A client when credentials are configured, else null (callers fall back to offline behaviour). */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { presetFor, toMandate, type Mandate, type Proposal, type Strategy } from "../../agent/mandate";
+import { diffProposals, presetFor, refineOffline, toMandate, type Mandate, type Proposal, type Strategy } from "../../agent/mandate";
 import { LISTINGS } from "../../agent/listings";
 import { Backtest } from "./Backtest";
 import { Live } from "./Live";
@@ -14,13 +14,33 @@ export interface Draft {
   mandate: Mandate;
   adjustments: string[];
   usd: number;
+  /** What the last refinement changed, in plain words. */
+  changes?: string[];
 }
 
 const FIRST_GOAL = "I'm 30 and believe in AI and big tech for the long run. I can handle swings but want some cash on hand.";
 
-function makeDraft(proposal: Proposal, source: Strategy["source"], usd: number): Draft {
+function makeDraft(proposal: Proposal, source: Strategy["source"], usd: number, changes?: string[]): Draft {
   const { mandate, adjustments } = toMandate(proposal, simUniverse(), usd);
-  return { proposal, source, mandate, adjustments, usd };
+  return { proposal, source, mandate, adjustments, usd, changes };
+}
+
+/** Ask the server to revise the draft; fall back to offline phrase parsing if it is unreachable. */
+async function requestRefine(proposal: Proposal, instruction: string, usd: number): Promise<{ proposal: Proposal; source: Strategy["source"]; changes: string[] }> {
+  let res: Response | null = null;
+  try {
+    res = await fetch("/api/refine", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposal, instruction, usd }) });
+  } catch {
+    res = null;
+  }
+  if (res && res.status !== 404) {
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  }
+  const next = refineOffline(proposal, instruction);
+  if (!next) throw new Error('Offline, I understand phrases like "less TSLA", "more cash", "NVDA to 10%", "no AAPL" or "safer".');
+  return { proposal: next, source: "preset", changes: diffProposals(proposal, next) };
 }
 
 /** Ask the server's strategist; fall back to the offline preset if it is unreachable. */
@@ -118,6 +138,11 @@ export function App() {
             error={error}
             onDraft={onDraft}
             onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
+            onRefine={async (instruction) => {
+              if (!draft) return;
+              const r = await requestRefine(draft.proposal, instruction, draft.usd);
+              setDraft(makeDraft(r.proposal, r.source, draft.usd, r.changes));
+            }}
           />
           {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} tourRequest={tourRequest} />}
           {tab === "backtest" && mandate && draft && <Backtest mandate={mandate} usdSize={draft.usd} />}
