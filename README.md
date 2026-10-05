@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 162 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 165 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -121,6 +121,11 @@ flown three ways, left alone, by the pilot, and by the pilot with the crash guar
 runs it, rounding included), with the same planner and rule model as the real thing. It shows the cost as plainly as
 the benefit: the guard cuts the fall in a long bear market but can lock in the loss before a fast rebound. The
 scenarios are stated as shapes, not history or forecasts.
+
+**Performance, honestly measured.** A live vault's value over time, read from the chain at sampled blocks, against
+"your deposits, never traded": the same deposits and withdrawals token for token, with no trades and no fee, at the
+same oracle prices ([`agent/performance.ts`](agent/performance.ts)). The gap is what the pilot and its fee added or
+cost, and money moving in or out cannot distort it.
 
 **Taxes.** The web app rebuilds the vault's tax lots from its onchain history ([`agent/tax.ts`](agent/tax.ts)):
 deposits priced by the vault's own oracles at that block, every trade, the fee paid in kind. Sales are matched first in,

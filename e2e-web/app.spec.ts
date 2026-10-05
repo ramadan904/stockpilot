@@ -189,6 +189,11 @@ test("taxes: a profitable sale shows up lot by lot and downloads as Form 8949-st
   const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
   await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
 
+  // Performance, read from the chain: the vault against its deposits left untraded.
+  const perf = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Performance", exact: true }) });
+  await expect(perf.locator(".stat").filter({ hasText: "Pilot vs untraded" })).toBeVisible({ timeout: 30_000 });
+  await expect(perf.locator("figure.chart svg path.line")).toHaveCount(2);
+
   const tax = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Taxes" }) });
   await tax.getByRole("button", { name: "Build tax report" }).click();
   const row = tax.locator("tbody tr").filter({ hasText: "NVDA" });

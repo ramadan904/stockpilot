@@ -33,6 +33,7 @@ import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 import { InheritanceCard } from "./Inheritance";
 import { CrashGuardCard } from "./CrashGuard";
 import { TaxCard } from "./Tax";
+import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
 
 declare global {
@@ -420,6 +421,8 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           Pilot's next move: {p.action === "trade" ? p.trade.rationale : p.reason}
         </p>
       </Card>
+
+      <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
       <Card title="Controls">
         <div className="row">
