@@ -17,7 +17,8 @@
     "abi": "hardhat compile && node scripts/export-abi.mjs",
     "web": "vite web",
     "web:build": "vite build web",
-    "web:preview": "vite preview web"
+    "web:preview": "vite preview web",
+    "fleet": "hardhat run agent/fleet-run.ts"
   },
   "engines": {
     "node": ">=20"
