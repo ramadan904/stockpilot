@@ -19,7 +19,8 @@
     "web:build": "vite build web",
     "web:preview": "vite preview web",
     "fleet": "hardhat run agent/fleet-run.ts",
-    "mcp": "ts-node --transpile-only agent/mcp-main.ts"
+    "mcp": "ts-node --transpile-only agent/mcp-main.ts",
+    "relay": "hardhat run agent/relayer-run.ts"
   },
   "engines": {
     "node": ">=20"
