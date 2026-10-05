@@ -5,6 +5,7 @@ import { drift, plan } from "../../agent/planner";
 import { advance, createSim, hashOf, isStable, movePrice, randomDay, rebalance, vaultState, type Sim } from "./sim";
 import { Card, HoldingsTable, totalUsd, usd, valueUsd } from "./ui";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
+import { LineChart, compactUsd } from "./LineChart";
 import type { ReportFacts } from "../../agent/report";
 
 interface LogEntry {
@@ -25,8 +26,18 @@ const LABEL: Record<LogEntry["kind"], [string, string]> = {
   owner: ["Owner", "info"],
 };
 
+interface Point {
+  t: bigint;
+  pilot: number;
+  hold: number;
+}
+
 export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: number }) {
   const [sim, setSim] = useState<Sim>(() => createSim(mandate, usdSize));
+  const [history, setHistory] = useState<Point[]>([]);
+  // Buy-and-hold benchmark: the vault's starting balances, never traded.
+  const holdBalances = useRef<bigint[]>(sim.assets.map((a) => a.balance));
+  const startTime = useRef(sim.now);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [auto, setAuto] = useState(false);
   const start = useRef(totalUsd(sim.assets));
@@ -35,15 +46,31 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
   const simRef = useRef(sim);
   simRef.current = sim;
 
-  // A new mandate means a new vault.
-  useEffect(() => {
-    const fresh = createSim(mandate, usdSize);
+  function reset(cash = false) {
+    const fresh = createSim(mandate, usdSize, cash);
     setSim(fresh);
     start.current = totalUsd(fresh.assets);
     startPrices.current = Object.fromEntries(fresh.assets.map((a) => [a.symbol, a.price]));
-    setLog([]);
+    holdBalances.current = fresh.assets.map((a) => a.balance);
+    startTime.current = fresh.now;
+    setHistory([]);
+    setLog(cash ? [{ id: nextId.current++, kind: "owner", text: "Vault funded with cash only. Run the pilot (or autopilot) to watch it invest, within its 24-hour budget." }] : []);
     setAuto(false);
-  }, [mandate, usdSize]);
+  }
+
+  // A new mandate means a new vault.
+  useEffect(() => reset(), [mandate, usdSize]);
+
+  // Record value over time for the chart: the pilot's vault against the same start, left alone.
+  useEffect(() => {
+    const pilot = Number(totalUsd(sim.assets) / 10n ** 14n) / 10_000;
+    const hold = Number(totalUsd(sim.assets.map((a, i) => ({ ...a, balance: holdBalances.current[i] ?? 0n }))) / 10n ** 14n) / 10_000;
+    setHistory((h) => {
+      const last = h[h.length - 1];
+      if (last && last.pilot === pilot && last.hold === hold) return h;
+      return [...h, { t: sim.now, pilot, hold }].slice(-500);
+    });
+  }, [sim]);
 
   const push = (kind: LogEntry["kind"], text: string, hash?: string, extra: Partial<LogEntry> = {}) =>
     setLog((l) => [{ id: nextId.current++, kind, text, hash, ...extra }, ...l].slice(0, 200));
@@ -96,9 +123,14 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
         <Card
           title={<><span className="step">3</span>Your vault (simulated)</>}
           aside={
-            <button className="btn small" onClick={() => setSim(createSim(mandate, usdSize))}>
-              Reset
-            </button>
+            <span className="row" style={{ gap: 6 }}>
+              <button className="btn small" onClick={() => reset()}>
+                Reset at targets
+              </button>
+              <button className="btn small" onClick={() => reset(true)}>
+                Start in cash
+              </button>
+            </span>
           }
         >
           <div className="stats">
@@ -110,9 +142,21 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
           <div className="table-scroll">
             <HoldingsTable assets={sim.assets} drift={d} />
           </div>
-          <p className="muted small" style={{ marginBottom: 0 }}>
+          <p className="muted small">
             Shaded: the band the vault enforces. Darker: where the pilot leaves things alone. Line: target.
           </p>
+          {history.length > 1 && (
+            <LineChart
+              title="Portfolio value"
+              series={[
+                { name: "StockPilot", values: history.map((p) => p.pilot) },
+                { name: "Buy and hold", values: history.map((p) => p.hold) },
+              ]}
+              xLabel={(i) => elapsed(history[i].t - startTime.current)}
+              format={(v) => compactUsd(v)}
+              height={220}
+            />
+          )}
         </Card>
 
         <ReportCard
@@ -240,6 +284,14 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
       </div>
     </div>
   );
+}
+
+function elapsed(seconds: bigint) {
+  const s = Number(seconds);
+  if (s <= 0) return "Start";
+  const d = Math.floor(s / 86_400);
+  const h = Math.floor((s % 86_400) / 3_600);
+  return d > 0 ? `+${d}d ${h}h` : `+${h}h ${Math.floor((s % 3_600) / 60)}m`;
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" }) {

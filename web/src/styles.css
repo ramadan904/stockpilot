@@ -594,3 +594,125 @@ footer {
 .report li {
   margin: 3px 0;
 }
+
+/* Charts: validated categorical slots 1-2 (see the dataviz palette), recessive grid and axes. */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #e8eaee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --grid: #223040;
+  }
+}
+.chart {
+  margin: 0;
+}
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.chart figcaption {
+  font-weight: 600;
+  font-size: 14px;
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.swatch.s1 {
+  background: var(--series-1);
+}
+.swatch.s2 {
+  background: var(--series-2);
+}
+.chart-plot {
+  position: relative;
+}
+.chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  touch-action: none;
+}
+.chart .grid {
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+.chart .axis,
+.chart .end-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chart .end-label {
+  fill: var(--text);
+  font-weight: 550;
+}
+.chart .line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.chart .line.s1 {
+  stroke: var(--series-1);
+}
+.chart .line.s2 {
+  stroke: var(--series-2);
+}
+.chart .crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.chart .dot {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.chart .dot.s1 {
+  fill: var(--series-1);
+}
+.chart .dot.s2 {
+  fill: var(--series-2);
+}
+.tooltip {
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

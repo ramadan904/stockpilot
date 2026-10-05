@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { presetFor, toMandate, type Mandate, type Proposal, type Strategy } from "../../agent/mandate";
 import { LISTINGS } from "../../agent/listings";
+import { Backtest } from "./Backtest";
 import { Live } from "./Live";
 import { Simulator } from "./Simulator";
 import { simUniverse } from "./sim";
@@ -43,7 +44,7 @@ async function requestDraft(goal: string, usd: number): Promise<{ proposal: Prop
 }
 
 export function App() {
-  const [tab, setTab] = useState<"sim" | "live">("sim");
+  const [tab, setTab] = useState<"sim" | "backtest" | "live">("sim");
   const [draft, setDraft] = useState<Draft | null>(() => makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +76,9 @@ export function App() {
             <button role="tab" aria-selected={tab === "sim"} onClick={() => setTab("sim")}>
               Simulator
             </button>
+            <button role="tab" aria-selected={tab === "backtest"} onClick={() => setTab("backtest")}>
+              Backtest
+            </button>
             <button role="tab" aria-selected={tab === "live"} onClick={() => setTab("live")}>
               Live (testnet)
             </button>
@@ -104,7 +108,9 @@ export function App() {
             onDraft={onDraft}
             onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
           />
-          {tab === "sim" ? mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} /> : <Live draft={draft} />}
+          {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} />}
+          {tab === "backtest" && mandate && draft && <Backtest mandate={mandate} usdSize={draft.usd} />}
+          {tab === "live" && <Live draft={draft} />}
         </main>
       </div>
 

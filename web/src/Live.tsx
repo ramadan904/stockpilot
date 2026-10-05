@@ -205,6 +205,7 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
   const [fund, setFund] = useState(10_000);
   const [feePct, setFeePct] = useState(0);
   const { wallet, deployment, client, send, run } = ctx;
+  const [cashOnly, setCashOnly] = useState(!!deployment.production);
   const w = wallet.client;
 
   const create = run(async () => {
@@ -219,19 +220,20 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
         abi: pilotVaultFactoryAbi,
         functionName: "createVault",
         // A hosted pilot is paid by an annual fee to the pilot's address; 0 means none.
-        args: [pilot as Address, deployment.marketMaker, mandate.assets, mandate.limits, feePct > 0 ? (pilot as Address) : zeroAddress, Math.round(feePct * 100)],
+        args: [pilot as Address, deployment.venue ?? deployment.marketMaker, mandate.assets, mandate.limits, feePct > 0 ? (pilot as Address) : zeroAddress, Math.round(feePct * 100)],
       }),
     );
     const list = (await client.readContract({ address: deployment.factory, abi: pilotVaultFactoryAbi, functionName: "vaultsOf", args: [wallet.address] })) as Address[];
     const vault = list[list.length - 1];
-    // Buy in at the targets with the testnet faucet tokens: mint, approve, deposit.
+    // Testnet: buy in at the targets with faucet tokens (mint, approve, deposit). Cash only: deposit just the
+    // stablecoin and let the pilot invest it, inside its 24-hour budget. Production: never mint, use the wallet's own.
     for (const [i, l] of LISTINGS.entries()) {
-      const share = (fund * mandate.assets[i].targetBps) / 10_000;
+      const share = cashOnly ? ("stable" in l ? fund : 0) : (fund * mandate.assets[i].targetBps) / 10_000;
       if (share === 0) continue;
       const token = deployment.tokens[l.symbol];
       const amount = parseUnits((share / l.price).toFixed(Math.min(l.decimals, 8)), l.decimals);
       const base = { account: w.account!, chain: ctx.chain, address: token, abi: mockErc20Abi } as const;
-      await send(`Mint test ${l.symbol}`, () => w.writeContract({ ...base, functionName: "mint", args: [wallet.address, amount] }));
+      if (!deployment.production) await send(`Mint test ${l.symbol}`, () => w.writeContract({ ...base, functionName: "mint", args: [wallet.address, amount] }));
       await send(`Approve ${l.symbol}`, () => w.writeContract({ ...base, functionName: "approve", args: [vault, amount] }));
       await send(`Deposit ${l.symbol}`, () =>
         w.writeContract({ account: w.account!, chain: ctx.chain, address: vault, abi: pilotVaultAbi, functionName: "deposit", args: [token, amount] }),
@@ -247,9 +249,23 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
       ) : (
         <>
           <p className="small" style={{ marginTop: 0 }}>
-            Creates a vault you own with the mandate above, then funds it with testnet stand-ins for each asset, bought at your target weights
-            ({LISTINGS.length * 3} small transactions).
+            Creates a vault you own with the mandate above, then funds it.{" "}
+            {deployment.production
+              ? "On this network the deposit comes from your wallet's stablecoin, and the pilot invests it toward your targets."
+              : cashOnly
+                ? "Cash only: you deposit test stablecoins and the pilot invests them toward your targets over the next days, inside its trade budget."
+                : `With testnet stand-ins for each asset, bought at your target weights (${LISTINGS.length * 3} small transactions).`}
           </p>
+          {!deployment.production && (
+            <div className="row" style={{ marginBottom: 10 }}>
+              <button className={`btn small ${cashOnly ? "" : "primary"}`} onClick={() => setCashOnly(false)}>
+                Fund at targets
+              </button>
+              <button className={`btn small ${cashOnly ? "primary" : ""}`} onClick={() => setCashOnly(true)}>
+                Cash only
+              </button>
+            </div>
+          )}
           <label className="field">
             Pilot address (the agent allowed to rebalance)
             <input type="text" value={pilot} onChange={(e) => setPilot(e.target.value.trim())} spellCheck={false} />
@@ -421,7 +437,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
       <ReportCard
         title="Weekly report"
         facts={() => ({
-          period: "the recent trades shown below",
+          period: "recent activity",
           valueStartUsd: null,
           valueNowUsd: valueFacts(state),
           paused: state.paused,

@@ -13,7 +13,11 @@ export const robinhoodTestnet = defineChain({
 export interface Deployment {
   network: string;
   chainId: number;
+  /** Real assets (scripts/deploy-production.ts): no faucet tokens, fund from the wallet. */
+  production?: boolean;
   factory: Address;
+  /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */
+  venue?: Address;
   marketMaker: Address;
   tokens: Record<string, Address>;
   feeds: Record<string, Address>;

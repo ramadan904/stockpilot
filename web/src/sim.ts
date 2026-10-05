@@ -23,13 +23,14 @@ export interface Sim {
 
 const fakeAddress = (i: number) => `0x${(i + 1).toString(16).padStart(40, "0")}` as Address;
 
-/** Fund a fresh vault at the mandate's targets. */
-export function createSim(mandate: Mandate, usd: number): Sim {
+/** Fund a fresh vault at the mandate's targets, or (`cash`) entirely in the stablecoin for the pilot to invest. */
+export function createSim(mandate: Mandate, usd: number, cash = false): Sim {
   const now = BigInt(Math.floor(Date.now() / 1000));
   const assets = LISTINGS.map((l, i) => {
     const price = BigInt(Math.round(l.price * 1e6)) * 10n ** 12n;
     const target = mandate.assets[i];
-    const usdWad = (BigInt(Math.round(usd * 100)) * WAD * BigInt(target.targetBps)) / BPS / 100n;
+    const share = cash ? ("stable" in l ? Number(BPS) : 0) : target.targetBps;
+    const usdWad = (BigInt(Math.round(usd * 100)) * WAD * BigInt(share)) / BPS / 100n;
     return {
       token: fakeAddress(i),
       symbol: l.symbol,
