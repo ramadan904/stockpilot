@@ -21,7 +21,8 @@
     "fleet": "hardhat run agent/fleet-run.ts",
     "mcp": "ts-node --transpile-only agent/mcp-main.ts",
     "relay": "hardhat run agent/relayer-run.ts",
-    "gas": "hardhat run scripts/gas.ts"
+    "gas": "hardhat run scripts/gas.ts",
+    "vectors": "ts-node --transpile-only scripts/conformance-vectors.ts"
   },
   "engines": {
     "node": ">=20"
