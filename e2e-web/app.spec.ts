@@ -18,14 +18,33 @@ test("the 60-second tour walks the whole story", async ({ page }) => {
     if ((await next.count()) === 0) break;
     await next.click();
   }
-  expect(titles).toEqual(["This is your vault", "Markets move", "The pilot rebalances", "Now the pilot is hacked", "Weeks go by", "A report you can read", "Your turn"]);
+  expect(titles).toEqual(["This is your vault", "Markets move", "The pilot rebalances", "Now the pilot is hacked", "Weeks go by", "Then the market crashes", "A report you can read", "Your turn"]);
   const log = page.locator('[data-tour="log"] .log li');
   await expect(log.filter({ hasText: /^Blocked/ })).toHaveCount(8);
   expect(await log.filter({ hasText: /^Trade/ }).count()).toBeGreaterThan(0);
+  await expect(log.filter({ hasText: /^Guard.*Crash guard tripped/ })).toHaveCount(1);
+  await expect(page.locator('[data-tour="guard"] .pill')).toHaveText("Defensive");
   await expect(page.locator(".report strong").first()).toContainText("rebalancing trade");
   await panel.getByRole("button", { name: "Finish" }).click();
   await expect(panel).toHaveCount(0);
   expect(errors).toEqual([]);
+});
+
+test("in the simulator, the crash guard trips on a crash and the pilot can only de-risk", async ({ page }) => {
+  await page.goto("/");
+  const guard = page.locator('[data-tour="guard"]');
+  await guard.getByRole("button", { name: "Arm the crash guard" }).click();
+  await expect(guard).toContainText("Armed. Peak");
+  await page.getByRole("button", { name: "Market crash" }).click();
+  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Run pilot", exact: true }).click();
+  const log = page.locator('[data-tour="log"] .log li');
+  await expect(log.filter({ hasText: /^Guard/ })).toHaveCount(1);
+  // Every trade after the crash sells stocks into the stablecoin.
+  const trades = await log.filter({ hasText: /^Trade/ }).allInnerTexts();
+  expect(trades.length).toBeGreaterThan(0);
+  for (const t of trades) expect(t).toMatch(/for USDG/);
+  await guard.getByRole("button", { name: "Back to normal targets" }).click();
+  await expect(guard.locator(".pill")).toHaveText("Armed");
 });
 
 test("in the simulator, a hacked pilot is blocked every time and the vault says why", async ({ page }) => {

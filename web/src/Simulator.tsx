@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Mandate } from "../../agent/mandate";
 import { amountFor, available, type AssetState, type Trade } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
-import { advance, createSim, hashOf, isStable, movePrice, randomDay, rebalance, vaultState, type Sim } from "./sim";
+import { advance, armGuard, createSim, hashOf, isStable, liftDefensive, movePrice, pokeGuard, randomDay, rebalance, vaultState, type Sim } from "./sim";
 import { Card, HoldingsTable, totalUsd, usd, valueUsd } from "./ui";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { LineChart, compactUsd } from "./LineChart";
@@ -10,7 +10,7 @@ import type { ReportFacts } from "../../agent/report";
 
 interface LogEntry {
   id: number;
-  kind: "trade" | "hold" | "blocked" | "allowed" | "market" | "owner";
+  kind: "trade" | "hold" | "blocked" | "allowed" | "market" | "owner" | "guard";
   text: string;
   hash?: string;
   trade?: ReportFacts["trades"][number];
@@ -24,6 +24,7 @@ const LABEL: Record<LogEntry["kind"], [string, string]> = {
   allowed: ["Allowed", "warn"],
   market: ["Market", "warn"],
   owner: ["Owner", "info"],
+  guard: ["Guard", "bad"],
 };
 
 interface Point {
@@ -82,7 +83,10 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
 
   /** One pilot decision: let the cooldown pass, then plan and trade if the plan says so. */
   function pilotTick(from: Sim, quiet = false): Sim {
-    const s = advance(from, from.limits.cooldown);
+    // Like the hosted fleet: check the crash guard first, then plan against the targets in force.
+    const poked = pokeGuard(advance(from, from.limits.cooldown));
+    if (poked.tripped) push("guard", "Crash guard tripped: the vault fell past its limit from the peak. Defensive targets are in force; the pilot can only de-risk.");
+    const s = poked.sim;
     const p = plan(vaultState(s));
     if (p.action === "hold") {
       if (!quiet) push("hold", p.reason);
@@ -116,6 +120,8 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
   };
 
   const attacks = useMemo(() => buildAttacks(sim), [sim]);
+  const stableIndex = Math.max(0, sim.assets.findIndex((a) => isStable(a.symbol)));
+  const peakFall = sim.peakUsd > 0n && total < sim.peakUsd ? Number(((sim.peakUsd - total) * 10_000n) / sim.peakUsd) / 100 : 0;
 
   // ---- Guided tour: drives this simulator through the whole story, one captioned step at a time. ----
   const [tourStep, setTourStep] = useState<number | null>(null);
@@ -163,6 +169,18 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
       run: () => {
         let s = sim;
         for (let i = 0; i < 12; i++) s = pilotTick(randomDay(s, 0.05), true);
+        setSim(s);
+      },
+    },
+    {
+      target: "guard",
+      title: "Then the market crashes",
+      text: "You armed the crash guard: past a 20% fall from the peak, the vault switches to 70% cash. Every stock falls 35%; the guard trips, and the contract now lets the pilot only de-risk. Only you can lift it.",
+      run: () => {
+        let s = pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: 7_000, drawdownBps: 2_000 })).sim;
+        for (const a of s.assets) if (!isStable(a.symbol)) s = movePrice(s, a.symbol, 0.65);
+        push("market", "Market crash: every stock −35%");
+        for (let i = 0; i < 3; i++) s = pilotTick(s, true);
         setSim(s);
       },
     },
@@ -293,6 +311,60 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
       </div>
 
       <div className="stack">
+        <Card
+          tour="guard"
+          title="Crash guard"
+          aside={sim.defensive ? <span className="pill bad">Defensive</span> : sim.guard ? <span className="pill ok">Armed</span> : <span className="pill warn">Off</span>}
+        >
+          {!sim.guard ? (
+            <>
+              <p className="small" style={{ marginTop: 0 }}>
+                A stop-loss for the whole portfolio, enforced by the vault: past a 20% fall from the peak, {sim.assets[stableIndex].symbol} goes to 70% and the
+                pilot can only de-risk until you lift it.
+              </p>
+              <button
+                className="btn"
+                onClick={() => {
+                  setSim(pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: 7_000, drawdownBps: 2_000 })).sim);
+                  push("owner", "Crash guard armed: past a 20% fall from the peak, the stablecoin goes to 70%.");
+                }}
+              >
+                Arm the crash guard
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="small" style={{ marginTop: 0 }}>
+                {sim.defensive
+                  ? `Tripped: defensive targets in force (${sim.assets[stableIndex].symbol} at 70%). The pilot can only move toward them.`
+                  : `Armed. Peak ${usd(sim.peakUsd, false)}; now ${peakFall.toFixed(1)}% below it; trips past 20%.`}
+              </p>
+              <div className="row">
+                {sim.defensive && (
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setSim(liftDefensive(sim));
+                      push("owner", "Back to normal targets.");
+                    }}
+                  >
+                    Back to normal targets
+                  </button>
+                )}
+                <button
+                  className="btn"
+                  onClick={() => {
+                    setSim(armGuard(sim, null));
+                    push("owner", "Crash guard turned off.");
+                  }}
+                >
+                  Turn off
+                </button>
+              </div>
+            </>
+          )}
+        </Card>
+
         <Card title="Move the market">
           <div className="market-grid">
             {sim.assets
@@ -320,6 +392,17 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
               }}
             >
               Random day
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                let s = sim;
+                for (const a of s.assets) if (!isStable(a.symbol)) s = movePrice(s, a.symbol, 0.65);
+                setSim(s);
+                push("market", "Market crash: every stock −35%");
+              }}
+            >
+              Market crash
             </button>
             <button
               className="btn"

@@ -5,6 +5,7 @@
 import { keccak256, toHex, zeroAddress, type Address } from "viem";
 import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
+import { defensiveTargets, type GuardConfig } from "../../agent/backtest";
 import { BPS, WAD, afterSpend, amountFor, check, valueOf, type AssetState, type Trade, type VaultState, type Verdict } from "../../agent/model";
 
 export interface Sim {
@@ -19,6 +20,12 @@ export interface Sim {
   venueFeeBps: number;
   /** While closed, stock feeds stop updating and go stale. */
   marketClosed: boolean;
+  /** The crash guard, as `setCrashGuard` arms it; null when off. */
+  guard: GuardConfig | null;
+  peakUsd: bigint;
+  defensive: boolean;
+  /** The mandate's own targets, restored when the owner lifts defensive mode. */
+  normalTargets: number[];
 }
 
 const fakeAddress = (i: number) => `0x${(i + 1).toString(16).padStart(40, "0")}` as Address;
@@ -52,7 +59,33 @@ export function createSim(mandate: Mandate, usd: number, cash = false): Sim {
     paused: false,
     venueFeeBps: 10,
     marketClosed: false,
+    guard: null,
+    peakUsd: 0n,
+    defensive: false,
+    normalTargets: assets.map((a) => a.targetBps),
   };
+}
+
+const totalValue = (sim: Sim) => sim.assets.reduce((t, a) => t + valueOf(a.balance, a.price, a.decimals), 0n);
+const fresh = (sim: Sim) => sim.assets.every((a) => sim.now - a.priceUpdatedAt <= BigInt(sim.limits.maxPriceAge));
+
+export function armGuard(sim: Sim, guard: GuardConfig | null): Sim {
+  return { ...sim, guard, defensive: false, peakUsd: 0n, assets: sim.assets.map((a, i) => ({ ...a, targetBps: sim.normalTargets[i] })) };
+}
+
+/** The owner goes back to normal targets; the guard stays armed and re-arms from the next recorded value. */
+export function liftDefensive(sim: Sim): Sim {
+  return { ...sim, defensive: false, peakUsd: 0n, assets: sim.assets.map((a, i) => ({ ...a, targetBps: sim.normalTargets[i] })) };
+}
+
+/** `PilotVault.poke()`: record a new peak, or past the drawdown switch to defensive targets. Needs fresh prices. */
+export function pokeGuard(sim: Sim): { sim: Sim; tripped: boolean } {
+  if (!sim.guard || sim.defensive || !fresh(sim)) return { sim, tripped: false };
+  const total = totalValue(sim);
+  if (total > sim.peakUsd) return { sim: { ...sim, peakUsd: total }, tripped: false };
+  if (total * BPS >= sim.peakUsd * (BPS - BigInt(sim.guard.drawdownBps))) return { sim, tripped: false };
+  const next = defensiveTargets(sim.normalTargets, sim.guard);
+  return { sim: { ...sim, defensive: true, assets: sim.assets.map((a, i) => ({ ...a, targetBps: next[i] })) }, tripped: true };
 }
 
 export function vaultState(sim: Sim): VaultState {
@@ -106,10 +139,12 @@ export function quote(sim: Sim, trade: Trade) {
 }
 
 /** Submit a trade to the simulated vault: it runs only if the vault's rules accept it. */
-export function rebalance(sim: Sim, trade: Trade, minAmountOut = 0n): { sim: Sim; verdict: Verdict; amountOut: bigint } {
+export function rebalance(from: Sim, trade: Trade, minAmountOut = 0n): { sim: Sim; verdict: Verdict; amountOut: bigint } {
+  // Like the contract, a trade first runs the crash guard; if the trade then fails, the switch is undone with it.
+  const sim = pokeGuard(from).sim;
   const amountOut = quote(sim, trade);
   const verdict = check(vaultState(sim), trade, amountOut, minAmountOut);
-  if (!verdict.ok) return { sim, verdict, amountOut };
+  if (!verdict.ok) return { sim: from, verdict, amountOut };
   const spent = afterSpend(vaultState(sim), verdict.valueIn);
   return {
     verdict,
