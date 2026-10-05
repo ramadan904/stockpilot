@@ -15,6 +15,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx hardhat compile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Slither (fails on any finding not triaged in slither.db.json; see SECURITY.md)
+        run: |
+          pip install -q slither-analyzer==0.11.6
+          slither . --config-file slither.config.json --fail-low
       - name: Web ABIs match the contracts
         run: node scripts/export-abi.mjs && git diff --exit-code web/src/abi.ts
       - run: npm run typecheck

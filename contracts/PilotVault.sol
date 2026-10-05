@@ -243,9 +243,10 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         _collectFee();
     }
 
-    /// @notice Add funds. Plain transfers work too; this just records who sent what.
+    /// @notice Add funds. Plain transfers work too, but skip the fee settlement below, so prefer this.
     function deposit(address token, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
+        _collectFee(); // settle first, so new money is never charged for time it was not in the vault
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         emit Deposited(msg.sender, token, amount);
     }
@@ -277,6 +278,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 valueIn = _value(amountIn, sell.price, sell.decimals);
         _checkSizeAndSpend(valueIn);
 
+        lastTradeAt = uint64(block.timestamp); // effects before the external call; a revert undoes it
         amountOut = _swap(venue, sell, buy, amountIn, minAmountOut, route);
 
         uint256 valueOut = _value(amountOut, buy.price, buy.decimals);
@@ -284,7 +286,6 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
         _checkBands(sell, buy, totalBefore);
 
-        lastTradeAt = uint64(block.timestamp);
         emit Rebalanced(tokenIn, tokenOut, amountIn, amountOut, valueIn, valueOut, rationale);
     }
 
@@ -351,7 +352,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         }
         delete _tokens;
 
-        uint256 sum;
+        uint256 sum = 0;
         for (uint256 i; i < n; ++i) {
             AssetConfig memory c = cfg[i];
             if (c.token == address(0) || c.feed == address(0)) revert ZeroAddress();
@@ -405,10 +406,12 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         uint256 n = _tokens.length;
         for (uint256 i; i < n; ++i) {
             IERC20 token = IERC20(_tokens[i]);
-            uint256 amount = _feeOn(token.balanceOf(address(this)), elapsed);
-            if (amount == 0) continue;
-            token.safeTransfer(recipient, amount);
-            emit FeeCollected(recipient, address(token), amount);
+            // A token that misbehaves (frozen, paused, reverting) is skipped, never allowed to block a withdrawal or a
+            // pause: the fee on it for this period is simply forgone.
+            try token.balanceOf(address(this)) returns (uint256 balance) {
+                uint256 amount = _feeOn(balance, elapsed);
+                if (amount != 0 && token.trySafeTransfer(recipient, amount)) emit FeeCollected(recipient, address(token), amount);
+            } catch {}
         }
     }
 

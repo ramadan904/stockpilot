@@ -334,6 +334,20 @@ describe("PilotVault", () => {
       expect(await aapl.read.balanceOf([vault.address])).to.equal(0n);
     });
 
+    it("does not charge new deposits for time they were not in the vault", async () => {
+      const { vault, owner, stranger, usdg } = await loadFixture(deployStockPilot);
+      await vault.write.setFee([stranger.account.address, 200]);
+      await time.increase(YEAR);
+      const big = parseUnits("1000000", 6);
+      await usdg.write.mint([owner.account.address, big]);
+      await usdg.write.approve([vault.address, big]);
+      await vault.write.deposit([usdg.address, big]); // settles the year on the old $2,500 of USDG first
+      await vault.write.collectFee(); // a few seconds on the new balance
+      const fee = await usdg.read.balanceOf([stranger.account.address]);
+      // 2% of $2,500 is $50; the $1M arrived seconds ago and owes cents.
+      expect(fee >= parseUnits("50", 6) && fee < parseUnits("52", 6)).to.equal(true);
+    });
+
     it("reports what is owed without moving anything", async () => {
       const { vault, stranger } = await loadFixture(deployStockPilot);
       await vault.write.setFee([stranger.account.address, 100]);

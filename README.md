@@ -158,6 +158,8 @@ mainnet, the vault takes real stock tokens, real feeds and a real venue adapter,
 ## Status and honest limits
 
 This is a hackathon build. The contracts are tested but **not audited**; do not put real money in them.
+[SECURITY.md](SECURITY.md) has the threat model, the invariants that are fuzzed, and the triaged Slither findings that CI
+enforces.
 
 - Prices come from oracles. A wrong oracle price is the main trust assumption: the slippage and band checks are only
   as good as the feed.

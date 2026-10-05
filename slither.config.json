@@ -1,0 +1,6 @@
+{
+  "filter_paths": "node_modules|contracts/mocks",
+  "exclude_informational": true,
+  "exclude_optimization": true,
+  "hardhat_ignore_compile": true
+}
