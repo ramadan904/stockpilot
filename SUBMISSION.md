@@ -1,0 +1,131 @@
+# StockPilot: Crypto World's Fair submission
+
+> **An AI autopilot for tokenized stock portfolios that can only trade inside the rules you sign.**
+
+| | |
+|---|---|
+| **Track** | Ethereum ecosystem: Robinhood Chain (primary), Arbitrum |
+| **Repository** | https://github.com/ramadan904/stockpilot |
+| **Live app** | _add the Vercel URL after deploying_ |
+| **Contracts** | _add the Robinhood Chain testnet addresses from `deployments/robinhoodTestnet.json`_ |
+| **Demo** | [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s, captioned), or run `npm run demo` |
+| **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
+
+## TL;DR for judges
+
+- **The problem:** people want AI to manage their portfolios, but today an AI agent either holds your keys (one bug
+  or prompt injection away from draining you) or only makes suggestions you execute by hand.
+- **The product:** you describe your goal in plain words. Claude drafts a *mandate* (target weights, how far each may
+  drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
+  target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
+  cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
+- **Proof, not promises:** 38 tests, including 360 random trades on which an exact TypeScript model of the rules and
+  the deployed contract must agree. In the demo, a rogue pilot tries eight attacks and the contract stops all eight.
+- **Try it in one click:** the web app's simulator needs no wallet. Live mode creates, funds, pilots, pauses and
+  withdraws from a real vault on Robinhood Chain testnet.
+
+## The problem
+
+Tokenized stocks bring equities onchain: they trade around the clock, settle in seconds and compose with the rest of
+crypto. What they don't come with is portfolio management. Someone holding five stock tokens still has to watch
+prices, notice drift and rebalance by hand, at any hour.
+
+AI agents are the obvious answer, and the obvious risk. To trade for you, an agent needs signing power. Signing power
+over a wallet means the agent (or anyone who compromises it, its prompts, or its dependencies) can do anything with
+your money. Existing answers are either full custody (trust the agent completely) or advice only (do the work
+yourself).
+
+## The solution
+
+StockPilot splits the job three ways, so that no single piece has to be trusted with everything:
+
+1. **The strategist (Claude) decides *what* you want.** It turns "I'm 30, I believe in AI, I can handle swings but
+   want some cash" into a draft mandate with a short explanation per position. Plain code validates the draft
+   (renormalizes weights to exactly 100%, clamps bands and limits, reports every fix). The draft is shown to you; the
+   AI never touches keys or funds.
+2. **You sign the mandate into a vault you own.** `PilotVault` holds your tokens. Only you can withdraw, change the
+   mandate, choose the trading venue, or replace the pilot. You can pause the pilot at any time.
+3. **The pilot decides *when* to trade, and the contract decides *whether it may*.** The pilot is deterministic code
+   that rebalances when an asset drifts halfway to its band edge. Every trade it sends is checked onchain:
+
+| Rule, enforced inside the transaction | Blocks |
+|---|---|
+| Only assets in the mandate, only through the owner's venue | Buying a rug, routing through a pilot-controlled contract |
+| Per-trade and per-day USD caps | Draining the portfolio in one go |
+| Cooldown between trades | Churning |
+| Price freshness | Trading on a closed market's stale price |
+| Output worth at least `1 - slippage` of input **at oracle prices**, measured from the vault's own balances | Sandwiching, colluding venues, adapters that lie about output |
+| **Band rule:** no asset may leave its band around target, unless the trade moves it toward target without crossing it | Concentrating the portfolio, flipping overweight to underweight |
+
+The band rule is the key idea. Inside the bands the pilot has discretion; outside them it can only repair drift,
+never create it. The worst a compromised pilot can do is trade within your bands, under your daily cap, at
+near-oracle prices.
+
+Every trade also commits `keccak256(reason)`: the pilot's plain-English explanation is logged offchain, and anyone
+can check it against the hash in the onchain event.
+
+## Why it has to be onchain
+
+The guarantee is the product. If the limits lived in the agent's code or on our server, you'd be trusting us and the
+agent again. Because they live in a contract you own, they hold even if the pilot's key leaks, the model is
+prompt-injected, or StockPilot the company disappears. You can always withdraw.
+
+## What was built during the hackathon
+
+Everything; the repository started empty.
+
+- **Contracts** (Solidity 0.8.28, OpenZeppelin 5): `PilotVault`, `PilotVaultFactory` (one vault per user, created with
+  its first mandate in one transaction), the `ISwapAdapter` venue interface, and testnet stand-ins (stock tokens,
+  Chainlink-shaped feeds, an oracle-priced market maker, and a hostile adapter used in tests).
+- **Agent** (TypeScript): an exact BigInt model of the vault's rules, a deterministic threshold-rebalancing planner that
+  only proposes trades the model accepts, the Claude strategist (structured output, server-side refusal fallback), a
+  live pilot loop, and a JSONL logbook of the rationale behind each hash.
+- **Web app** (React, viem): a no-wallet simulator with market controls, autopilot and eight attack buttons; and a live
+  mode to create, fund, pilot, pause, re-mandate and withdraw from a vault, with the onchain trade history.
+- **Testing:** 38 tests. Vault rules, custody, pause and ownership; a hostile venue that lies or re-enters; 360
+  randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
+  convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
+  ABIs match the contracts, and runs the end-to-end demo.
+
+## Who it is for, and how it makes money
+
+**Users.** Holders of tokenized stocks who want the discipline of a managed portfolio without handing over custody.
+That starts with crypto-native investors buying stock tokens and extends to anyone a brokerage or wallet onboards to
+onchain equities.
+
+**Distribution.** Two paths:
+- **Direct:** a consumer app. You describe a goal, sign once, and the pilot runs.
+- **Embedded:** the vault and pilot are infrastructure. A wallet, neobank or brokerage app offers "autopilot" to its
+  users, under its own brand, on contracts that keep users in custody.
+
+**Revenue (planned, not built yet).** A management fee on vaults run by the hosted pilot, taken onchain by the vault
+so it is transparent and capped by the mandate; and B2B licensing for embedded use. Self-hosting the pilot stays free.
+The open contracts are the trust anchor; the hosted pilot, strategist and UX are the business.
+
+## Honest limits
+
+- The contracts are tested but **not audited**. Testnet only.
+- Testnets have no tokenized-stock liquidity or stock feeds, so the testnet deployment uses stand-in tokens, mock
+  feeds and an oracle-priced market maker behind the same interfaces a mainnet deployment would use.
+- Oracle prices are the main trust assumption: the slippage and band checks are only as good as the feed.
+- The daily limit resets at 00:00 UTC rather than on a rolling 24-hour window.
+
+## Roadmap
+
+1. Mainnet path on Robinhood Chain: a real DEX/RFQ venue adapter and production stock price feeds; then an audit.
+2. A hosted pilot with the onchain fee module, and notifications ("your pilot sold $408 of NVDA, here's why").
+3. Pilot as an MCP server, so any agent (Claude, or the user's own) can fly a vault under the same onchain limits.
+4. More chains where tokenized stocks trade, including Solana, with the same mandate model.
+
+## Run it
+
+```bash
+npm install
+npm test          # 38 tests
+npm run demo      # the whole story on a local chain, about ten seconds
+npm run web       # the web app at http://localhost:5173
+```
+
+## Team
+
+_Add your name, background, and links here._
