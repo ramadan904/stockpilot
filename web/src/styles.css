@@ -804,3 +804,28 @@ body.touring {
 .clock-fill[data-tone="bad"] {
   background: var(--bad);
 }
+
+/* Ask your vault */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.chat-q {
+  align-self: flex-end;
+  margin: 0 0 6px auto;
+  max-width: 85%;
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 12px 12px 2px 12px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.chat-a {
+  padding: 10px 12px;
+  border-radius: 12px 12px 12px 2px;
+  border: 1px solid var(--border);
+  max-width: 95%;
+}

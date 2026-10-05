@@ -2,9 +2,14 @@
 // POST /api/refine { proposal, instruction, usd } -> { proposal, source, changes };
 // POST /api/report ReportFacts -> { report, source }.
 // POST /api/subscribe Subscription -> { verified, forwarded } (alerts signed by the vault's owner).
+// POST /api/ask { question, facts, history } -> AskResult (answers grounded in the vault's onchain facts).
 // The API key stays on the server; the browser turns the proposal into a mandate for whichever chain it is on.
 
-import { createPublicClient, http, type Address } from "viem";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createPublicClient, getAddress, http, type Address } from "viem";
+import { VaultFacts, askVault, attachRationales, type Turn } from "./ask";
+import { LOG_DIR } from "./log";
 import { verifySubscription } from "./alerts";
 import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
@@ -84,4 +89,51 @@ export async function handleSubscribe(
   if (!sink) return { status: 200, json: { verified: true, forwarded: false } };
   const res = await fetchImpl(sink, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v.sub) }).catch(() => null);
   return res?.ok ? { status: 200, json: { verified: true, forwarded: true } } : { status: 502, json: { error: "Verified, but the operator's store did not accept it." } };
+}
+
+const MAX_QUESTION_CHARS = 500;
+
+/** The pilot's logbook for a vault, if this server keeps one (the fleet host or local development). */
+function readLog(vault: string): { rationale: string }[] {
+  let names: string[] = [vault];
+  try {
+    names = [...new Set([vault, getAddress(vault), vault.toLowerCase()])];
+  } catch {
+    // not an address: try the name as given
+  }
+  for (const n of names) {
+    const file = join(LOG_DIR, `${n}.jsonl`);
+    if (!existsSync(file)) continue;
+    return readFileSync(file, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((l) => {
+        try {
+          const e = JSON.parse(l);
+          return typeof e.rationale === "string" ? [{ rationale: e.rationale }] : [];
+        } catch {
+          return [];
+        }
+      });
+  }
+  return [];
+}
+
+export async function handleAsk(body: unknown, log: (vault: string) => { rationale: string }[] = readLog): Promise<{ status: number; json: unknown }> {
+  const { question, facts, history } = (body ?? {}) as { question?: unknown; facts?: unknown; history?: unknown };
+  if (typeof question !== "string" || !question.trim()) return { status: 400, json: { error: "Ask a question." } };
+  if (question.length > MAX_QUESTION_CHARS) return { status: 400, json: { error: `Keep the question under ${MAX_QUESTION_CHARS} characters.` } };
+  const parsed = VaultFacts.safeParse(facts);
+  if (!parsed.success) return { status: 400, json: { error: "Malformed vault facts." } };
+  const turns: Turn[] = Array.isArray(history)
+    ? history
+        .filter((t): t is Turn => typeof t?.question === "string" && typeof t?.answer === "string")
+        .slice(-6)
+        .map((t) => ({ question: t.question.slice(0, MAX_QUESTION_CHARS), answer: t.answer.slice(0, 4_000) }))
+    : [];
+  try {
+    return { status: 200, json: await askVault(question.trim(), attachRationales(parsed.data, log(parsed.data.vault)), turns) };
+  } catch (e) {
+    return { status: 502, json: { error: (e as Error).message } };
+  }
 }

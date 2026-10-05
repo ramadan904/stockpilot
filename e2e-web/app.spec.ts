@@ -190,6 +190,41 @@ test("taxes: a profitable sale shows up lot by lot and downloads as Form 8949-st
   expect(errors).toEqual([]);
 });
 
+test("ask your vault: why the pilot sold, answered from onchain facts with a verified reason and a cited trade", async ({ page }) => {
+  const errors = await pageErrors(page);
+  const open = async () => {
+    await page.getByRole("tab", { name: "Live (testnet)" }).click();
+    await page.getByLabel("Network").selectOption("31337");
+    await page.getByRole("button", { name: "Use local dev account" }).click();
+  };
+  await page.goto("/");
+  await open();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+  await movePrice("NVDA", 1.4);
+  await page.reload();
+  await open();
+  await expect(page.getByText("Pilot's next move")).toContainText("Selling", { timeout: 30_000 });
+  await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
+  const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
+  await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
+
+  const ask = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Ask your vault" }) });
+  await ask.getByRole("button", { name: "Why did the pilot last trade?" }).click();
+  const answer = ask.locator(".chat-a").last();
+  await expect(answer).toContainText("NVDA", { timeout: 30_000 });
+  await expect(answer).toContainText(/tx 0x[0-9a-f]{8}/); // the trade it relies on, checked against the vault's history
+  if (!(await answer.textContent())!.includes("Claude")) await expect(answer).toContainText("matches the hash stored onchain");
+
+  await ask.getByLabel("Your question").fill("What happens if I lose my keys?");
+  await ask.getByRole("button", { name: "Ask" }).click();
+  await expect(ask.locator(".chat-a")).toHaveCount(2, { timeout: 30_000 });
+  await expect(ask.locator(".chat-a").last()).toContainText(/heir/i);
+  expect(errors).toEqual([]);
+});
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");

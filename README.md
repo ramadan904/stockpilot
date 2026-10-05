@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 140 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, taxes, services, backtest
+npm test          # 146 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -112,6 +112,13 @@ first out, lot by lot, split into short and long term, with exact integer arithm
 shape of Form 8949. Open lots under water are shown as loss-harvesting candidates, with the wash-sale caveat. Not tax
 advice; every assumption is listed next to the numbers.
 
+**Ask your vault.** Owners ask in plain words ("why did you sell NVDA?", "what happens if I lose my keys?") and get
+answers built only from facts the page reads from the chain: holdings, limits, trades, settings, taxes, heir
+([`agent/ask.ts`](agent/ask.ts)). Claude must cite the transactions it relies on, and any citation that is not in the
+vault's history is removed before the answer is shown. A trade's written reason is used only when it hashes to the
+`rationale` committed onchain with that trade, so the explanation is provably the one the pilot gave at the time.
+Without an API key, the common questions are answered directly from the facts.
+
 ## The pieces
 
 | Path | What it is |
@@ -134,6 +141,7 @@ advice; every assumption is listed next to the numbers.
 | [`agent/relayer.ts`](agent/relayer.ts) | Testnet oracle relayer: real stock prices from Pyth's Hermes API onto the testnet feeds, with deviation and heartbeat rules, honest publish times, and no updates while the market is closed (`npm run relay`) |
 | [`agent/backtest.ts`](agent/backtest.ts) | The real planner and rules over 200 simulated markets against buy-and-hold (the web app's Backtest tab) |
 | [`agent/reporter.ts`](agent/reporter.ts) | Claude writes the owner's report from facts computed onchain, never inventing numbers |
+| [`agent/ask.ts`](agent/ask.ts) | Ask your vault: answers from onchain facts, citations checked against the vault's history, trade reasons verified against their onchain hash |
 | [`agent/tax.ts`](agent/tax.ts) | Tax lots from onchain events: FIFO, short and long term, fees in kind, Form 8949-style CSV, loss-harvesting candidates |
 | [`agent/mandate.ts`](agent/mandate.ts) | Proposal schema, validation and presets; shared by the server, scripts and browser |
 | [`web/`](web) | The web app: simulator and live mode (React, viem) |
@@ -159,8 +167,8 @@ you like: any agent with the pilot key gets the same onchain limits.
   paused; Uniswap V3 routing and path checks; Pyth scaling and confidence; a full production deploy against mocks.
 - **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
   guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, listing and hiring a pilot
-  in the marketplace, naming an heir who then claims the vault, a taxable sale exported as CSV, and a live vault
-  created, piloted, paused and emptied from the browser.
+  in the marketplace, naming an heir who then claims the vault, a taxable sale exported as CSV, asking the vault why it
+  sold, and a live vault created, piloted, paused and emptied from the browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
   [`test/backtest.test.ts`](test/backtest.test.ts), [`test/service.test.ts`](test/service.test.ts)): the fleet flies

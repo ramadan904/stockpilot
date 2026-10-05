@@ -7,7 +7,7 @@ import { Card, usd } from "./ui";
 type Kind = "trade" | "money" | "control";
 
 const sessionBaseline = new Map<string, bigint>();
-interface Entry {
+export interface Entry {
   key: string;
   block: bigint;
   tx: Hash;
@@ -47,13 +47,8 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
 
   useEffect(() => {
     (async () => {
-      const head = await client.getBlockNumber();
-      const logs = await client.getContractEvents({ address: vault, abi, fromBlock: head > 50_000n ? head - 50_000n : 0n });
-      const list = logs.map((l, i) => describe(l as unknown as RawLog, i, assets, owner, pilot)).filter((e): e is Entry => e !== null).reverse();
-      // Timestamps for the most recent blocks only, to keep this to a handful of requests.
-      const blocks = [...new Set(list.slice(0, 40).map((e) => e.block))];
-      const times = new Map(await Promise.all(blocks.map(async (b) => [b, Number((await client.getBlock({ blockNumber: b })).timestamp)] as const)));
-      setEntries(list.map((e) => ({ ...e, time: times.get(e.block) })));
+      const { head, entries: list } = await loadActivity(client, vault, abi, assets, owner, pilot);
+      setEntries(list);
       try {
         localStorage.setItem(seenKey, head.toString());
       } catch {
@@ -110,6 +105,17 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
       )}
     </Card>
   );
+}
+
+/** The vault's history as plain sentences, newest first; the most recent 40 carry their block time. */
+export async function loadActivity(client: PublicClient, vault: Address, abi: Abi, assets: AssetState[], owner: Address, pilot: Address) {
+  const head = await client.getBlockNumber();
+  const logs = await client.getContractEvents({ address: vault, abi, fromBlock: head > 50_000n ? head - 50_000n : 0n });
+  const list = logs.map((l, i) => describe(l as unknown as RawLog, i, assets, owner, pilot)).filter((e): e is Entry => e !== null).reverse();
+  // Timestamps for the most recent blocks only, to keep this to a handful of requests.
+  const blocks = [...new Set(list.slice(0, 40).map((e) => e.block))];
+  const times = new Map(await Promise.all(blocks.map(async (b) => [b, Number((await client.getBlock({ blockNumber: b })).timestamp)] as const)));
+  return { head, entries: list.map((e) => ({ ...e, time: times.get(e.block) })) };
 }
 
 interface RawLog {

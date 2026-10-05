@@ -18,7 +18,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { LISTINGS } from "../../agent/listings";
 import { toMandate } from "../../agent/mandate";
-import { readVault, sendTrade } from "../../agent/chain";
+import { rationaleHash, readVault, sendTrade } from "../../agent/chain";
 import { available, type VaultState } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
@@ -32,6 +32,7 @@ import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 import { InheritanceCard } from "./Inheritance";
 import { TaxCard } from "./Tax";
+import { AskCard, rememberReason } from "./Ask";
 
 declare global {
   interface Window {
@@ -428,6 +429,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
               onClick={run(async () => {
                 if (p.action !== "trade") return;
                 setError(null);
+                rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
                 await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
               })}
             >
@@ -504,6 +506,18 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         })}
       />
 
+      <AskCard
+        client={client as never}
+        vault={vault}
+        abi={pilotVaultAbi as Abi}
+        chainId={ctx.chain.id}
+        chainName={ctx.chain.name}
+        state={state}
+        owner={roles.owner}
+        pilot={roles.pilot}
+        pilotName={ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? null}
+        feeBps={roles.feeBps}
+      />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
