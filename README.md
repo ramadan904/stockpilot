@@ -106,7 +106,10 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`agent/model.ts`](agent/model.ts) | An exact BigInt model of the vault's checks, so the pilot knows before sending whether a trade will pass |
 | [`agent/planner.ts`](agent/planner.ts) | The pilot's brain: deterministic threshold rebalancing that only proposes trades the model accepts |
 | [`agent/strategist.ts`](agent/strategist.ts) | Claude turns a goal in plain words into a draft mandate; code validates it and converts it to onchain units |
-| [`agent/run.ts`](agent/run.ts) | The live pilot loop for a testnet or mainnet vault |
+| [`agent/run.ts`](agent/run.ts) | The live pilot loop for one vault |
+| [`agent/fleet.ts`](agent/fleet.ts) | The hosted pilot: flies every vault that names it, optionally only fee-paying ones, collects fees, posts trades to a Slack/Discord webhook (`npm run fleet`) |
+| [`agent/mcp.ts`](agent/mcp.ts) | MCP server: any AI agent can fly a vault under the same onchain limits ([docs/MCP.md](docs/MCP.md), `npm run mcp`) |
+| [`agent/reporter.ts`](agent/reporter.ts) | Claude writes the owner's report from facts computed onchain, never inventing numbers |
 | [`agent/mandate.ts`](agent/mandate.ts) | Proposal schema, validation and presets; shared by the server, scripts and browser |
 | [`web/`](web) | The web app: simulator and live mode (React, viem) |
 | [`api/propose.ts`](api/propose.ts) | The strategist endpoint, as a Vercel function |

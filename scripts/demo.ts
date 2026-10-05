@@ -6,8 +6,8 @@
 
 import hre from "hardhat";
 import { time } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
-import { BaseError, ContractFunctionRevertedError, getAddress, parseUnits, type Address } from "viem";
-import { readVault, rationaleHash, sendTrade } from "../agent/chain";
+import { getAddress, parseUnits, type Address } from "viem";
+import { rationaleHash, readVault, revertReason, sendTrade } from "../agent/chain";
 import { appendLog } from "../agent/log";
 import { drift, fmtUsd, pct, plan } from "../agent/planner";
 import { propose } from "../agent/strategist";
@@ -109,7 +109,7 @@ async function main() {
     ["Rewrite the mandate", () => asPilot.write.setMandate([strategy.mandate.assets, strategy.mandate.limits])],
   ];
   for (const [what, attempt] of attempts) {
-    console.log(`   ${what.padEnd(42)} -> blocked: ${await revertReason(attempt)}`);
+    console.log(`   ${what.padEnd(42)} -> blocked: ${await blockedBy(attempt)}`);
   }
 
   step("7. The owner pulls the brake");
@@ -157,17 +157,12 @@ function bySymbol<T extends { symbol: string }>(s: { assets: T[] }, sym: string)
   return s.assets.find((a) => a.symbol === sym)!;
 }
 
-async function revertReason(attempt: () => Promise<unknown>) {
+async function blockedBy(attempt: () => Promise<unknown>) {
   try {
     await attempt();
     return "NOT BLOCKED (this is a bug)";
   } catch (e) {
-    if (e instanceof BaseError) {
-      const revert = e.walk((x) => x instanceof ContractFunctionRevertedError);
-      if (revert instanceof ContractFunctionRevertedError && revert.data?.errorName) return revert.data.errorName;
-    }
-    const m = /custom error '?(\w+)/.exec(String((e as Error).message));
-    return m ? m[1] : String((e as Error).message).split("\n")[0];
+    return revertReason(e);
   }
 }
 

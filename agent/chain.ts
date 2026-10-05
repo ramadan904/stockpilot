@@ -1,6 +1,6 @@
 // Reads a PilotVault into the planner's VaultState and sends the pilot's trades.
 
-import { keccak256, toHex, type Abi, type PublicClient, type WalletClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, decodeErrorResult, isHex, keccak256, toHex, type Abi, type PublicClient, type WalletClient } from "viem";
 import type { Address, VaultState } from "./model";
 import type { PlannedTrade } from "./planner";
 
@@ -93,4 +93,29 @@ export async function sendTrade(
   const hash = await wallet.writeContract(request);
   const receipt = await client.waitForTransactionReceipt({ hash });
   return { hash, receipt };
+}
+
+/**
+ * The custom error a failed call reverted with (e.g. "OutsideBand"), however the node reported it: viem's decoded
+ * error, raw revert data anywhere in the cause chain, or a node's text message. Falls back to the first line.
+ */
+export function revertReason(e: unknown, abi?: Abi): string {
+  if (e instanceof BaseError) {
+    const revert = e.walk((x) => x instanceof ContractFunctionRevertedError);
+    if (revert instanceof ContractFunctionRevertedError && revert.data?.errorName) return revert.data.errorName;
+  }
+  for (let c = e as { cause?: unknown; data?: unknown; message?: string } | undefined, i = 0; c && i < 10; c = c.cause as typeof c, i++) {
+    const data = typeof c.data === "string" ? c.data : (c.data as { data?: unknown } | undefined)?.data;
+    if (abi && typeof data === "string" && isHex(data) && data.length >= 10) {
+      try {
+        return decodeErrorResult({ abi, data }).errorName;
+      } catch {
+        // not one of ours; keep looking
+      }
+    }
+    const m = /custom error '?(\w+)/.exec(String(c.message ?? ""));
+    if (m) return m[1];
+  }
+  const err = e as { shortMessage?: string; message?: string };
+  return (err.shortMessage ?? err.message ?? String(e)).split("\n")[0];
 }
