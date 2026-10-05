@@ -97,6 +97,10 @@ Everything; the repository started empty.
 - **For owners:** refine a draft in plain words ("less Tesla, more cash"), review any mandate change side by side before
   signing, and alerts by browser, email or webhook with a daily digest written by Claude. Alert subscriptions are
   signed by the vault's owner, so nobody can redirect them. Gas for every action is in [docs/GAS.md](docs/GAS.md).
+- **Multi-chain:** the mandate rules also exist as a Rust crate that reproduces 3,000 random verdicts of the TypeScript
+  model exactly (which is itself proven equal to the EVM contract), and a Solana program built on it: vault PDAs,
+  pilot-only rebalancing through an owner-chosen venue, owner-only withdrawals. A proof of concept, tested natively
+  ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
 - **Testing:** 109 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
@@ -134,7 +138,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
    script are built), then an audit.
 2. Run the hosted fleet as a service, with email notifications alongside webhooks.
 3. Embedded "autopilot" for wallets and apps, under their brand, on the same contracts.
-4. More chains where tokenized stocks trade, including Solana, with the same mandate model.
+4. Take the Solana program from proof of concept to devnet: build for SBF, Pyth price accounts, Jupiter as the venue.
 
 ## Run it
 

@@ -151,9 +151,10 @@ pub fn band_allows(asset: &Asset, w_before: u128, w_after: u128) -> bool {
     }
 }
 
-/// Would the vault accept selling `trade.amount_in` of asset `trade.sell` if the venue pays `amount_out` of asset
-/// `trade.buy`? Checks run in the EVM contract's order, so the first failure matches the error it would revert with.
-pub fn check(assets: &[Asset], limits: &Limits, clock: &Clock, paused: bool, trade: &Trade, amount_out: u128, min_amount_out: u128) -> Result<Accepted, Reason> {
+/// The checks that do not depend on the fill: pause, the trade itself, cooldown, price freshness, size, budget and
+/// balance. A program can run these before swapping, so a doomed trade never reaches the venue. Returns the trade's
+/// USD value.
+pub fn check_before_fill(assets: &[Asset], limits: &Limits, clock: &Clock, paused: bool, trade: &Trade) -> Result<u128, Reason> {
     if paused {
         return Err(Reason::EnforcedPause);
     }
@@ -169,12 +170,11 @@ pub fn check(assets: &[Asset], limits: &Limits, clock: &Clock, paused: bool, tra
     if assets.iter().any(|a| clock.now - a.price_updated_at > limits.max_price_age as i64) {
         return Err(Reason::StalePrice);
     }
-    let (sell, buy) = match (assets.get(trade.sell), assets.get(trade.buy)) {
-        (Some(s), Some(b)) => (s, b),
+    let sell = match (assets.get(trade.sell), assets.get(trade.buy)) {
+        (Some(s), Some(_)) => s,
         _ => return Err(Reason::AssetNotInMandate),
     };
 
-    let total_before = total_value(assets);
     let value_in = value_of(trade.amount_in, sell.price, sell.decimals);
     if value_in > limits.max_trade_usd {
         return Err(Reason::TradeTooLarge);
@@ -185,6 +185,15 @@ pub fn check(assets: &[Asset], limits: &Limits, clock: &Clock, paused: bool, tra
     if trade.amount_in > sell.balance {
         return Err(Reason::InsufficientBalance);
     }
+    Ok(value_in)
+}
+
+/// Would the vault accept selling `trade.amount_in` of asset `trade.sell` if the venue pays `amount_out` of asset
+/// `trade.buy`? Checks run in the EVM contract's order, so the first failure matches the error it would revert with.
+pub fn check(assets: &[Asset], limits: &Limits, clock: &Clock, paused: bool, trade: &Trade, amount_out: u128, min_amount_out: u128) -> Result<Accepted, Reason> {
+    let value_in = check_before_fill(assets, limits, clock, paused, trade)?;
+    let (sell, buy) = (&assets[trade.sell], &assets[trade.buy]);
+    let total_before = total_value(assets);
     if amount_out < min_amount_out {
         return Err(Reason::InsufficientOutput);
     }

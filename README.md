@@ -151,6 +151,14 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Strategist** ([`test/strategist.test.ts`](test/strategist.test.ts)): a sloppy proposal (unknown assets, weights that
   don't add up, absurd bands) is repaired and every fix is reported; every preset mandate is accepted by the vault.
 
+## Also on Solana (proof of concept)
+
+[`solana/`](solana) has the same mandate rules as a `no_std` Rust crate, proven to reach the same verdicts as the
+TypeScript model (and so the EVM contract) on 3,000 random scenarios, and a Solana program built on it: vault PDAs that
+own the token accounts, pilot-only `Rebalance` through an owner-chosen venue judged on what actually arrived, owner-only
+`Withdraw`, pause. Tested natively with a simulated runtime; see [solana/README.md](solana/README.md) for what that does
+and does not prove.
+
 ## Gas
 
 A trade with every mandate check costs 155k gas with 2 assets and 285k with 8, under a cent at typical L2 gas prices.
