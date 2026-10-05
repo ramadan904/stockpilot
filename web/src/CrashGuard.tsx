@@ -24,10 +24,12 @@ export function CrashGuardCard(props: {
   vault: Address;
   state: VaultState;
   isOwner: boolean;
+  /** False in a read-only view. */
+  canWrite: boolean;
   send: (label: string, write: () => Promise<Hash>) => Promise<unknown>;
   run: (fn: () => Promise<unknown>) => () => void;
 }) {
-  const { client, wallet, chain, vault, state, isOwner, send, run } = props;
+  const { client, wallet, chain, vault, state, isOwner, canWrite, send, run } = props;
   const [guard, setGuard] = useState<Guard | null>(null);
   const [editing, setEditing] = useState(false);
   const stable = state.assets.find((a) => /USD/.test(a.symbol)) ?? state.assets[0];
@@ -101,9 +103,11 @@ export function CrashGuardCard(props: {
             {guard.peakUsd === 0n ? "No peak recorded yet." : `Now ${usd(total, false)}, ${fall.toFixed(1)}% below the peak; trips at ${trigger}%.`}
           </p>
           <div className="row">
-            <button className="btn" onClick={write("Check the guard", "poke")}>
-              Check now
-            </button>
+            {canWrite && (
+              <button className="btn" onClick={write("Check the guard", "poke")}>
+                Check now
+              </button>
+            )}
             {isOwner && (
               <>
                 <button className="btn" onClick={() => setEditing(true)}>

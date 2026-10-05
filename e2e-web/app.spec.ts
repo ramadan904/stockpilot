@@ -319,3 +319,36 @@ async function movePrice(symbol: string, factor: number) {
     await pub.waitForTransactionReceipt({ hash: await wallet.writeContract({ address: feed, abi, functionName: "setPrice", args: [next] }) });
   }
 }
+
+test("a shared link opens a vault read-only, without a wallet", async ({ page, context }) => {
+  const errors = await pageErrors(page);
+  // Create a vault as the owner, then copy its share link.
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Cash only" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit USDG: done." })).toBeVisible({ timeout: 60_000 });
+  const vault = await page.locator("[data-address]").first().getAttribute("data-address");
+
+  // A visitor with no wallet follows the link.
+  const visitor = await context.newPage();
+  const visitorErrors = await pageErrors(visitor);
+  await visitor.goto(`/?chain=31337&vault=${vault}`);
+  await expect(visitor.getByText("Read-only view")).toBeVisible();
+  await expect(visitor.locator("[data-address]")).toHaveAttribute("data-address", vault!);
+  await expect(visitor.locator(".stat").filter({ hasText: "Your role" })).toContainText("Viewer");
+  await expect(visitor.locator(".stat").filter({ hasText: "Value" }).first()).toContainText("$");
+  await expect(visitor.getByRole("heading", { name: "Activity" })).toBeVisible();
+  // Nothing that needs a signature is offered.
+  await expect(visitor.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  await expect(visitor.getByRole("button", { name: "Run pilot (send planned trade)" })).toHaveCount(0);
+  await expect(visitor.getByRole("button", { name: "Create and fund vault" })).toHaveCount(0);
+  await expect(visitor.getByRole("heading", { name: "Controls" })).toHaveCount(0);
+  // The visitor can still connect a wallet on top of the shared vault.
+  await expect(visitor.getByRole("button", { name: "Connect wallet" })).toBeVisible();
+  expect(errors).toEqual([]);
+  expect(visitorErrors).toEqual([]);
+});

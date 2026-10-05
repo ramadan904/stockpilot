@@ -111,13 +111,15 @@ export function PilotPicker(props: { market: Market; me: Address; value: string;
 export function MarketplaceCard(props: {
   market: Market;
   me: Address;
+  /** False in a read-only view. */
+  canList: boolean;
   registry: Address;
   wallet: WalletClient;
   chain: Chain;
   send: (label: string, write: () => Promise<Hash>) => Promise<unknown>;
   run: (fn: () => Promise<unknown>) => () => void;
 }) {
-  const { market, me, registry, wallet, chain, send, run } = props;
+  const { market, me, canList, registry, wallet, chain, send, run } = props;
   const mine = market.byAddress.get(me.toLowerCase());
   const [name, setName] = useState(mine?.name ?? "");
   const [uri, setUri] = useState(mine?.uri ?? "");
@@ -164,7 +166,7 @@ export function MarketplaceCard(props: {
           </table>
         </div>
       )}
-      {!open ? (
+      {!canList ? null : !open ? (
         <button className="btn small" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>
           {mine?.active ? "Edit your listing" : "List yourself as a pilot"}
         </button>

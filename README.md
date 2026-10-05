@@ -66,9 +66,10 @@ npm run web       # http://localhost:5173
 ```
 
 - **Take the 60-second tour**: one button walks through the whole story in the real simulator, with captions: a market
-  shock, the pilot rebalancing, a hacked pilot blocked eight times, weeks of autopilot, and a written report.
-- **Simulator** (no wallet): draft a mandate from a goal, move the market, run the pilot or let it fly on autopilot,
-  start in cash and watch it invest, chart the vault against buy-and-hold, and try eight attacks a rogue pilot might
+  shock, the pilot rebalancing, a hacked pilot blocked eight times, weeks of autopilot, a crash that trips the crash
+  guard, and a written report.
+- **Simulator** (no wallet): draft a mandate from a goal, move the market (or crash it), run the pilot or let it fly
+  on autopilot, arm the crash guard, start in cash and watch it invest, chart the vault against buy-and-hold, and try eight attacks a rogue pilot might
   make.
 - **Backtest**: the mandate over 200 simulated markets against buy-and-hold: returns, drawdowns, volatility and how
   concentrated each gets. Plus a **stress test** through five shaped crashes and rallies, left alone, piloted, and
@@ -79,7 +80,8 @@ npm run web       # http://localhost:5173
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
   with "new since your last visit" markers. Pick a pilot from the **marketplace** by its onchain record, name an
   **heir**, arm the **crash guard**, **ask the vault** questions in plain words, see **performance** against your
-  untraded deposits, and download **tax** lots as CSV. Refine the draft in plain words ("less Tesla, more cash"), review any
+  untraded deposits, and download **tax** lots as CSV. **Share** any vault as a link (`?chain=…&vault=…`) that opens
+  read-only, without a wallet. Refine the draft in plain words ("less Tesla, more cash"), review any
   mandate change side by side before signing it, and turn on alerts: in the browser, or by email and webhook from the
   hosted pilot with a daily digest. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
   is committed.

@@ -64,7 +64,8 @@ async function requestDraft(goal: string, usd: number): Promise<{ proposal: Prop
 }
 
 export function App() {
-  const [tab, setTab] = useState<"sim" | "backtest" | "live">("sim");
+  // A shared vault link (?chain=…&vault=…) opens straight on the Live tab.
+  const [tab, setTab] = useState<"sim" | "backtest" | "live">(() => (new URLSearchParams(window.location.search).get("vault") ? "live" : "sim"));
   const [tourRequest, setTourRequest] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(() => makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000));
   const [busy, setBusy] = useState(false);

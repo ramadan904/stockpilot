@@ -49,14 +49,32 @@ const HARDHAT_DEV_KEYS = [
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
 ] as const;
 
-type Wallet = { client: WalletClient; address: Address; kind: "injected" | "dev" };
+type Wallet = { client: WalletClient; address: Address; kind: "injected" | "dev" | "watch" };
+
+/** A vault shared by link: ?chain=<id>&vault=<address>. */
+function sharedVault(): { chainId: number; vault: Address } | null {
+  const q = new URLSearchParams(window.location.search);
+  const vault = q.get("vault");
+  const chainId = Number(q.get("chain"));
+  return vault && isAddress(vault) && CHAINS.some((c) => c.id === chainId) ? { chainId, vault } : null;
+}
+
+/** Read-only: no account, so nothing can be signed; every card shows its viewer state. */
+function watchWallet(chain: Chain): Wallet {
+  return { client: createWalletClient({ chain, transport: http() }), address: zeroAddress, kind: "watch" };
+}
+
+export function shareLink(chainId: number, vault: Address) {
+  return `${window.location.origin}${window.location.pathname}?chain=${chainId}&vault=${vault}`;
+}
 
 export function Live({ draft }: { draft: Draft | null }) {
-  const [chain, setChain] = useState<Chain>(CHAINS[0]);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const shared = useMemo(sharedVault, []);
+  const [chain, setChain] = useState<Chain>(() => CHAINS.find((c) => c.id === shared?.chainId) ?? CHAINS[0]);
+  const [wallet, setWallet] = useState<Wallet | null>(() => (shared ? watchWallet(CHAINS.find((c) => c.id === shared.chainId)!) : null));
   const [status, setStatus] = useState<{ tone: "info" | "bad"; text: string; tx?: Hash } | null>(null);
   const [vaults, setVaults] = useState<Address[]>([]);
-  const [selected, setSelected] = useState<Address | null>(null);
+  const [selected, setSelected] = useState<Address | null>(shared?.vault ?? null);
   const [refresh, setRefresh] = useState(0);
   const deployment = deploymentFor(chain.id);
   const client = useMemo(() => createPublicClient({ chain, transport: http() }), [chain]);
@@ -139,7 +157,12 @@ export function Live({ draft }: { draft: Draft | null }) {
               ))}
             </select>
           </label>
-          {wallet ? (
+          {wallet?.kind === "watch" && (
+            <span className="pill info" style={{ alignSelf: "end", marginBottom: 8 }}>
+              Read-only view
+            </span>
+          )}
+          {wallet && wallet.kind !== "watch" ? (
             <span className="pill ok" style={{ alignSelf: "end", marginBottom: 8 }}>
               {wallet.kind === "dev" ? `Dev account ${HARDHAT_DEV_KEYS.findIndex((k) => privateKeyToAccount(k).address === wallet.address) + 1} ` : ""}
               {shortAddr(wallet.address)}
@@ -194,7 +217,7 @@ export function Live({ draft }: { draft: Draft | null }) {
             )}
           </div>
           <div className="stack">
-            <CreateVault ctx={ctx} draft={draft} onCreated={(v) => { setSelected(v); setRefresh((r) => r + 1); }} />
+            {wallet!.kind !== "watch" && <CreateVault ctx={ctx} draft={draft} onCreated={(v) => { setSelected(v); setRefresh((r) => r + 1); }} />}
             {vaults.length > 1 && (
               <Card title="Your vaults">
                 {vaults.map((v) => (
@@ -210,6 +233,7 @@ export function Live({ draft }: { draft: Draft | null }) {
                 key={`${wallet!.address}-${market.pilots.length}`}
                 market={market}
                 me={wallet!.address}
+                canList={wallet!.kind !== "watch"}
                 registry={deployment.registry}
                 wallet={wallet!.client}
                 chain={chain}
@@ -380,8 +404,8 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   if (!state || !roles) return <Card title="Vault"><p className="muted">Loading…</p></Card>;
 
   const d = drift(state);
-  const isOwner = roles.owner.toLowerCase() === wallet.address.toLowerCase();
-  const isPilot = roles.pilot.toLowerCase() === wallet.address.toLowerCase();
+  const isOwner = wallet.kind !== "watch" && roles.owner.toLowerCase() === wallet.address.toLowerCase();
+  const isPilot = wallet.kind !== "watch" && roles.pilot.toLowerCase() === wallet.address.toLowerCase();
   const p = plan(state);
   const symbolOf = (t: Address) => state.assets.find((a) => a.token.toLowerCase() === t.toLowerCase())?.symbol ?? shortAddr(t);
   const call = (label: string, functionName: string, args: readonly unknown[] = []) =>
@@ -391,7 +415,12 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
     <>
       <Card
         title={<>Vault <span className="mono" title={vault} data-address={vault}>{shortAddr(vault)}</span></>}
-        aside={<span className={`pill ${state.paused ? "bad" : "ok"}`}>{state.paused ? "Paused" : "Active"}</span>}
+        aside={
+          <span className="row" style={{ gap: 6 }}>
+            <ShareButton chainId={ctx.chain.id} vault={vault} />
+            <span className={`pill ${state.paused ? "bad" : "ok"}`}>{state.paused ? "Paused" : "Active"}</span>
+          </span>
+        }
       >
         <div className="stats">
           <div className="stat">
@@ -424,60 +453,62 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
-      <Card title="Controls">
-        <div className="row">
-          {isPilot && (
-            <button
-              className="btn primary"
-              disabled={p.action !== "trade"}
-              onClick={run(async () => {
-                if (p.action !== "trade") return;
-                setError(null);
-                rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
-                await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
-              })}
-            >
-              Run pilot (send planned trade)
-            </button>
-          )}
-          {isOwner && (
-            <>
-              <button className={`btn ${state.paused ? "" : "danger"}`} onClick={run(() => call(state.paused ? "Unpause" : "Pause", state.paused ? "unpause" : "pause"))}>
-                {state.paused ? "Unpause" : "Pause pilot"}
-              </button>
-              {draft && (
-                <button className="btn" onClick={() => setReviewing(true)}>
-                  Review drafted mandate
-                </button>
-              )}
-              {roles.feeBps > 0 && (
-                <button className="btn" onClick={run(() => call("Cancel pilot fee", "setFee", [zeroAddress, 0]))}>
-                  Cancel fee
-                </button>
-              )}
+      {(isOwner || isPilot) && (
+        <Card title="Controls">
+          <div className="row">
+            {isPilot && (
               <button
-                className="btn danger"
+                className="btn primary"
+                disabled={p.action !== "trade"}
                 onClick={run(async () => {
-                  for (const a of state.assets) if (a.balance > 0n) await call(`Withdraw ${a.symbol}`, "withdraw", [a.token, a.balance, wallet.address]);
+                  if (p.action !== "trade") return;
+                  setError(null);
+                  rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
+                  await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
                 })}
               >
-                Withdraw everything
+                Run pilot (send planned trade)
               </button>
-            </>
-          )}
-        </div>
-        {isOwner && (
-          <div className="row" style={{ marginTop: 12 }}>
-            <input type="text" placeholder={`Pilot: ${roles.pilot}`} value={newPilot} onChange={(e) => setNewPilot(e.target.value.trim())} spellCheck={false} style={{ flex: 1, minWidth: 200 }} />
-            <button className="btn" disabled={!isAddress(newPilot)} onClick={run(() => call("Set pilot", "setPilot", [newPilot]))}>
-              Set pilot
-            </button>
-            <button className="btn danger" onClick={run(() => call("Revoke pilot", "setPilot", [zeroAddress]))}>
-              Revoke
-            </button>
+            )}
+            {isOwner && (
+              <>
+                <button className={`btn ${state.paused ? "" : "danger"}`} onClick={run(() => call(state.paused ? "Unpause" : "Pause", state.paused ? "unpause" : "pause"))}>
+                  {state.paused ? "Unpause" : "Pause pilot"}
+                </button>
+                {draft && (
+                  <button className="btn" onClick={() => setReviewing(true)}>
+                    Review drafted mandate
+                  </button>
+                )}
+                {roles.feeBps > 0 && (
+                  <button className="btn" onClick={run(() => call("Cancel pilot fee", "setFee", [zeroAddress, 0]))}>
+                    Cancel fee
+                  </button>
+                )}
+                <button
+                  className="btn danger"
+                  onClick={run(async () => {
+                    for (const a of state.assets) if (a.balance > 0n) await call(`Withdraw ${a.symbol}`, "withdraw", [a.token, a.balance, wallet.address]);
+                  })}
+                >
+                  Withdraw everything
+                </button>
+              </>
+            )}
           </div>
-        )}
-      </Card>
+          {isOwner && (
+            <div className="row" style={{ marginTop: 12 }}>
+              <input type="text" placeholder={`Pilot: ${roles.pilot}`} value={newPilot} onChange={(e) => setNewPilot(e.target.value.trim())} spellCheck={false} style={{ flex: 1, minWidth: 200 }} />
+              <button className="btn" disabled={!isAddress(newPilot)} onClick={run(() => call("Set pilot", "setPilot", [newPilot]))}>
+                Set pilot
+              </button>
+              <button className="btn danger" onClick={run(() => call("Revoke pilot", "setPilot", [zeroAddress]))}>
+                Revoke
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
 
       {reviewing && draft && isOwner && (() => {
         const { mandate } = toMandate(draft.proposal, universeOf(deployment), Number(totalUsd(state.assets) / 10n ** 18n) || 1);
@@ -523,7 +554,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         feeBps={roles.feeBps}
       />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
-      <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} send={send} run={run} />
+      <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
@@ -577,5 +608,26 @@ function OpenVault({ onOpen }: { onOpen: (v: Address) => void }) {
         For a vault you are the heir or pilot of, or one someone shared with you.
       </p>
     </Card>
+  );
+}
+
+/** Copies a link that opens this vault read-only, no wallet needed. */
+function ShareButton({ chainId, vault }: { chainId: number; vault: Address }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="btn small"
+      title="A read-only link to this vault: anyone can follow it without a wallet"
+      onClick={() => {
+        const link = shareLink(chainId, vault);
+        navigator.clipboard?.writeText(link).then(
+          () => setCopied(true),
+          () => window.prompt("Copy this link", link),
+        );
+        setTimeout(() => setCopied(false), 2_000);
+      }}
+    >
+      {copied ? "Link copied" : "Share"}
+    </button>
   );
 }
