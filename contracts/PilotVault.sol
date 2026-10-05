@@ -1,0 +1,435 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
+
+/// @title PilotVault
+/// @notice A self-custodied portfolio of tokenized stocks and stablecoins that an AI agent (the "pilot") can trade,
+/// but only inside a mandate the owner sets onchain.
+///
+/// The owner keeps custody: only the owner can withdraw, change the mandate, swap the pilot or the trading venue.
+/// The pilot can only call `rebalance`, and every trade must pass these checks against oracle prices:
+///
+/// 1. Both assets are in the mandate, and the venue is the one the owner chose.
+/// 2. The trade is no bigger than `maxTradeUsd`, and today's traded volume stays under `dailyLimitUsd`.
+/// 3. At least `cooldown` seconds have passed since the previous trade.
+/// 4. Every price used is younger than `maxPriceAge`.
+/// 5. What came back is worth at least `(1 - maxSlippageBps)` of what went out, at oracle prices.
+/// 6. Neither asset ends up outside its band around its target weight, unless the trade moved it toward the target
+///    (without crossing it).
+///
+/// Rule 6 is what turns an agent with trading rights into a pilot with a mandate: it may tilt the portfolio within
+/// the bands, and it may always move an asset back toward its target, but it can never concentrate the portfolio.
+contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    uint256 public constant BPS = 10_000;
+    uint256 public constant MAX_ASSETS = 8;
+    /// @notice Hard ceiling on the slippage an owner may allow, so a typo cannot hand the pilot a blank cheque.
+    uint256 public constant MAX_SLIPPAGE_BPS = 1_000;
+    uint256 private constant WAD = 1e18;
+
+    /// @notice One asset of the mandate, as the owner passes it in.
+    struct AssetConfig {
+        address token;
+        address feed; // Chainlink-compatible USD price feed
+        uint16 targetBps; // target share of the portfolio's value; all targets sum to 10_000
+        uint16 bandBps; // how far the pilot may let the weight drift from target, either way
+    }
+
+    /// @notice Trading limits. USD amounts have 18 decimals.
+    struct Limits {
+        uint128 maxTradeUsd;
+        uint128 dailyLimitUsd;
+        uint16 maxSlippageBps;
+        uint32 maxPriceAge;
+        uint32 cooldown;
+    }
+
+    struct Asset {
+        address feed;
+        uint8 tokenDecimals;
+        uint8 feedDecimals;
+        uint16 targetBps;
+        uint16 bandBps;
+        bool listed;
+    }
+
+    /// @dev One side of a trade, priced once at the start of `rebalance`.
+    struct Leg {
+        address token;
+        uint8 decimals;
+        uint16 targetBps;
+        uint16 bandBps;
+        uint256 price;
+        uint256 balance;
+        uint256 value;
+    }
+
+    /// @notice One row of `portfolio()`.
+    struct Holding {
+        address token;
+        uint256 balance;
+        uint256 priceUsd; // 18 decimals
+        uint256 priceUpdatedAt;
+        uint256 valueUsd; // 18 decimals
+        uint256 weightBps;
+        uint16 targetBps;
+        uint16 bandBps;
+    }
+
+    address[] private _tokens;
+    mapping(address token => Asset) public assets;
+    Limits public limits;
+
+    address public pilot;
+    address public adapter;
+    uint256 public mandateVersion;
+
+    uint64 public lastTradeAt;
+    uint64 public currentDay;
+    uint128 public spentToday;
+
+    event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
+    event PilotSet(address indexed pilot);
+    event AdapterSet(address indexed adapter);
+    event Deposited(address indexed from, address indexed token, uint256 amount);
+    event Withdrawn(address indexed to, address indexed token, uint256 amount);
+    /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
+    event Rebalanced(
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 valueInUsd,
+        uint256 valueOutUsd,
+        bytes32 indexed rationale
+    );
+
+    error NotPilot();
+    error NotOwnerOrPilot();
+    error ZeroAddress();
+    error EmptyMandate();
+    error TooManyAssets();
+    error DuplicateAsset(address token);
+    error TargetsMustSumTo100Percent(uint256 sum);
+    error BandTooWide(address token);
+    error UnsupportedDecimals(address tokenOrFeed);
+    error SlippageCapTooHigh();
+    error ZeroLimit();
+    error NoAdapter();
+    error AssetNotInMandate(address token);
+    error SameAsset();
+    error ZeroAmount();
+    error CooldownActive(uint256 nextTradeAt);
+    error TradeTooLarge(uint256 valueUsd, uint256 maxTradeUsd);
+    error DailyLimitExceeded(uint256 wouldSpendUsd, uint256 dailyLimitUsd);
+    error InvalidPrice(address feed);
+    error StalePrice(address feed, uint256 updatedAt);
+    error AdapterOverspent(uint256 spent, uint256 amountIn);
+    error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
+    error SlippageExceeded(uint256 valueInUsd, uint256 valueOutUsd);
+    error OutsideBand(address token, uint256 weightBeforeWad, uint256 weightAfterWad);
+    error RenounceDisabled();
+
+    modifier onlyPilot() {
+        if (msg.sender != pilot) revert NotPilot();
+        _;
+    }
+
+    constructor(
+        address owner_,
+        address pilot_,
+        address adapter_,
+        AssetConfig[] memory assets_,
+        Limits memory limits_
+    ) Ownable(owner_) {
+        pilot = pilot_;
+        adapter = adapter_;
+        emit PilotSet(pilot_);
+        emit AdapterSet(adapter_);
+        _setMandate(assets_, limits_);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Owner
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Replace the whole mandate. Tokens dropped from it stay in the vault, unpriced and untradeable by the
+    /// pilot, until the owner withdraws them or lists them again.
+    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external onlyOwner {
+        _setMandate(assets_, limits_);
+    }
+
+    /// @notice Set the agent allowed to trade. `address(0)` revokes it.
+    function setPilot(address pilot_) external onlyOwner {
+        pilot = pilot_;
+        emit PilotSet(pilot_);
+    }
+
+    /// @notice Set the venue the pilot trades through. `address(0)` stops all trading.
+    function setAdapter(address adapter_) external onlyOwner {
+        adapter = adapter_;
+        emit AdapterSet(adapter_);
+    }
+
+    /// @notice Withdraw any token, any time, paused or not.
+    function withdraw(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
+        emit Withdrawn(to, token, amount);
+    }
+
+    /// @notice Stop the pilot. The owner or the pilot itself can pull this brake; only the owner can release it.
+    function pause() external {
+        if (msg.sender != owner() && msg.sender != pilot) revert NotOwnerOrPilot();
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /// @dev Renouncing would lock the funds in the vault forever.
+    function renounceOwnership() public pure override {
+        revert RenounceDisabled();
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Anyone
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Add funds. Plain transfers work too; this just records who sent what.
+    function deposit(address token, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        emit Deposited(msg.sender, token, amount);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Pilot
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Sell `amountIn` of `tokenIn` for `tokenOut` through the owner's adapter, subject to the mandate.
+    /// @param route Venue-specific routing data, passed through to the adapter.
+    /// @param rationale Hash of the pilot's explanation for this trade.
+    function rebalance(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata route,
+        bytes32 rationale
+    ) external onlyPilot whenNotPaused nonReentrant returns (uint256 amountOut) {
+        address venue = adapter;
+        if (venue == address(0)) revert NoAdapter();
+        if (tokenIn == tokenOut) revert SameAsset();
+        if (amountIn == 0) revert ZeroAmount();
+        _checkCooldown();
+
+        // Price everything once; the same prices judge the trade before and after.
+        (Leg memory sell, Leg memory buy, uint256 totalBefore) = _legs(tokenIn, tokenOut);
+
+        uint256 valueIn = _value(amountIn, sell.price, sell.decimals);
+        _checkSizeAndSpend(valueIn);
+
+        amountOut = _swap(venue, sell, buy, amountIn, minAmountOut, route);
+
+        uint256 valueOut = _value(amountOut, buy.price, buy.decimals);
+        if (valueOut * BPS < valueIn * (BPS - limits.maxSlippageBps)) revert SlippageExceeded(valueIn, valueOut);
+
+        _checkBands(sell, buy, totalBefore);
+
+        lastTradeAt = uint64(block.timestamp);
+        emit Rebalanced(tokenIn, tokenOut, amountIn, amountOut, valueIn, valueOut, rationale);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Views
+    // ------------------------------------------------------------------------------------------------------------
+
+    function tokens() external view returns (address[] memory) {
+        return _tokens;
+    }
+
+    /// @notice Every asset in the mandate with its balance, price, value and weight. Stale prices are reported, not
+    /// rejected, so a dashboard keeps working when markets are closed; check `priceUpdatedAt`.
+    function portfolio() external view returns (Holding[] memory holdings, uint256 totalUsd) {
+        uint256 n = _tokens.length;
+        holdings = new Holding[](n);
+        for (uint256 i; i < n; ++i) {
+            address token = _tokens[i];
+            Asset memory asset = assets[token];
+            (uint256 price, uint256 updatedAt) = _price(asset.feed, asset.feedDecimals, 0);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            uint256 value = _value(balance, price, asset.tokenDecimals);
+            holdings[i] = Holding(token, balance, price, updatedAt, value, 0, asset.targetBps, asset.bandBps);
+            totalUsd += value;
+        }
+        if (totalUsd > 0) {
+            for (uint256 i; i < n; ++i) {
+                holdings[i].weightBps = (holdings[i].valueUsd * BPS) / totalUsd;
+            }
+        }
+    }
+
+    /// @notice USD volume (18 decimals) the pilot can still trade today.
+    function remainingToday() external view returns (uint256) {
+        uint256 spent = block.timestamp / 1 days == currentDay ? spentToday : 0;
+        uint256 cap = limits.dailyLimitUsd;
+        return spent >= cap ? 0 : cap - spent;
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Internals
+    // ------------------------------------------------------------------------------------------------------------
+
+    function _setMandate(AssetConfig[] memory cfg, Limits memory lim) internal {
+        uint256 n = cfg.length;
+        if (n == 0) revert EmptyMandate();
+        if (n > MAX_ASSETS) revert TooManyAssets();
+        if (lim.maxSlippageBps > MAX_SLIPPAGE_BPS) revert SlippageCapTooHigh();
+        if (lim.maxTradeUsd == 0 || lim.dailyLimitUsd == 0 || lim.maxPriceAge == 0) revert ZeroLimit();
+
+        uint256 old = _tokens.length;
+        for (uint256 i; i < old; ++i) {
+            delete assets[_tokens[i]];
+        }
+        delete _tokens;
+
+        uint256 sum;
+        for (uint256 i; i < n; ++i) {
+            AssetConfig memory c = cfg[i];
+            if (c.token == address(0) || c.feed == address(0)) revert ZeroAddress();
+            if (assets[c.token].listed) revert DuplicateAsset(c.token);
+            if (c.bandBps > BPS / 2) revert BandTooWide(c.token);
+            uint8 tokenDecimals = IERC20Metadata(c.token).decimals();
+            uint8 feedDecimals = AggregatorV3Interface(c.feed).decimals();
+            if (tokenDecimals > 36) revert UnsupportedDecimals(c.token);
+            if (feedDecimals > 18) revert UnsupportedDecimals(c.feed);
+            assets[c.token] = Asset(c.feed, tokenDecimals, feedDecimals, c.targetBps, c.bandBps, true);
+            _tokens.push(c.token);
+            sum += c.targetBps;
+        }
+        if (sum != BPS) revert TargetsMustSumTo100Percent(sum);
+
+        limits = lim;
+        emit MandateSet(++mandateVersion, cfg, lim);
+    }
+
+    function _spend(uint256 valueUsd, uint256 dailyLimit) internal {
+        uint64 today = uint64(block.timestamp / 1 days);
+        uint256 spent = today == currentDay ? spentToday : 0;
+        if (spent + valueUsd > dailyLimit) revert DailyLimitExceeded(spent + valueUsd, dailyLimit);
+        currentDay = today;
+        spentToday = uint128(spent + valueUsd);
+    }
+
+    function _checkCooldown() internal view {
+        uint256 last = lastTradeAt;
+        if (last != 0 && block.timestamp < last + limits.cooldown) revert CooldownActive(last + limits.cooldown);
+    }
+
+    function _checkSizeAndSpend(uint256 valueUsd) internal {
+        uint256 maxTrade = limits.maxTradeUsd;
+        if (valueUsd > maxTrade) revert TradeTooLarge(valueUsd, maxTrade);
+        _spend(valueUsd, limits.dailyLimitUsd);
+    }
+
+    /// @dev Fresh prices for every listed asset; returns the two traded legs and the vault's total USD value.
+    function _legs(address tokenIn, address tokenOut)
+        internal
+        view
+        returns (Leg memory sell, Leg memory buy, uint256 total)
+    {
+        uint256 maxAge = limits.maxPriceAge;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            address token = _tokens[i];
+            Asset memory asset = assets[token];
+            (uint256 price,) = _price(asset.feed, asset.feedDecimals, maxAge);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            uint256 value = _value(balance, price, asset.tokenDecimals);
+            total += value;
+            if (token == tokenIn || token == tokenOut) {
+                Leg memory leg = Leg(token, asset.tokenDecimals, asset.targetBps, asset.bandBps, price, balance, value);
+                if (token == tokenIn) sell = leg;
+                else buy = leg;
+            }
+        }
+        if (sell.token == address(0)) revert AssetNotInMandate(tokenIn);
+        if (buy.token == address(0)) revert AssetNotInMandate(tokenOut);
+    }
+
+    /// @dev Trades through the adapter and measures the result from the vault's own balances.
+    function _swap(
+        address venue,
+        Leg memory sell,
+        Leg memory buy,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata route
+    ) internal returns (uint256 amountOut) {
+        IERC20(sell.token).forceApprove(venue, amountIn);
+        ISwapAdapter(venue).swap(sell.token, buy.token, amountIn, minAmountOut, address(this), route);
+        IERC20(sell.token).forceApprove(venue, 0);
+
+        uint256 spent = sell.balance - IERC20(sell.token).balanceOf(address(this));
+        if (spent > amountIn) revert AdapterOverspent(spent, amountIn);
+        amountOut = IERC20(buy.token).balanceOf(address(this)) - buy.balance;
+        if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
+    }
+
+    function _checkBands(Leg memory sell, Leg memory buy, uint256 totalBefore) internal view {
+        uint256 sellAfter = _value(IERC20(sell.token).balanceOf(address(this)), sell.price, sell.decimals);
+        uint256 buyAfter = _value(IERC20(buy.token).balanceOf(address(this)), buy.price, buy.decimals);
+        uint256 totalAfter = totalBefore + sellAfter + buyAfter - sell.value - buy.value;
+        _checkBand(sell, totalBefore, sellAfter, totalAfter);
+        _checkBand(buy, totalBefore, buyAfter, totalAfter);
+    }
+
+    /// @dev Price scaled to 18 decimals. `maxAge == 0` skips the freshness check.
+    function _price(address feed, uint8 feedDecimals, uint256 maxAge)
+        internal
+        view
+        returns (uint256 price, uint256 updatedAt)
+    {
+        int256 answer;
+        (, answer,, updatedAt,) = AggregatorV3Interface(feed).latestRoundData();
+        if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp) revert InvalidPrice(feed);
+        if (maxAge != 0 && block.timestamp - updatedAt > maxAge) revert StalePrice(feed, updatedAt);
+        price = uint256(answer) * 10 ** (18 - feedDecimals);
+    }
+
+    function _value(uint256 amount, uint256 price, uint8 tokenDecimals) internal pure returns (uint256) {
+        return Math.mulDiv(amount, price, 10 ** tokenDecimals);
+    }
+
+    /// @dev Allowed when the asset ends within its band, or when it moved toward its target without crossing it.
+    /// So an asset already outside its band can be repaired step by step, but never flipped to the other side.
+    function _checkBand(Leg memory leg, uint256 totalBefore, uint256 valueAfter, uint256 totalAfter) internal pure {
+        uint256 target = (uint256(leg.targetBps) * WAD) / BPS;
+        uint256 band = (uint256(leg.bandBps) * WAD) / BPS;
+        uint256 wBefore = totalBefore == 0 ? 0 : Math.mulDiv(leg.value, WAD, totalBefore);
+        uint256 wAfter = totalAfter == 0 ? 0 : Math.mulDiv(valueAfter, WAD, totalAfter);
+        if (_absDiff(wAfter, target) <= band) return;
+        bool towardTarget = wBefore >= target
+            ? (wAfter <= wBefore && wAfter >= target)
+            : (wAfter >= wBefore && wAfter <= target);
+        if (towardTarget) return;
+        revert OutsideBand(leg.token, wBefore, wAfter);
+    }
+
+    function _absDiff(uint256 x, uint256 y) internal pure returns (uint256) {
+        return x > y ? x - y : y - x;
+    }
+}
