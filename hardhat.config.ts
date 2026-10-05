@@ -25,6 +25,8 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: { hardfork: "cancun" },
+    // A local `hardhat node`; LOCAL_RPC points elsewhere, e.g. at the `chain` service in docker-compose.yml.
+    localhost: { url: process.env.LOCAL_RPC ?? "http://127.0.0.1:8545", ...(accounts.length ? { accounts } : {}) },
     robinhoodTestnet: {
       url: process.env.ROBINHOOD_TESTNET_RPC ?? "https://rpc.testnet.chain.robinhood.com/rpc",
       chainId: 46630,

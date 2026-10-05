@@ -3,12 +3,13 @@
 //   PRIVATE_KEY=<deployer> npx hardhat run agent/relayer-run.ts --network robinhoodTestnet
 //
 // Optional: INTERVAL (seconds, default 30), DEVIATION_BPS (20), HEARTBEAT (1800), PYTH_IDS ('{"TSLA":"0x..."}') to
-// skip the Hermes symbol search, HERMES_URL, ONCE=1.
+// skip the Hermes symbol search, HERMES_URL, ONCE=1, HEALTH_PORT (serve /health and /metrics; see docs/OPERATIONS.md).
 
 import hre from "hardhat";
 import { readFileSync } from "node:fs";
 import type { Address } from "viem";
 import { DEFAULT_POLICY, HERMES, decide, fetchQuotes, resolveEquityIds } from "./relayer";
+import { count, runService } from "./service";
 
 async function main() {
   const d = JSON.parse(readFileSync(`deployments/${hre.network.name}.json`, "utf8")) as { feeds: Record<string, Address>; production?: boolean };
@@ -25,13 +26,20 @@ async function main() {
   console.log(`Relaying ${stocks.join(", ")} from ${base} to ${hre.network.name}`);
   for (const s of stocks) console.log(`  ${s}: ${ids[s]}`);
 
-  for (;;) {
-    try {
+  await runService({
+    name: "relayer",
+    intervalMs: Number(process.env.INTERVAL ?? 30) * 1000,
+    once: Boolean(process.env.ONCE),
+    healthPort: process.env.HEALTH_PORT ? Number(process.env.HEALTH_PORT) : undefined,
+    tick: async (state) => {
       const quotes = await fetchQuotes(stocks.map((s) => ids[s]), fetch, base);
       const now = Math.floor(Date.now() / 1000);
       for (const s of stocks) {
         const q = quotes.find((x) => x.id.toLowerCase() === ids[s].toLowerCase());
-        if (!q) continue;
+        if (!q) {
+          count(state, "missing_quote");
+          continue;
+        }
         const feed = await hre.viem.getContractAt("MockPriceFeed", d.feeds[s]);
         const [, answer, , updatedAt] = await feed.read.latestRoundData();
         const decision = decide({ answer, updatedAt: Number(updatedAt) }, q, now, policy);
@@ -39,14 +47,11 @@ async function main() {
           const hash = await feed.write.setPriceAt([q.answer, BigInt(q.publishTime)]);
           await client.waitForTransactionReceipt({ hash });
         }
+        count(state, decision.push ? "pushed" : "skipped");
         console.log(`  ${s} $${(Number(q.answer) / 1e8).toFixed(2)}: ${decision.push ? "pushed" : "skipped"} (${decision.why})`);
       }
-    } catch (e) {
-      console.error(`  relay failed: ${(e as Error).message.split("\n")[0]}`);
-    }
-    if (process.env.ONCE) break;
-    await new Promise((r) => setTimeout(r, Number(process.env.INTERVAL ?? 30) * 1000));
-  }
+    },
+  });
 }
 
 main().catch((e) => {

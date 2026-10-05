@@ -77,3 +77,15 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Service image end to end (local chain, vault, pilot trades, health, metrics, graceful stop)
+        run: ./scripts/docker-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docker-smoke-log
+          path: docker-smoke.log

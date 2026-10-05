@@ -88,7 +88,9 @@ Everything; the repository started empty.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
-  built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet.
+  built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet. The
+  fleet and relayer ship as a Docker image with health checks, Prometheus metrics and graceful shutdown, checked end
+  to end in CI ([docs/OPERATIONS.md](docs/OPERATIONS.md)).
 - **Security:** Slither in CI (fails on any untriaged finding), stateful invariant fuzzing (450 random owner, pilot and
   stranger actions per run), and a threat model ([SECURITY.md](SECURITY.md)). This work found and fixed two real issues:
   a token that freezes the vault could have blocked withdrawals of every other asset, and deposits could be charged
@@ -136,7 +138,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 1. Mainnet on Robinhood Chain: real token, feed and pool addresses in a `deploy/` config (the adapters and deploy
    script are built), then an audit.
-2. Run the hosted fleet as a service, with email notifications alongside webhooks.
+2. Run the hosted fleet for other people's vaults (the service image is ready), with owner alerts by email and webhook.
 3. Embedded "autopilot" for wallets and apps, under their brand, on the same contracts.
 4. Take the Solana program from proof of concept to devnet: build for SBF, Pyth price accounts, Jupiter as the venue.
 

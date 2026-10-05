@@ -4,7 +4,8 @@
 //
 // Reads the factory from deployments/<network>.json (or FACTORY). Optional: INTERVAL (seconds, default 60),
 // MIN_FEE_BPS (serve only vaults paying at least this to this pilot), WEBHOOK_URL (Slack, Discord or any JSON
-// endpoint), FEE_EVERY_HOURS (collect fees this often, default 24), ONCE=1.
+// endpoint), FEE_EVERY_HOURS (collect fees this often, default 24), ONCE=1, HEALTH_PORT (serve /health and /metrics;
+// see docs/OPERATIONS.md).
 //
 // Owner alerts: SUBSCRIPTIONS points at a JSON array of subscriptions signed by vault owners (the web app produces
 // them; see agent/alerts.ts). Each owner gets their vault's trades and errors, and a daily digest if they asked.
@@ -18,6 +19,7 @@ import { digestFacts } from "./digest";
 import { collectFees, describe, fleetTick, webhookNotifier, type FleetConfig, type FleetEvent } from "./fleet";
 import { writeReport } from "./reporter";
 import { appendLog } from "./log";
+import { count, runService } from "./service";
 
 async function main() {
   const file = `deployments/${hre.network.name}.json`;
@@ -27,7 +29,6 @@ async function main() {
   const client = await hre.viem.getPublicClient();
   const vaultAbi = (await hre.artifacts.readArtifact("PilotVault")).abi;
   const factoryAbi = (await hre.artifacts.readArtifact("PilotVaultFactory")).abi;
-  const interval = Number(process.env.INTERVAL ?? 60) * 1000;
   const feeEvery = Number(process.env.FEE_EVERY_HOURS ?? 24) * 3_600_000;
 
   const email: EmailConfig = { apiKey: process.env.RESEND_API_KEY, from: process.env.ALERT_FROM ?? "StockPilot <alerts@example.com>" };
@@ -58,14 +59,23 @@ async function main() {
   console.log(`Fleet pilot ${wallet.account.address} on ${hre.network.name}, factory ${factory}`);
 
   let lastFees = 0;
-  for (;;) {
-    try {
+  await runService({
+    name: "fleet",
+    intervalMs: Number(process.env.INTERVAL ?? 60) * 1000,
+    once: Boolean(process.env.ONCE),
+    healthPort: process.env.HEALTH_PORT ? Number(process.env.HEALTH_PORT) : undefined,
+    tick: async (state) => {
       await reloadSubs();
       const events = await fleetTick(cfg);
+      state.gauges.vaults = events.length;
+      for (const e of events) count(state, e.kind);
       console.log(`[${new Date().toISOString()}] ${events.length} vault(s)`);
       for (const e of events) console.log(`  ${describe(e)}`);
       if (Date.now() - lastFees > feeEvery) {
-        for (const e of await collectFees(cfg)) console.log(`  ${describe(e)}`);
+        for (const e of await collectFees(cfg)) {
+          count(state, e.kind);
+          console.log(`  ${describe(e)}`);
+        }
         lastFees = Date.now();
       }
       const now = Math.floor(Date.now() / 1000);
@@ -78,14 +88,11 @@ async function main() {
         await deliverDigest(sub, report, email);
         digestSent.set(sub.vault.toLowerCase(), now);
         digestFrom.set(sub.vault.toLowerCase(), upTo + 1n);
+        count(state, "digest");
         console.log(`  digest sent for ${sub.vault}: ${report.headline}`);
       }
-    } catch (e) {
-      console.error(`  tick failed: ${(e as Error).message.split("\n")[0]}`);
-    }
-    if (process.env.ONCE) break;
-    await new Promise((r) => setTimeout(r, interval));
-  }
+    },
+  });
 }
 
 main().catch((e) => {

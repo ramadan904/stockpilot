@@ -124,7 +124,9 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`agent/mandate.ts`](agent/mandate.ts) | Proposal schema, validation and presets; shared by the server, scripts and browser |
 | [`web/`](web) | The web app: simulator and live mode (React, viem) |
 | [`api/propose.ts`](api/propose.ts) | The strategist endpoint, as a Vercel function |
-| [`scripts/`](scripts) | `demo`, `deploy`, `create-vault`, `export-abi` |
+| [`agent/service.ts`](agent/service.ts) | What the fleet and relayer share: the tick loop, `/health` and Prometheus `/metrics`, graceful stop |
+| [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) | The services packaged for operators, plus a keyless local demo ([docs/OPERATIONS.md](docs/OPERATIONS.md)) |
+| [`scripts/`](scripts) | `demo`, `deploy`, `create-vault`, `move-price`, `export-abi` |
 
 **Why the AI drafts the mandate, but code flies the plane.** Choosing an allocation from someone's goals is a
 judgment call, and Claude is good at it. The output is a draft the owner reads and signs. Executing trades is
@@ -146,9 +148,11 @@ you like: any agent with the pilot key gets the same onchain limits.
   piloted, paused and emptied from the browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
-  [`test/backtest.test.ts`](test/backtest.test.ts)): the fleet flies only its vaults and survives one failing; an MCP
-  client drives the server end to end; reports never invent numbers; the relayer's push rules; the backtest never
-  proposes a rejected trade.
+  [`test/backtest.test.ts`](test/backtest.test.ts), [`test/service.test.ts`](test/service.test.ts)): the fleet flies
+  only its vaults and survives one failing; an MCP client drives the server end to end; reports never invent numbers;
+  the relayer's push rules; the backtest never proposes a rejected trade; health goes stale when ticks stop.
+- **Docker** ([`scripts/docker-smoke.sh`](scripts/docker-smoke.sh)): the service image against a chain in containers:
+  the pilot reports healthy, trades after a rally, counts it in `/metrics`, and stops cleanly on SIGTERM.
 - **Planner** ([`test/planner.test.ts`](test/planner.test.ts)): after market shocks, the pilot returns the portfolio near
   target using only trades the vault accepts, stops at the daily limit, and refuses to trade on stale prices.
 - **Strategist** ([`test/strategist.test.ts`](test/strategist.test.ts)): a sloppy proposal (unknown assets, weights that
@@ -180,6 +184,9 @@ Testnets have no tokenized-stock liquidity or stock price feeds, so `deploy` shi
 interfaces the vault uses in production: Chainlink-shaped `MockPriceFeed`s and an `OracleMarketMaker` venue. On
 mainnet, the vault takes real stock tokens, real feeds and a real venue adapter, with no code changes.
 
+To run the hosted pilot and the price relayer as services (Docker, health checks, metrics), see
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
+
 ## Status and honest limits
 
 This is a hackathon build. The contracts are tested but **not audited**; do not put real money in them.
@@ -196,7 +203,7 @@ enforces.
 
 1. Live deployments on Robinhood Chain testnet and Arbitrum Sepolia, the relayer running, and the web app on Vercel.
 2. Mainnet: real tokenized-stock tokens, feeds and DEX pools in a `deploy/` config, then an audit.
-3. Run the hosted fleet pilot as a service, with owner notifications by email as well as webhooks.
+3. Run the hosted fleet pilot for other people's vaults (the image, health checks and metrics are ready).
 4. More chains where tokenized stocks trade, including Solana.
 
 ## License
