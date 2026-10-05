@@ -19,7 +19,7 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 90 tests, including 600 random trades on which an exact TypeScript model of the rules and
+- **Proof, not promises:** 95 tests, including 600 random trades on which an exact TypeScript model of the rules and
   the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
   stops all eight.
 - **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; any AI agent can fly a
@@ -89,9 +89,14 @@ Everything; the repository started empty.
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
   built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet.
+- **Security:** Slither in CI (fails on any untriaged finding), stateful invariant fuzzing (450 random owner, pilot and
+  stranger actions per run), and a threat model ([SECURITY.md](SECURITY.md)). This work found and fixed two real issues:
+  a token that freezes the vault could have blocked withdrawals of every other asset, and deposits could be charged
+  fees for time before they arrived.
+- **For judges:** a one-click 60-second guided tour in the web app, a backtest tab, and an owner activity feed.
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 90 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 95 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -132,7 +137,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 90 tests
+npm test          # 95 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```
