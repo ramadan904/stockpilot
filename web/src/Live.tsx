@@ -25,6 +25,7 @@ import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
+import { ActivityFeed } from "./Activity";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 
 declare global {
@@ -449,33 +450,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         })}
       />
 
-      <Card title="Trades onchain" aside={<span className="muted small">Rebalanced events, newest first</span>}>
-        {events.length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>
-            No trades yet.
-          </p>
-        ) : (
-          <ul className="log">
-            {events.map((e) => (
-              <li key={e.tx}>
-                <span className="pill ok">Trade</span>
-                <span>
-                  Sold {usd(e.valueInUsd)} of {symbolOf(e.tokenIn)} for {symbolOf(e.tokenOut)}{" "}
-                  {explorerTx(ctx.chain.id, e.tx) && (
-                    <a href={explorerTx(ctx.chain.id, e.tx)} target="_blank" rel="noreferrer">
-                      tx
-                    </a>
-                  )}
-                </span>
-                <span className="hash">reason hash {e.rationale}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="muted small" style={{ marginBottom: 0 }}>
-          The pilot's log holds the full reason for each trade; its keccak256 hash matches the one in the event.
-        </p>
-      </Card>
+      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
     </>
   );
 }
