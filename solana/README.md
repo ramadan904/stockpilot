@@ -30,7 +30,13 @@ It is proven equal to the other two implementations by a chain of tests:
 | `Pause` | Owner or pilot | The emergency brake |
 | `Rebalance` | Pilot | Checks the pilot, the venue and that every token account and price feed is the one the mandate names; runs the fill-independent rules before touching the venue; lets the venue swap with the vault authority's PDA signature; requires the venue took exactly `amount_in`; then judges what actually arrived with the full mandate check. Any failure reverts the whole transaction, swap included. |
 | `Withdraw` | Owner | Any amount of any vault token account, paused or not, signed by the vault authority PDA |
-| `InitPriceFeed`, `SetPrice` | Feed authority | A USD price with 8 decimals and its update time |
+| `InitPriceFeed`, `SetPrice` | Feed authority | A demo USD price with 8 decimals and its update time, for local testing |
+
+**Prices.** Each asset names its price account. A Pyth `PriceUpdateV2` account (owned by Pyth's receiver program
+`rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ`) is read directly: the Anchor discriminator must match, the update
+must be fully verified, it must carry the asset's configured Pyth feed id (so a pilot cannot pass another asset's
+price), the price must be positive with a confidence interval within 1%, and its publish time must be within the
+mandate's `max_price_age`. Demo feed accounts owned by this program are accepted for local testing.
 
 The vault authority is the PDA `["authority", vault]`: it owns the vault's token accounts and only this program can
 sign for it, so no key, not even the pilot's, can move the vault's tokens outside `Rebalance` and `Withdraw`.
@@ -44,13 +50,15 @@ signer of a cross-program call must have signed the transaction or be a PDA the 
 tests cover: creating a vault, a rebalance after a rally, refusing to concentrate the portfolio, judging fills against
 the oracle, a venue that takes too much, pilot-only trading through the owner's venue, a pilot substituting its own
 price feed, feed authority, stale prices refused before any swap, cooldown and trade size, pause and resume, owner
-withdrawal through the PDA even when paused, unsigned PDA transfers rejected, and re-mandating without resetting the
-budget.
+withdrawal through the PDA even when paused, unsigned PDA transfers rejected, re-mandating without resetting the
+budget, and Pyth accounts: a trade priced by Pyth, and partial verification, another feed's account, a wide confidence
+interval and a stale publish time each refused.
 
 Not yet shown, because it needs a real validator: compute-unit cost, rollback of the venue's transfers on failure
-(the runtime guarantees it; the native tests never rely on state after an error), and integration with a real DEX
-(Jupiter) and real price accounts (Pyth). Time is read from the Clock sysvar on-chain; host builds of the SDK cannot
+(the runtime guarantees it; the native tests never rely on state after an error), integration with a real DEX
+(Jupiter), and reading live Pyth accounts (the parser follows Pyth's documented `PriceUpdateV2` layout and is tested
+against accounts built to it, not against ones fetched from mainnet). Time is read from the Clock sysvar on-chain; host builds of the SDK cannot
 read sysvars, so tests set `test_clock::NOW`, which is not compiled into the on-chain program.
 
-Next steps: build with `cargo build-sbf`, run the same scenarios in LiteSVM or `solana-test-validator`, read Pyth
-`PriceUpdateV2` accounts instead of the demo feed, and route through Jupiter as the venue.
+Next steps: build with `cargo build-sbf`, run the same scenarios in LiteSVM or `solana-test-validator` with real Pyth
+accounts cloned from mainnet, and route through Jupiter as the venue.

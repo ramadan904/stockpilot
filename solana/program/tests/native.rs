@@ -214,6 +214,7 @@ impl World {
                 mint: self.mints[i].to_bytes(),
                 vault_token: self.tokens[i].to_bytes(),
                 price_feed: self.feeds[i].to_bytes(),
+                pyth_feed_id: [0; 32],
                 target_bps: target,
                 band_bps: band,
                 decimals: self.decimals[i],
@@ -506,4 +507,98 @@ fn re_mandating_keeps_the_spent_budget() {
     let v = w.vault_state();
     assert_eq!(v.mandate_version, 2);
     assert!(v.budget_usd < 20_000 * WAD - 400 * WAD, "budget was reset by re-mandating");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pyth price accounts
+// ---------------------------------------------------------------------------------------------------------------------
+
+use stockpilot_solana::{PRICE_UPDATE_V2_DISCRIMINATOR, PYTH_RECEIVER_ID};
+
+const TSLA_FEED_ID: [u8; 32] = [0x16; 32];
+const PRICE_UNVERIFIED: u32 = 109;
+const PRICE_UNCERTAIN: u32 = 110;
+
+/// A `PriceUpdateV2` account as Pyth's receiver program writes it.
+fn pyth_data(feed_id: [u8; 32], price: i64, conf: u64, exponent: i32, publish_time: i64, full: bool) -> Vec<u8> {
+    let mut d = PRICE_UPDATE_V2_DISCRIMINATOR.to_vec();
+    d.extend_from_slice(&[9u8; 32]); // write authority
+    if full {
+        d.push(1);
+    } else {
+        d.extend_from_slice(&[0, 3]); // Partial { num_signatures: 3 }
+    }
+    d.extend_from_slice(&feed_id);
+    d.extend_from_slice(&price.to_le_bytes());
+    d.extend_from_slice(&conf.to_le_bytes());
+    d.extend_from_slice(&exponent.to_le_bytes());
+    d.extend_from_slice(&publish_time.to_le_bytes());
+    d.extend_from_slice(&publish_time.to_le_bytes()); // prev publish time
+    d.extend_from_slice(&price.to_le_bytes()); // ema price
+    d.extend_from_slice(&conf.to_le_bytes()); // ema conf
+    d.extend_from_slice(&0u64.to_le_bytes()); // posted slot
+    d
+}
+
+impl World {
+    /// Re-mandate TSLA (asset 1) to be priced by a Pyth account carrying `TSLA_FEED_ID`.
+    fn use_pyth_for_tsla(&mut self, data: Vec<u8>) {
+        let account = key(90);
+        self.accounts.insert(account, Acc { owner: PYTH_RECEIVER_ID, lamports: 1, data, executable: false });
+        self.feeds[1] = account;
+        let mut assets = self.mandate(2_500, 500);
+        assets[1].pyth_feed_id = TSLA_FEED_ID;
+        let (vault, owner) = (self.vault, self.owner);
+        let mut metas = vec![w(vault), s(owner)];
+        metas.extend(self.tokens.iter().map(|t| r(*t)));
+        self.call(StockPilotInstruction::SetMandate { assets, limits: LIMITS }, &metas).unwrap();
+    }
+
+    fn set_pyth(&mut self, data: Vec<u8>) {
+        self.accounts.get_mut(&key(90)).unwrap().data = data;
+    }
+}
+
+#[test]
+fn prices_an_asset_with_a_pyth_account() {
+    let mut w = World::new();
+    let now = NOW.load(Ordering::SeqCst);
+    // TSLA rallied to $350 per Pyth (price 35_000_000 with exponent -5), confidence 0.1%.
+    w.use_pyth_for_tsla(pyth_data(TSLA_FEED_ID, 35_000_000, 35_000, -5, now - 2, true));
+    // TSLA is now 3,500 / 11,000 = 31.8%: trimming $700 back to USDG is allowed.
+    let out = 699_300_000; // $700 less the 0.1% venue fee, in 6-decimal USDG
+    let pilot = w.pilot;
+    w.trade_as(pilot, 1, 0, 2_000_000_000, out, 0, VENUE, None).unwrap();
+    assert_eq!(w.balance(&w.tokens[1]), 8_000_000_000);
+}
+
+#[test]
+fn refuses_pyth_prices_that_are_unverified_for_another_feed_uncertain_or_stale() {
+    let mut w = World::new();
+    let now = NOW.load(Ordering::SeqCst);
+    let pilot = w.pilot;
+    w.use_pyth_for_tsla(pyth_data(TSLA_FEED_ID, 25_000_000, 25_000, -5, now, false));
+    let attempt = |w: &mut World| w.trade_as(pilot, 1, 0, 1_000_000_000, 249_000_000, 0, VENUE, None);
+    assert_eq!(code(attempt(&mut w)), PRICE_UNVERIFIED);
+
+    w.set_pyth(pyth_data([0x99; 32], 25_000_000, 25_000, -5, now, true)); // a different feed's price
+    assert_eq!(code(attempt(&mut w)), WRONG_ACCOUNT);
+
+    w.set_pyth(pyth_data(TSLA_FEED_ID, 25_000_000, 500_000, -5, now, true)); // +/- 2%
+    assert_eq!(code(attempt(&mut w)), PRICE_UNCERTAIN);
+
+    w.set_pyth(pyth_data(TSLA_FEED_ID, 25_000_000, 25_000, -5, now - 3_601, true)); // market closed an hour ago
+    assert_eq!(code(attempt(&mut w)), STALE);
+}
+
+#[test]
+fn reads_pyth_exponents_exactly() {
+    let key = key(91);
+    let (mut lamports, owner) = (1u64, PYTH_RECEIVER_ID);
+    let mut data = pyth_data(TSLA_FEED_ID, 2_501_234_567_890, 1_000_000_000, -10, 5, true);
+    let info = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false);
+    let p = stockpilot_solana::read_pyth(&info).unwrap();
+    assert_eq!(p.price_wad, 250_123_456_789_000_000_000); // $250.123456789
+    assert_eq!(p.publish_time, 5);
+    assert_eq!(p.feed_id, TSLA_FEED_ID);
 }

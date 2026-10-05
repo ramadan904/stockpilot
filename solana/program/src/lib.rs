@@ -38,16 +38,26 @@ pub const MAX_ASSETS: usize = 8;
 pub const VAULT_TAG: [u8; 8] = *b"SPVAULT1";
 pub const FEED_TAG: [u8; 8] = *b"SPPRICE1";
 /// Enough for a vault with the maximum number of assets.
-pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 3 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + 64;
+pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + 64;
 pub const FEED_SPACE: usize = 8 + 32 + 8 + 8;
 const PRICE_TO_WAD: u128 = 10_000_000_000; // 8-decimal feed price to 18 decimals
+
+/// Pyth's Solana receiver program, which owns the `PriceUpdateV2` accounts it verifies and posts.
+pub const PYTH_RECEIVER_ID: Pubkey = solana_program::pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+/// Anchor discriminator of `PriceUpdateV2`: the first 8 bytes of sha256("account:PriceUpdateV2").
+pub const PRICE_UPDATE_V2_DISCRIMINATOR: [u8; 8] = [34, 241, 35, 99, 157, 126, 244, 205];
+/// Refuse a Pyth price whose confidence interval is wider than this share of the price (1%).
+pub const MAX_CONF_BPS: u128 = 100;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AssetConfig {
     pub mint: [u8; 32],
     /// The vault's token account for this mint, owned by the vault authority PDA.
     pub vault_token: [u8; 32],
+    /// Either a Pyth `PriceUpdateV2` account (owned by the Pyth receiver program) or a demo `PriceFeed` account.
     pub price_feed: [u8; 32],
+    /// The Pyth feed id the price account must carry (e.g. Equity.US.TSLA/USD); zero for a demo feed.
+    pub pyth_feed_id: [u8; 32],
     pub target_bps: u16,
     pub band_bps: u16,
     pub decimals: u8,
@@ -124,6 +134,8 @@ pub enum StockPilotError {
     AlreadyInitialized,
     InvalidMandate,
     NotFeedAuthority,
+    PriceUnverified,
+    PriceUncertain,
 }
 
 impl StockPilotError {
@@ -139,6 +151,8 @@ impl StockPilotError {
             StockPilotError::AlreadyInitialized => 106,
             StockPilotError::InvalidMandate => 107,
             StockPilotError::NotFeedAuthority => 108,
+            StockPilotError::PriceUnverified => 109,
+            StockPilotError::PriceUncertain => 110,
         }
     }
 }
@@ -255,6 +269,64 @@ fn read_feed(program_id: &Pubkey, info: &AccountInfo) -> Result<PriceFeed, Progr
         return Err(ProgramError::UninitializedAccount);
     }
     Ok(feed)
+}
+
+/// A USD price with 18 decimals and its publish time, from either kind of price account.
+fn read_price(program_id: &Pubkey, info: &AccountInfo, cfg: &AssetConfig) -> Result<(u128, i64), ProgramError> {
+    if *info.owner == PYTH_RECEIVER_ID {
+        let p = read_pyth(info)?;
+        if p.feed_id != cfg.pyth_feed_id {
+            return Err(StockPilotError::WrongAccount.into());
+        }
+        return Ok((p.price_wad, p.publish_time));
+    }
+    let feed = read_feed(program_id, info)?;
+    Ok((feed.price as u128 * PRICE_TO_WAD, feed.updated_at))
+}
+
+/// The parts of a Pyth `PriceUpdateV2` account StockPilot uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PythPrice {
+    pub feed_id: [u8; 32],
+    pub price_wad: u128,
+    pub publish_time: i64,
+}
+
+/// Parses a `PriceUpdateV2` account: discriminator, write authority (32), verification level (Borsh enum: 0 =
+/// Partial { num_signatures: u8 }, 1 = Full), then the price message: feed id (32), price i64, conf u64, exponent
+/// i32, publish time i64, and fields StockPilot does not need. Only fully verified, positive prices with a confidence
+/// interval within `MAX_CONF_BPS` are accepted; freshness is the mandate's `max_price_age`, checked by the rules.
+pub fn read_pyth(info: &AccountInfo) -> Result<PythPrice, ProgramError> {
+    let data = info.data.borrow();
+    if data.len() < 8 + 32 + 1 || data[..8] != PRICE_UPDATE_V2_DISCRIMINATOR {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    let mut at = 8 + 32;
+    match data[at] {
+        1 => at += 1,
+        _ => return Err(StockPilotError::PriceUnverified.into()),
+    }
+    if data.len() < at + 32 + 8 + 8 + 4 + 8 {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    let feed_id: [u8; 32] = data[at..at + 32].try_into().unwrap();
+    at += 32;
+    let price = i64::from_le_bytes(data[at..at + 8].try_into().unwrap());
+    let conf = u64::from_le_bytes(data[at + 8..at + 16].try_into().unwrap());
+    let exponent = i32::from_le_bytes(data[at + 16..at + 20].try_into().unwrap());
+    let publish_time = i64::from_le_bytes(data[at + 20..at + 28].try_into().unwrap());
+    if price <= 0 {
+        return Err(StockPilotError::PriceUncertain.into());
+    }
+    if conf as u128 * core::BPS > price as u128 * MAX_CONF_BPS {
+        return Err(StockPilotError::PriceUncertain.into());
+    }
+    // price * 10^exponent dollars, as 18 decimals.
+    let shift = 18 + exponent;
+    if !(0..=18).contains(&shift) {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    Ok(PythPrice { feed_id, price_wad: price as u128 * 10u128.pow(shift as u32), publish_time })
 }
 
 fn validate_mandate(program_id: &Pubkey, vault: &Pubkey, assets: &[AssetConfig], limits: &LimitsConfig, token_accounts: &[AccountInfo]) -> ProgramResult {
@@ -419,12 +491,12 @@ fn rebalance(program_id: &Pubkey, accounts: &[AccountInfo], sell: usize, buy: us
         if owner != authority_key.to_bytes() {
             return Err(StockPilotError::WrongAccount.into());
         }
-        let feed = read_feed(program_id, &feeds[i])?;
+        let (price, price_updated_at) = read_price(program_id, &feeds[i], cfg)?;
         assets.push(core::Asset {
             balance: balance as u128,
-            price: feed.price as u128 * PRICE_TO_WAD,
+            price,
             decimals: cfg.decimals,
-            price_updated_at: feed.updated_at,
+            price_updated_at,
             target_bps: cfg.target_bps,
             band_bps: cfg.band_bps,
         });
