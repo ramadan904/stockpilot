@@ -31,6 +31,36 @@ describe("PilotVault", () => {
     });
   });
 
+  describe("clones", () => {
+    it("the shared implementation is locked and can never be initialised", async () => {
+      const { factory, owner, mandate, mm } = await loadFixture(deployStockPilot);
+      const impl = await hre.viem.getContractAt("PilotVault", await factory.read.implementation());
+      await expect(
+        impl.write.initialize([owner.account.address, owner.account.address, mm.address, mandate, DEFAULT_LIMITS, zeroAddress, 0]),
+      ).to.be.rejectedWith("AlreadyInitialized");
+    });
+
+    it("a vault cannot be initialised a second time, so no one can take it over", async () => {
+      const { vaultAsStranger, stranger, mandate, mm, vault, owner } = await loadFixture(deployStockPilot);
+      await expect(
+        vaultAsStranger.write.initialize([stranger.account.address, stranger.account.address, mm.address, mandate, DEFAULT_LIMITS, zeroAddress, 0]),
+      ).to.be.rejectedWith("AlreadyInitialized");
+      expect(await vault.read.owner()).to.equal(getAddress(owner.account.address));
+    });
+
+    it("each clone keeps its own state", async () => {
+      const { factory, stranger, mandate, mm, vault } = await loadFixture(deployStockPilot);
+      const asStranger = await hre.viem.getContractAt("PilotVaultFactory", factory.address, { client: { wallet: stranger } });
+      await asStranger.write.createVault([stranger.account.address, mm.address, mandate, { ...DEFAULT_LIMITS, cooldown: 7 }, zeroAddress, 0]);
+      const [other] = await factory.read.vaultsOf([stranger.account.address]);
+      const second = await hre.viem.getContractAt("PilotVault", other);
+      expect(await second.read.owner()).to.equal(getAddress(stranger.account.address));
+      expect((await second.read.limits())[4]).to.equal(7);
+      expect((await vault.read.limits())[4]).to.equal(DEFAULT_LIMITS.cooldown);
+      expect(other).to.not.equal(vault.address);
+    });
+  });
+
   describe("rebalancing inside the mandate", () => {
     it("lets the pilot trim an asset that rallied out of its band", async () => {
       const { vault, vaultAsPilot, tsla, usdg, tslaFeed, publicClient } = await loadFixture(deployStockPilot);

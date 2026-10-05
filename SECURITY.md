@@ -27,6 +27,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 | Excessive fees | Fee capped at 2%/yr in the contract, taken pro-rata (weights never move), not accrued while paused, settled before withdrawals and deposits so new money is never charged for past time, cancellable by the owner | `test/PilotVault.test.ts` (fees), `test/invariants.test.ts` (fee never above the cap) |
 | A pilot rewrites its own limits by re-mandating | Only the owner can set the mandate; the spent budget carries over a re-mandate | `test/PilotVault.test.ts` |
 | Someone redirects an owner's alerts | Subscriptions are signed messages; the fleet and `/api/subscribe` accept only signatures by the vault's current onchain owner, and edits after signing invalidate them | `test/alerts.test.ts` |
+| A vault clone taken over by initialising it | Each vault is a minimal proxy created and initialised in one factory transaction; `initialize` runs once; the shared implementation is locked in its constructor and can never be initialised | `test/PilotVault.test.ts` (clones) |
 | Funds locked forever | `renounceOwnership` reverts; ownership moves in two steps; `withdraw` clamps to the balance | `test/PilotVault.test.ts`, `test/invariants.test.ts` (owner always withdraws everything) |
 
 ## Trust assumptions (out of scope)
@@ -52,7 +53,7 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `incorrect-equality` | Comparisons with zero (`total == 0`, `amount == 0`, `feeBps == 0`) | Guards on exact zero, not on balances an attacker can nudge. |
 | `calls-loop` | Loops over listed tokens call `balanceOf`, feeds and transfers | Bounded at 8 assets chosen by the owner; fee collection tolerates a failing token. |
 | `timestamp` | Cooldown, budget, fee and staleness use `block.timestamp` | Intended; validator timestamp drift is seconds against windows of minutes to days. |
-| `missing-zero-check` | `setPilot(0)` and `setAdapter(0)` | Zero is the documented way to revoke the pilot or stop trading. |
+| `missing-zero-check` | `setPilot(0)`, `setAdapter(0)`, and the same two in `initialize` | Zero is the documented way to revoke the pilot or stop trading, from creation onwards. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |
 

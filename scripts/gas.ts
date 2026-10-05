@@ -90,6 +90,15 @@ async function main() {
     "|---|---|---:|---:|---:|",
     ...rows.map(([m, a, g]) => `| ${m} | ${a} | ${g.toLocaleString("en-US")} | ${cost(g, 0.01)} | ${cost(g, 0.1)} |`),
     "",
+    "## Notes",
+    "",
+    "- Each vault is an EIP-1167 minimal proxy to one locked `PilotVault` implementation that the factory deploys once,",
+    "  so creating a vault costs about a sixth of deploying a full contract (about 3.07M gas before the change). Every",
+    "  later call pays a small `delegatecall` overhead, about 2.6k gas.",
+    "- `withdraw`, `pause`, `unpause`, `deposit`, `setFee` and `setMandate` first settle the management fee across every",
+    "  asset, which is why they grow with the mandate's size.",
+    "- A trade prices every asset in the mandate so it can check the band rule against the whole portfolio.",
+    "",
   ];
   mkdirSync("docs", { recursive: true });
   writeFileSync("docs/GAS.md", lines.join("\n"));

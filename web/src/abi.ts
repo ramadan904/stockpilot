@@ -2,92 +2,7 @@
 
 export const pilotVaultAbi = [
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "owner_",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "pilot_",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "adapter_",
-        "type": "address"
-      },
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "token",
-            "type": "address"
-          },
-          {
-            "internalType": "address",
-            "name": "feed",
-            "type": "address"
-          },
-          {
-            "internalType": "uint16",
-            "name": "targetBps",
-            "type": "uint16"
-          },
-          {
-            "internalType": "uint16",
-            "name": "bandBps",
-            "type": "uint16"
-          }
-        ],
-        "internalType": "struct PilotVault.AssetConfig[]",
-        "name": "assets_",
-        "type": "tuple[]"
-      },
-      {
-        "components": [
-          {
-            "internalType": "uint128",
-            "name": "maxTradeUsd",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint128",
-            "name": "dailyLimitUsd",
-            "type": "uint128"
-          },
-          {
-            "internalType": "uint16",
-            "name": "maxSlippageBps",
-            "type": "uint16"
-          },
-          {
-            "internalType": "uint32",
-            "name": "maxPriceAge",
-            "type": "uint32"
-          },
-          {
-            "internalType": "uint32",
-            "name": "cooldown",
-            "type": "uint32"
-          }
-        ],
-        "internalType": "struct PilotVault.Limits",
-        "name": "limits_",
-        "type": "tuple"
-      },
-      {
-        "internalType": "address",
-        "name": "feeRecipient_",
-        "type": "address"
-      },
-      {
-        "internalType": "uint16",
-        "name": "feeBps_",
-        "type": "uint16"
-      }
-    ],
+    "inputs": [],
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
@@ -105,6 +20,11 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "AdapterOverspent",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "AlreadyInitialized",
     "type": "error"
   },
   {
@@ -920,6 +840,98 @@ export const pilotVaultAbi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "pilot_",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "adapter_",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "feed",
+            "type": "address"
+          },
+          {
+            "internalType": "uint16",
+            "name": "targetBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "bandBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct PilotVault.AssetConfig[]",
+        "name": "assets_",
+        "type": "tuple[]"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint128",
+            "name": "maxTradeUsd",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "dailyLimitUsd",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint16",
+            "name": "maxSlippageBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint32",
+            "name": "maxPriceAge",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "cooldown",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct PilotVault.Limits",
+        "name": "limits_",
+        "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "feeRecipient_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "feeBps_",
+        "type": "uint16"
+      }
+    ],
+    "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "lastTradeAt",
     "outputs": [
@@ -1332,6 +1344,32 @@ export const pilotVaultAbi = [
 
 export const pilotVaultFactoryAbi = [
   {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "FailedDeployment",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "balance",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "needed",
+        "type": "uint256"
+      }
+    ],
+    "name": "InsufficientBalance",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -1453,6 +1491,19 @@ export const pilotVaultFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "implementation",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

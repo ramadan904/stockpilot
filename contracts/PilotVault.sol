@@ -111,6 +111,8 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     uint16 public feeBps;
     uint64 public feeAccruedAt;
 
+    bool private _initialized;
+
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
@@ -155,21 +157,34 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     error SlippageExceeded(uint256 valueInUsd, uint256 valueOutUsd);
     error OutsideBand(address token, uint256 weightBeforeWad, uint256 weightAfterWad);
     error RenounceDisabled();
+    error AlreadyInitialized();
 
     modifier onlyPilot() {
         if (msg.sender != pilot) revert NotPilot();
         _;
     }
 
-    constructor(
+    /// @dev The implementation behind every vault clone. It is locked: it can never be initialised or hold a mandate.
+    /// Its own owner is the deployer (the factory) and is irrelevant to clones, which have their own storage.
+    constructor() Ownable(msg.sender) {
+        _initialized = true;
+    }
+
+    /// @notice Set up a vault clone. The factory calls this in the same transaction that creates the clone, so no one
+    /// else can initialise it first, and it can only ever run once.
+    function initialize(
         address owner_,
         address pilot_,
         address adapter_,
-        AssetConfig[] memory assets_,
-        Limits memory limits_,
+        AssetConfig[] calldata assets_,
+        Limits calldata limits_,
         address feeRecipient_,
         uint16 feeBps_
-    ) Ownable(owner_) {
+    ) external {
+        if (_initialized) revert AlreadyInitialized();
+        _initialized = true;
+        if (owner_ == address(0)) revert ZeroAddress();
+        _transferOwnership(owner_);
         pilot = pilot_;
         adapter = adapter_;
         emit PilotSet(pilot_);
