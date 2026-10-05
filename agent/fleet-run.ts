@@ -7,6 +7,9 @@
 // endpoint), FEE_EVERY_HOURS (collect fees this often, default 24), ONCE=1, HEALTH_PORT (serve /health and /metrics;
 // see docs/OPERATIONS.md).
 //
+// Marketplace: with PILOT_NAME (and optionally PILOT_URI), the pilot lists itself in the PilotRegistry from
+// deployments/<network>.json (or REGISTRY) at start-up, asking MIN_FEE_BPS, and updates the entry when these change.
+//
 // Owner alerts: SUBSCRIPTIONS points at a JSON array of subscriptions signed by vault owners (the web app produces
 // them; see agent/alerts.ts). Each owner gets their vault's trades and errors, and a daily digest if they asked.
 // Email goes through Resend when RESEND_API_KEY is set (ALERT_FROM sets the sender); webhooks need nothing.
@@ -19,11 +22,13 @@ import { digestFacts } from "./digest";
 import { collectFees, describe, fleetTick, webhookNotifier, type FleetConfig, type FleetEvent } from "./fleet";
 import { writeReport } from "./reporter";
 import { appendLog } from "./log";
+import { registrationNeeded } from "./pilots";
 import { count, runService } from "./service";
 
 async function main() {
   const file = `deployments/${hre.network.name}.json`;
-  const factory = (process.env.FACTORY ?? (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).factory : undefined)) as Address | undefined;
+  const deployment = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+  const factory = (process.env.FACTORY ?? deployment.factory) as Address | undefined;
   if (!factory) throw new Error(`Set FACTORY, or deploy first so ${file} exists.`);
   const [wallet] = await hre.viem.getWalletClients();
   const client = await hre.viem.getPublicClient();
@@ -57,6 +62,19 @@ async function main() {
     onTrade: (t) => appendLog(t.vault, { tx: t.tx, rationale: t.rationale, rationaleHash: t.rationaleHash }),
   };
   console.log(`Fleet pilot ${wallet.account.address} on ${hre.network.name}, factory ${factory}`);
+
+  const registry = (process.env.REGISTRY ?? deployment.registry) as Address | undefined;
+  if (process.env.PILOT_NAME && registry) {
+    const want = { name: process.env.PILOT_NAME, uri: process.env.PILOT_URI ?? "", feeBps: cfg.minFeeBps ?? 0 };
+    const reg = await hre.viem.getContractAt("PilotRegistry", registry);
+    const entry = await reg.read.pilotOf([wallet.account.address]);
+    if (registrationNeeded(entry.registeredAt ? entry : null, want)) {
+      await client.waitForTransactionReceipt({ hash: await reg.write.register([want.name, want.uri, want.feeBps]) });
+      console.log(`Listed in the pilot registry ${registry} as "${want.name}", asking ${want.feeBps / 100}% a year`);
+    }
+  } else if (process.env.PILOT_NAME) {
+    console.log("PILOT_NAME is set but this network has no registry; not listing.");
+  }
 
   let lastFees = 0;
   await runService({

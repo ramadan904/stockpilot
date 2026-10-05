@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 109 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, backtest
+npm test          # 123 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -117,6 +117,7 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`agent/run.ts`](agent/run.ts) | The live pilot loop for one vault |
 | [`agent/fleet.ts`](agent/fleet.ts) | The hosted pilot: flies every vault that names it, optionally only fee-paying ones, collects fees, posts trades to a Slack/Discord webhook (`npm run fleet`) |
 | [`agent/alerts.ts`](agent/alerts.ts) | Owner alerts: each owner signs a subscription with the vault's owner key (email, webhook, daily digest written by Claude); the fleet honours only signatures from the vault's current owner |
+| [`contracts/PilotRegistry.sol`](contracts/PilotRegistry.sol), [`agent/pilots.ts`](agent/pilots.ts) | The pilot marketplace: any agent lists itself with a name, link and fee; owners pick one by a track record read from the chain (vaults flown, their value, trades, pauses), not one the pilot reports |
 | [`agent/mcp.ts`](agent/mcp.ts) | MCP server: any AI agent can fly a vault under the same onchain limits ([docs/MCP.md](docs/MCP.md), `npm run mcp`) |
 | [`agent/relayer.ts`](agent/relayer.ts) | Testnet oracle relayer: real stock prices from Pyth's Hermes API onto the testnet feeds, with deviation and heartbeat rules, honest publish times, and no updates while the market is closed (`npm run relay`) |
 | [`agent/backtest.ts`](agent/backtest.ts) | The real planner and rules over 200 simulated markets against buy-and-hold (the web app's Backtest tab) |
@@ -144,8 +145,8 @@ you like: any agent with the pilot key gets the same onchain limits.
   [`test/production.test.ts`](test/production.test.ts)): pro-rata fees that leave weights untouched and stop while
   paused; Uniswap V3 routing and path checks; Pyth scaling and confidence; a full production deploy against mocks.
 - **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
-  guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, and a live vault created,
-  piloted, paused and emptied from the browser.
+  guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, listing and hiring a pilot
+  in the marketplace, and a live vault created, piloted, paused and emptied from the browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
   [`test/backtest.test.ts`](test/backtest.test.ts), [`test/service.test.ts`](test/service.test.ts)): the fleet flies

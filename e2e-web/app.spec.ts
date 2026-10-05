@@ -79,3 +79,35 @@ test("live: create a cash vault, let the pilot invest, pause, and withdraw every
   await expect(page.locator(".stat").filter({ hasText: "Value" }).locator(".value")).toHaveText("$0.00", { timeout: 60_000 });
   expect(errors).toEqual([]);
 });
+
+test("marketplace: list yourself as a pilot, then hire a listed pilot for a new vault", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+
+  const market = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot marketplace" }) });
+  await market.getByRole("button", { name: /List yourself as a pilot|Edit your listing/ }).click();
+  await market.getByLabel("Name").fill("Patient rebalancer");
+  await market.getByLabel("Link (website, repository or MCP endpoint)").fill("https://example.com/patient");
+  await market.getByLabel("Fee you ask (% a year, max 2)").fill("0.75");
+  await market.getByRole("button", { name: /List me|Save listing/ }).click();
+  await expect(market.locator("tbody")).toContainText("Patient rebalancer (you)", { timeout: 30_000 });
+
+  // The listing shows up in the pilot picker, with its ask and its track record read from the chain.
+  const option = page.getByRole("radio", { name: /Patient rebalancer/ });
+  await expect(option).toContainText("Asks 0.75% a year");
+  await option.click();
+  await expect(option).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: /Myself/ })).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByLabel("Pilot fee (% a year, max 2; 0 if you run the pilot yourself)")).toHaveValue("0.75");
+
+  await page.getByRole("button", { name: "Cash only" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  const pilotStat = page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "a year" });
+  await expect(pilotStat).toContainText("Patient rebalancer", { timeout: 60_000 });
+  await expect(pilotStat).toContainText("0.75% a year");
+  await expect(page.getByRole("radio", { name: /Patient rebalancer/ })).toContainText(/Flies [1-9]\d* vaults? worth/);
+  expect(errors).toEqual([]);
+});

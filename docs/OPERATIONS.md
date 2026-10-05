@@ -76,7 +76,8 @@ Everything is environment variables; [`.env.example`](../.env.example) lists the
 | `PRIVATE_KEY` | fleet | | The pilot key |
 | `RELAYER_PRIVATE_KEY` | relayer | | The deployer key, which owns the mock feeds |
 | `INTERVAL` | both | 60 / 30 s | Seconds between ticks |
-| `MIN_FEE_BPS` | fleet | 0 | Fly only vaults paying at least this fee to this pilot |
+| `MIN_FEE_BPS` | fleet | 0 | Fly only vaults paying at least this fee to this pilot; also the fee the marketplace listing asks |
+| `PILOT_NAME`, `PILOT_URI` | fleet | | List this pilot in the `PilotRegistry` at start-up (and update the listing when these change) |
 | `WEBHOOK_URL` | fleet | | Operator alerts (Slack, Discord, any JSON endpoint) |
 | `SUBSCRIPTIONS`, `RESEND_API_KEY`, `ALERT_FROM` | fleet | | Owner alerts by email and webhook, signed by owners ([`agent/alerts.ts`](../agent/alerts.ts)) |
 | `ANTHROPIC_API_KEY` | fleet | | Claude-written daily digests; without it, digests are plain |

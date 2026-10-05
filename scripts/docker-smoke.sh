@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end check of the service image: a local chain, the stack and a vault in containers; the fleet pilot must
-# report healthy, trade after a 40% rally, export the trade in /metrics, and stop cleanly on SIGTERM.
+# End-to-end check of the service image: a local chain, the stack and a vault in containers; the fleet pilot must list
+# itself in the pilot marketplace, report healthy, trade after a 40% rally, count it in /metrics, and stop on SIGTERM.
 # Extra `docker build` flags (e.g. a proxy CA secret) go in BUILD_FLAGS.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +20,7 @@ wait_for() { # seconds, description, command...
 metrics() { curl -sf "localhost:$FLEET_PORT/metrics"; }
 wait_for 120 "a first tick" sh -c "curl -sf localhost:$FLEET_PORT/metrics | grep -q 'ticks_total.* [1-9]'"
 curl -sf "localhost:$FLEET_PORT/health"; echo
+compose logs --no-color local-fleet | grep -q "Listed in the pilot registry" || { echo "the fleet did not list itself" >&2; exit 1; }
 
 compose run --rm --no-deps -e SYMBOL=NVDA -e PCT=40 --entrypoint node setup \
   --require ts-node/register/transpile-only --require hardhat/register scripts/move-price.ts

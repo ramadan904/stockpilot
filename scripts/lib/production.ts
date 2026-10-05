@@ -45,6 +45,7 @@ export async function deployProduction(hre: HardhatRuntimeEnvironment, c: Produc
   const v = hre.viem;
 
   const factory = await v.deployContract("PilotVaultFactory");
+  const registry = await v.deployContract("PilotRegistry");
   const adapter = await v.deployContract("UniswapV3Adapter", [c.swapRouter]);
   const tokens: Record<string, Address> = {};
   const feeds: Record<string, Address> = {};
@@ -63,5 +64,5 @@ export async function deployProduction(hre: HardhatRuntimeEnvironment, c: Produc
   }
   for (const p of c.pools) await adapter.write.setPoolFee([tokens[p.a], tokens[p.b], p.fee]);
 
-  return { factory: factory.address, venue: adapter.address, marketMaker: adapter.address, tokens, feeds };
+  return { factory: factory.address, registry: registry.address, venue: adapter.address, marketMaker: adapter.address, tokens, feeds };
 }

@@ -19,11 +19,12 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 109 tests, including 600 random trades on which an exact TypeScript model of the rules and
+- **Proof, not promises:** 123 tests, including 600 random trades on which an exact TypeScript model of the rules and
   the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
   stops all eight.
-- **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; any AI agent can fly a
-  vault through our MCP server; Claude writes the owner's reports; a backtest shows what the mandate does to risk.
+- **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; an onchain pilot
+  marketplace where any AI agent lists itself and owners hire by a track record read from the chain; any agent can fly
+  a vault through our MCP server; Claude writes the owner's reports; a backtest shows what the mandate does to risk.
 - **Try it in one click:** the web app's simulator needs no wallet. Live mode creates, funds, pilots, pauses and
   withdraws from a real vault on Robinhood Chain testnet.
 
@@ -88,7 +89,9 @@ Everything; the repository started empty.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
-  built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet. The
+  built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet; a pilot
+  marketplace (onchain registry, track records computed from vault events, a picker in the web app, MCP tools for
+  agents to list themselves). The
   fleet and relayer ship as a Docker image with health checks, Prometheus metrics and graceful shutdown, checked end
   to end in CI ([docs/OPERATIONS.md](docs/OPERATIONS.md)).
 - **Security:** Slither in CI (fails on any untriaged finding), stateful invariant fuzzing (450 random owner, pilot and
@@ -105,7 +108,7 @@ Everything; the repository started empty.
   ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 109 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 123 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -123,7 +126,9 @@ onchain equities.
 
 **Revenue (built).** A management fee on vaults run by the hosted pilot, taken onchain by the vault: transparent,
 capped at 2% a year, charged pro-rata so it never moves the weights, paused while the vault is paused, and cancellable
-by the owner at any time. The fleet pilot can serve only vaults that pay it. Next: B2B licensing for embedded use.
+by the owner at any time. The fleet pilot can serve only vaults that pay it. The pilot marketplace (`PilotRegistry`)
+opens this to other agents: anyone can list a pilot and its fee, and owners compare pilots by what they have actually
+done onchain, so good strategies compete on results under the same guardrails. Next: B2B licensing for embedded use.
 Self-hosting the pilot, or flying it with your own agent over MCP, stays free.
 The open contracts are the trust anchor; the hosted pilot, strategist and UX are the business.
 
@@ -146,7 +151,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 109 tests
+npm test          # 123 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```

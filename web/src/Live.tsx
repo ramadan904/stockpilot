@@ -29,6 +29,7 @@ import { ActivityFeed } from "./Activity";
 import { AlertsCard } from "./Alerts";
 import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
+import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 
 declare global {
   interface Window {
@@ -50,6 +51,7 @@ export function Live({ draft }: { draft: Draft | null }) {
   const [refresh, setRefresh] = useState(0);
   const deployment = deploymentFor(chain.id);
   const client = useMemo(() => createPublicClient({ chain, transport: http() }), [chain]);
+  const market = useMarket(client as never, deployment, refresh);
 
   const loadVaults = useCallback(async () => {
     if (!wallet || !deployment) return setVaults([]);
@@ -110,7 +112,7 @@ export function Live({ draft }: { draft: Draft | null }) {
       .then(() => setRefresh((r) => r + 1))
       .catch((e) => setStatus({ tone: "bad", text: short(e) }));
 
-  const ctx: Ctx | null = wallet && deployment ? { wallet, deployment, chain, client, send, run } : null;
+  const ctx: Ctx | null = wallet && deployment ? { wallet, deployment, chain, client, send, run, market } : null;
 
   return (
     <div className="stack">
@@ -183,6 +185,18 @@ export function Live({ draft }: { draft: Draft | null }) {
                 ))}
               </Card>
             )}
+            {deployment?.registry && (
+              <MarketplaceCard
+                key={`${wallet!.address}-${market.pilots.length}`}
+                market={market}
+                me={wallet!.address}
+                registry={deployment.registry}
+                wallet={wallet!.client}
+                chain={chain}
+                send={send}
+                run={run}
+              />
+            )}
           </div>
         </div>
       )}
@@ -197,6 +211,7 @@ interface Ctx {
   client: ReturnType<typeof createPublicClient>;
   send: (label: string, write: () => Promise<Hash>) => Promise<unknown>;
   run: (fn: () => Promise<unknown>) => () => void;
+  market: Market;
 }
 
 function universeOf(d: Deployment) {
@@ -269,13 +284,19 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
               </button>
             </div>
           )}
-          <label className="field">
-            Pilot address (the agent allowed to rebalance)
-            <input type="text" value={pilot} onChange={(e) => setPilot(e.target.value.trim())} spellCheck={false} />
-          </label>
-          <p className="muted small">
-            Use a separate key for the pilot in production. Using your own address here lets you run the pilot from this page.
-          </p>
+          <div className="field">
+            Pilot (the agent allowed to rebalance, inside your mandate)
+            {deployment.registry ? (
+              <PilotPicker market={ctx.market} me={wallet.address} value={pilot} onPick={(a, feeBps) => { setPilot(a); setFeePct(feeBps / 100); }} />
+            ) : (
+              <input type="text" value={pilot} onChange={(e) => setPilot(e.target.value.trim())} spellCheck={false} />
+            )}
+          </div>
+          {!deployment.registry && (
+            <p className="muted small">
+              Use a separate key for the pilot in production. Using your own address here lets you run the pilot from this page.
+            </p>
+          )}
           <label className="field" style={{ marginBottom: 10 }}>
             Pilot fee (% a year, max 2; 0 if you run the pilot yourself)
             <input type="number" min={0} max={2} step={0.05} value={feePct} onChange={(e) => setFeePct(Math.min(2, Math.max(0, Number(e.target.value))))} />
@@ -366,8 +387,11 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
             <div className="value" style={{ fontSize: 16 }}>{[isOwner && "Owner", isPilot && "Pilot"].filter(Boolean).join(" + ") || "Viewer"}</div>
           </div>
           <div className="stat">
-            <div className="label">Pilot fee</div>
-            <div className="value" style={{ fontSize: 16 }}>{roles.feeBps === 0 ? "None" : `${(roles.feeBps / 100).toFixed(2)}% a year`}</div>
+            <div className="label">Pilot</div>
+            <div className="value" style={{ fontSize: 16 }}>
+              {roles.pilot === zeroAddress ? "None" : (ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? shortAddr(roles.pilot))}
+            </div>
+            <div className="muted small">{roles.feeBps === 0 ? "No fee" : `${(roles.feeBps / 100).toFixed(2)}% a year`}</div>
           </div>
         </div>
         <div className="table-scroll">

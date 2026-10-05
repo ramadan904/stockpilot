@@ -65,7 +65,7 @@ services:
     <<: *service
     depends_on: { setup: { condition: service_completed_successfully } }
     command: ["agent/fleet-run.ts"]
-    environment: { HARDHAT_NETWORK: localhost, LOCAL_RPC: "http://chain:8545", INTERVAL: "15" }
+    environment: { HARDHAT_NETWORK: localhost, LOCAL_RPC: "http://chain:8545", INTERVAL: "15", PILOT_NAME: "StockPilot fleet (local)" }
     ports: ["${FLEET_PORT:-8080}:8080"]
 
 volumes:

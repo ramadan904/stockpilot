@@ -68,7 +68,7 @@ describe your goal in plain words; Claude drafts a mandate (target weights, drif
 sign it into a vault you own. A pilot rebalances the portfolio, and the vault contract checks every trade against the
 mandate at oracle prices, so even a compromised pilot cannot withdraw, change the rules, concentrate the portfolio or
 take a bad price. A capped onchain fee pays a hosted pilot fleet; any AI agent can fly a vault through an MCP server;
-Claude writes the owner's reports. Built on Robinhood Chain, with 109 tests including a randomized model-versus-contract
+Claude writes the owner's reports. Built on Robinhood Chain, with 123 tests including a randomized model-versus-contract
 check, a no-wallet simulator, a backtest, and a live testnet app.
 
 ## One-liners

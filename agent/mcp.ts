@@ -9,6 +9,7 @@ import { z } from "zod/v4";
 import { rationaleHash, readVault, revertReason } from "./chain";
 import { BPS, WAD, amountFor, available, check, eq, valueOf, type AssetState, type VaultState } from "./model";
 import { drift, fmtUsd, pct, plan } from "./planner";
+import { listPilots, trackRecords } from "./pilots";
 
 export interface McpConfig {
   client: PublicClient;
@@ -18,6 +19,8 @@ export interface McpConfig {
   vaultAbi: Abi;
   /** Called with each executed trade, for the pilot's logbook. */
   onTrade?: (t: { tx: string; rationale: string; rationaleHash: string }) => void;
+  /** The pilot directory and the factory whose vaults make up track records; adds the marketplace tools. */
+  marketplace?: { registry: Address; registryAbi: Abi; factory: Address; factoryAbi: Abi };
 }
 
 type Text = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -239,6 +242,69 @@ export function createStockPilotServer(cfg: McpConfig) {
       }
     },
   );
+
+  const market = cfg.marketplace;
+  if (market) {
+    server.registerTool(
+      "list_pilots",
+      {
+        title: "The pilot marketplace",
+        description:
+          "Every pilot listed in the onchain PilotRegistry, with the fee it asks and its track record computed from the chain: vaults it flies now, their value, how many it has seen paused, and its trades.",
+        annotations: { readOnlyHint: true },
+      },
+      async () => {
+        const pilots = await listPilots(client, market.registryAbi, market.registry);
+        if (!pilots.length) return text("No pilots are listed yet. Use register_as_pilot to be the first.");
+        const records = await trackRecords(client, { factory: market.factoryAbi, vault: vaultAbi }, market.factory, pilots.map((p) => p.address));
+        const me = cfg.wallet?.account?.address;
+        return text(
+          pilots
+            .map((p) => {
+              const r = records.get(p.address.toLowerCase())!;
+              return [
+                `${p.name} (${p.address})${me && eq(me, p.address) ? " (this server)" : ""}${p.active ? "" : " RETIRED"}`,
+                `  asks ${(p.feeBps / 100).toFixed(2)}% a year${p.uri ? `; ${p.uri}` : ""}`,
+                `  flies ${r.vaults} vault(s) worth ${fmtUsd(r.aumUsd)}, ${r.paused} paused; ${r.trades} trade(s) worth ${fmtUsd(r.tradedUsd)}`,
+              ].join("\n");
+            })
+            .join("\n"),
+        );
+      },
+    );
+
+    server.registerTool(
+      "register_as_pilot",
+      {
+        title: "List yourself in the marketplace",
+        description:
+          "Lists this server's pilot address in the onchain PilotRegistry (or updates its entry), so vault owners can find and hire it. The fee is what you ask; each owner sets their vault's fee when they hire you.",
+        inputSchema: {
+          name: z.string().min(1).max(64).describe("What owners will see, e.g. 'Momentum-aware rebalancer'"),
+          uri: z.string().max(256).default("").describe("Where owners can learn how you trade: a website, repository or MCP endpoint"),
+          fee_percent: z.number().min(0).max(2).describe("Annual fee you ask, in percent (max 2)"),
+        },
+      },
+      async ({ name, uri, fee_percent }) => {
+        const wallet = cfg.wallet;
+        if (!wallet) return text("This server is read-only: start it with the pilot's PRIVATE_KEY to register.", true);
+        try {
+          const tx = await wallet.writeContract({
+            account: wallet.account!,
+            chain: wallet.chain,
+            address: market.registry,
+            abi: market.registryAbi,
+            functionName: "register",
+            args: [name, uri, Math.round(fee_percent * 100)],
+          });
+          await client.waitForTransactionReceipt({ hash: tx });
+          return text(`Listed as "${name}" asking ${fee_percent}% a year (tx ${tx}). Owners hire you by naming ${wallet.account!.address} as their vault's pilot.`);
+        } catch (e) {
+          return text(revertReason(e, market.registryAbi), true);
+        }
+      },
+    );
+  }
 
   return server;
 }

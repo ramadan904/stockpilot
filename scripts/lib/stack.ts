@@ -29,7 +29,8 @@ export async function deployStack(hre: HardhatRuntimeEnvironment) {
   }
 
   const factory = await v.deployContract("PilotVaultFactory");
-  return { tokens, feeds, marketMaker: mm.address, factory: factory.address };
+  const registry = await v.deployContract("PilotRegistry");
+  return { tokens, feeds, marketMaker: mm.address, factory: factory.address, registry: registry.address };
 }
 
 export type Stack = Awaited<ReturnType<typeof deployStack>>;

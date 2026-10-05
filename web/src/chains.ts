@@ -16,6 +16,8 @@ export interface Deployment {
   /** Real assets (scripts/deploy-production.ts): no faucet tokens, fund from the wallet. */
   production?: boolean;
   factory: Address;
+  /** The pilot directory. Older deployment files predate it. */
+  registry?: Address;
   /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */
   venue?: Address;
   marketMaker: Address;

@@ -28,6 +28,9 @@ async function main() {
     return contract;
   };
   await deployGas("PilotVaultFactory");
+  const registry = await deployGas("PilotRegistry");
+  rows.push(["Marketplace", "List a pilot (name, link, fee)", await gas(await registry.write.register(["Claude fleet", "https://example.com/stockpilot-fleet", 50], { account: pilot.account }))]);
+  rows.push(["Marketplace", "Update a listing", await gas(await registry.write.register(["Claude fleet", "https://example.com/stockpilot-fleet", 75], { account: pilot.account }))]);
   await deployGas("UniswapV3Adapter", [zeroAddress]);
   await deployGas("PythPriceFeed", [zeroAddress, `0x${"11".repeat(32)}`, 100n, "TSLA / USD"]);
 

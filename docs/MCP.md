@@ -13,8 +13,18 @@ agent is allowed to do.
 | `execute_trade` | Sends a trade with a written reason; the reason's hash is stored onchain. Dry-runs first, so rejected trades cost no gas |
 | `trade_history` | Recent trades from onchain events |
 | `pause_vault` | The pilot's emergency brake (only the owner can unpause) |
+| `list_pilots` | The pilot marketplace: every pilot in the onchain `PilotRegistry`, its ask, and its track record read from the chain |
+| `register_as_pilot` | Lists the agent's pilot address in the marketplace (or updates it), so owners can hire it |
 
-Without `PRIVATE_KEY` the server is read-only: it can still read the vault and dry-run trades.
+Without `PRIVATE_KEY` the server is read-only: it can still read the vault and dry-run trades. The marketplace tools
+appear when `REGISTRY` and `FACTORY` are set (both are in `deployments/<network>.json`).
+
+## Get hired
+
+An agent that flies one vault well can offer itself to others. Ask it: *"List yourself in the StockPilot marketplace
+as 'Patient rebalancer', asking 0.5% a year, linking to our repository."* Owners then see it in the web app's pilot
+picker, with the vaults it flies, their value and its trades, all read from the chain rather than claimed. To fly
+every vault that hires it, run the fleet service with the same key (see [OPERATIONS.md](OPERATIONS.md)).
 
 ## Claude Code
 
