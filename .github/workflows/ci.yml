@@ -56,3 +56,24 @@ jobs:
       - run: npm ci
       - name: Rust conformance vectors match the TypeScript model
         run: npm run --silent vectors && git diff --exit-code solana/mandate-core/tests/vectors.json
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx hardhat compile
+      - run: npx playwright install --with-deps chromium
+      - name: Browser tests against a local chain
+        run: npm run e2e
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report

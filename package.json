@@ -22,13 +22,15 @@
     "mcp": "ts-node --transpile-only agent/mcp-main.ts",
     "relay": "hardhat run agent/relayer-run.ts",
     "gas": "hardhat run scripts/gas.ts",
-    "vectors": "ts-node --transpile-only scripts/conformance-vectors.ts"
+    "vectors": "ts-node --transpile-only scripts/conformance-vectors.ts",
+    "e2e": "playwright test -c e2e-web/playwright.config.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
+    "@playwright/test": "^1.63.0",
     "@types/chai": "^4.3.20",
     "@types/chai-as-promised": "^7.1.8",
     "@types/mocha": "^10.0.10",

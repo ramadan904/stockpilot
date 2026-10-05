@@ -141,6 +141,9 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Fees and adapters** ([`test/PilotVault.test.ts`](test/PilotVault.test.ts), [`test/adapters.test.ts`](test/adapters.test.ts),
   [`test/production.test.ts`](test/production.test.ts)): pro-rata fees that leave weights untouched and stop while
   paused; Uniswap V3 routing and path checks; Pyth scaling and confidence; a full production deploy against mocks.
+- **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
+  guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, and a live vault created,
+  piloted, paused and emptied from the browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
   [`test/backtest.test.ts`](test/backtest.test.ts)): the fleet flies only its vaults and survives one failing; an MCP
