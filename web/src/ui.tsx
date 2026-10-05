@@ -26,9 +26,9 @@ export function totalUsd(assets: AssetState[]) {
   return assets.reduce((t, a) => t + valueUsd(a), 0n);
 }
 
-export function Card(props: { title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string }) {
+export function Card(props: { title?: ReactNode; aside?: ReactNode; children: ReactNode; className?: string; tour?: string }) {
   return (
-    <section className={`card ${props.className ?? ""}`}>
+    <section className={`card ${props.className ?? ""}`} data-tour={props.tour}>
       {(props.title || props.aside) && (
         <header className="card-head">
           {props.title && <h3>{props.title}</h3>}

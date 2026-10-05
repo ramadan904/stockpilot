@@ -32,7 +32,7 @@ interface Point {
   hold: number;
 }
 
-export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: number }) {
+export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mandate; usdSize: number; tourRequest?: number }) {
   const [sim, setSim] = useState<Sim>(() => createSim(mandate, usdSize));
   const [history, setHistory] = useState<Point[]>([]);
   // Buy-and-hold benchmark: the vault's starting balances, never traded.
@@ -117,10 +117,102 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
 
   const attacks = useMemo(() => buildAttacks(sim), [sim]);
 
+  // ---- Guided tour: drives this simulator through the whole story, one captioned step at a time. ----
+  const [tourStep, setTourStep] = useState<number | null>(null);
+  const [reportTrigger, setReportTrigger] = useState(0);
+  const tour: { target: string; title: string; text: string; run?: () => void }[] = [
+    {
+      target: "vault",
+      title: "This is your vault",
+      text: "It holds tokenized stocks and a stablecoin at the targets in your mandate. You own it: only you can withdraw or change the rules.",
+    },
+    {
+      target: "vault",
+      title: "Markets move",
+      text: "NVIDIA rallies 45% and Tesla falls 30%. Your portfolio drifts: the red and amber dots are now off target.",
+      run: () => {
+        setSim(movePrice(movePrice(sim, "NVDA", 1.45), "TSLA", 0.7));
+        push("market", "NVDA +45%, TSLA -30%");
+      },
+    },
+    {
+      target: "log",
+      title: "The pilot rebalances",
+      text: "It sells some of what ran up and buys what fell, back toward your targets. Each trade comes with a reason, and the reason's hash is stored onchain.",
+      run: () => {
+        let s = sim;
+        for (let i = 0; i < 3; i++) s = pilotTick(s, true);
+        setSim(s);
+      },
+    },
+    {
+      target: "log",
+      title: "Now the pilot is hacked",
+      text: "It tries everything: pile into one stock, dump a position, take a terrible price, trade on a stale price, withdraw the money, rewrite the rules. The vault contract rejects every attempt.",
+      run: () => {
+        for (const a of attacks) {
+          const r = a.run(sim);
+          push(r.ok ? "allowed" : "blocked", `${a.name}: ${r.text}`, undefined, r.ok ? {} : { blocked: { attempt: a.name, reason: r.text } });
+        }
+      },
+    },
+    {
+      target: "chart",
+      title: "Weeks go by",
+      text: "The market keeps moving and the pilot keeps the portfolio near target. The chart compares your vault with leaving the same start untouched.",
+      run: () => {
+        let s = sim;
+        for (let i = 0; i < 12; i++) s = pilotTick(randomDay(s, 0.05), true);
+        setSim(s);
+      },
+    },
+    {
+      target: "report",
+      title: "A report you can read",
+      text: "Claude writes a plain-English summary from numbers computed onchain. It never invents figures.",
+      run: () => setReportTrigger((t) => t + 1),
+    },
+    {
+      target: "vault",
+      title: "Your turn",
+      text: "Describe your own goal at the top, try the Backtest tab, or connect a wallet in Live to run a real vault on testnet.",
+    },
+  ];
+
+  function goTo(i: number) {
+    tour[i].run?.();
+    setTourStep(i);
+  }
+
+  useEffect(() => {
+    if (tourRequest === 0) return;
+    reset();
+    setAuto(false);
+    setTourStep(0);
+  }, [tourRequest]);
+
+  useEffect(() => {
+    document.querySelectorAll(".tour-focus").forEach((el) => el.classList.remove("tour-focus"));
+    if (tourStep === null) return;
+    const el = document.querySelector(`[data-tour="${tour[tourStep].target}"]`);
+    if (el) {
+      el.classList.add("tour-focus");
+      // Just below the sticky header, so the caption panel at the bottom does not cover it.
+      const header = (document.querySelector(".topbar") as HTMLElement | null)?.offsetHeight ?? 60;
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - header - 16, behavior: "smooth" });
+    }
+  }, [tourStep, history.length > 1]);
+
+  useEffect(() => {
+    document.body.classList.toggle("touring", tourStep !== null);
+    return () => document.body.classList.remove("touring");
+  }, [tourStep !== null]);
+
   return (
     <div className="grid-2">
       <div className="stack">
         <Card
+          tour="vault"
           title={<><span className="step">3</span>Your vault (simulated)</>}
           aside={
             <span className="row" style={{ gap: 6 }}>
@@ -146,6 +238,7 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
             Shaded: the band the vault enforces. Darker: where the pilot leaves things alone. Line: target.
           </p>
           {history.length > 1 && (
+            <div data-tour="chart">
             <LineChart
               title="Portfolio value"
               series={[
@@ -156,10 +249,13 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
               format={(v) => compactUsd(v)}
               height={220}
             />
+            </div>
           )}
         </Card>
 
         <ReportCard
+          tour="report"
+          trigger={reportTrigger}
           title="Session report"
           facts={() => {
             const st = vaultState(sim);
@@ -177,7 +273,7 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
           }}
         />
 
-        <Card title="Pilot log" aside={<span className="muted small">Each trade commits keccak256(reason) onchain</span>}>
+        <Card tour="log" title="Pilot log" aside={<span className="muted small">Each trade commits keccak256(reason) onchain</span>}>
           {log.length === 0 ? (
             <p className="muted" style={{ margin: 0 }}>
               Move the market, then run the pilot.
@@ -282,6 +378,31 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
           ))}
         </Card>
       </div>
+      {tourStep !== null && (
+        <div className="tour-panel" role="dialog" aria-label="Guided tour">
+          <div className="spread">
+            <span className="muted small">
+              Tour · {tourStep + 1} of {tour.length}
+            </span>
+            <button className="btn small" onClick={() => setTourStep(null)}>
+              Exit
+            </button>
+          </div>
+          <strong>{tour[tourStep].title}</strong>
+          <p>{tour[tourStep].text}</p>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            {tourStep < tour.length - 1 ? (
+              <button className="btn primary" onClick={() => goTo(tourStep + 1)}>
+                Next
+              </button>
+            ) : (
+              <button className="btn primary" onClick={() => setTourStep(null)}>
+                Finish
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

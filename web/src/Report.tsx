@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { basicReport, type Report, type ReportFacts } from "../../agent/report";
 import type { VaultState } from "../../agent/model";
 import { drift } from "../../agent/planner";
@@ -36,11 +36,23 @@ async function fetchReport(facts: ReportFacts): Promise<{ report: Report; source
   }
 }
 
-export function ReportCard({ facts, title = "Owner's report" }: { facts: () => ReportFacts; title?: string }) {
+export function ReportCard({ facts, title = "Owner's report", trigger = 0, tour }: { facts: () => ReportFacts; title?: string; trigger?: number; tour?: string }) {
   const [out, setOut] = useState<{ report: Report; source: "claude" | "basic" } | null>(null);
   const [busy, setBusy] = useState(false);
+  const factsRef = useRef(facts);
+  factsRef.current = facts;
+  // Lets the guided tour ask for a report.
+  useEffect(() => {
+    if (trigger === 0) return;
+    setBusy(true);
+    fetchReport(factsRef.current()).then((r) => {
+      setOut(r);
+      setBusy(false);
+    });
+  }, [trigger]);
   return (
     <Card
+      tour={tour}
       title={title}
       aside={
         <button

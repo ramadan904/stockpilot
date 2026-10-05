@@ -45,6 +45,7 @@ async function requestDraft(goal: string, usd: number): Promise<{ proposal: Prop
 
 export function App() {
   const [tab, setTab] = useState<"sim" | "backtest" | "live">("sim");
+  const [tourRequest, setTourRequest] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(() => makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +99,16 @@ export function App() {
             <li>Pilot can't withdraw or change the rules</li>
             <li>Every trade checked onchain against oracle prices</li>
           </ul>
+          <button
+            className="btn primary"
+            style={{ marginTop: 18 }}
+            onClick={() => {
+              setTab("sim");
+              setTourRequest((r) => r + 1);
+            }}
+          >
+            Take the 60-second tour
+          </button>
         </div>
 
         <main>
@@ -108,7 +119,7 @@ export function App() {
             onDraft={onDraft}
             onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
           />
-          {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} />}
+          {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} tourRequest={tourRequest} />}
           {tab === "backtest" && mandate && draft && <Backtest mandate={mandate} usdSize={draft.usd} />}
           {tab === "live" && <Live draft={draft} />}
         </main>

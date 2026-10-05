@@ -52,12 +52,18 @@ offline.
 npm run web       # http://localhost:5173
 ```
 
+- **Take the 60-second tour**: one button walks through the whole story in the real simulator, with captions: a market
+  shock, the pilot rebalancing, a hacked pilot blocked eight times, weeks of autopilot, and a written report.
 - **Simulator** (no wallet): draft a mandate from a goal, move the market, run the pilot or let it fly on autopilot,
-  and try eight attacks a rogue pilot might make. The simulated vault runs the same `check()` the real pilot uses, and
+  start in cash and watch it invest, chart the vault against buy-and-hold, and try eight attacks a rogue pilot might
+  make.
+- **Backtest**: the mandate over 200 simulated markets against buy-and-hold: returns, drawdowns, volatility and how
+  concentrated each gets. The simulated vault runs the same `check()` the real pilot uses, and
   the randomized test proves `check()` agrees with the contract trade for trade, so what you see is what the chain does.
-- **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create and fund a vault
-  with the drafted mandate, run the pilot, pause it, change the pilot, withdraw everything, and read every trade's
-  onchain record with its reason hash. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
+- **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
+  drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
+  change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
+  with "new since your last visit" markers. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
   is committed.
 
 The strategist runs server-side at `POST /api/propose`, so the Anthropic key never reaches the browser. In development
