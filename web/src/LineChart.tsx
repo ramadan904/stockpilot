@@ -10,7 +10,7 @@ const H = 260;
 /**
  * Value-over-time for up to a few series on one shared y-axis. Thin 2px lines, recessive grid, a legend and direct
  * labels at the line ends, a crosshair that reads every series at the hovered point, and a table view. Colors are
- * the validated categorical slots (--series-1, --series-2), never cycled.
+ * the validated categorical slots (--series-1 to --series-3), in fixed order, never cycled.
  */
 export function LineChart(props: { series: Series[]; xLabel: (i: number) => string; format: (v: number) => string; title: string; height?: number }) {
   const { series, xLabel, format } = props;

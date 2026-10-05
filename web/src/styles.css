@@ -595,16 +595,20 @@ footer {
   margin: 3px 0;
 }
 
-/* Charts: validated categorical slots 1-2 (see the dataviz palette), recessive grid and axes. */
+/* Charts: validated categorical slots 1-3 (see the dataviz palette; all pairs pass in both modes against these
+   surfaces), recessive grid and axes. Slot 3 is under 3:1 on the light surface, so charts carry direct labels and a
+   table view. */
 :root {
   --series-1: #2a78d6;
   --series-2: #eb6834;
+  --series-3: #1baf7a;
   --grid: #e8eaee;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --series-1: #3987e5;
     --series-2: #d95926;
+    --series-3: #199e70;
     --grid: #223040;
   }
 }
@@ -647,6 +651,9 @@ footer {
 .swatch.s2 {
   background: var(--series-2);
 }
+.swatch.s3 {
+  background: var(--series-3);
+}
 .chart-plot {
   position: relative;
 }
@@ -682,6 +689,9 @@ footer {
 .chart .line.s2 {
   stroke: var(--series-2);
 }
+.chart .line.s3 {
+  stroke: var(--series-3);
+}
 .chart .crosshair {
   stroke: var(--muted);
   stroke-width: 1;
@@ -696,6 +706,9 @@ footer {
 }
 .chart .dot.s2 {
   fill: var(--series-2);
+}
+.chart .dot.s3 {
+  fill: var(--series-3);
 }
 .tooltip {
   position: absolute;
@@ -828,4 +841,22 @@ body.touring {
   border-radius: 12px 12px 12px 2px;
   border: 1px solid var(--border);
   max-width: 95%;
+}
+
+/* Stress test */
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+.linkish:hover {
+  text-decoration: underline;
+}
+tr.row-selected td {
+  background: var(--accent-soft);
 }

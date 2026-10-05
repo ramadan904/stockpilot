@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 155 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 162 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -115,6 +115,13 @@ targets anyway, so a pilot that never pokes still cannot dodge it. Owner withdra
 crash); only the owner can go back to normal targets. The rules engines need no change: the vault reports the targets
 in force, and the model and planner follow them.
 
+**Stress test before you sign.** The Backtest tab runs the draft mandate through five shaped markets ([`agent/stress.ts`](agent/stress.ts)):
+a sharp crash with a fast recovery, a two-year bear market, a tech-only wreck, a flash crash and a melt-up. Each is
+flown three ways, left alone, by the pilot, and by the pilot with the crash guard armed (simulated exactly as the vault
+runs it, rounding included), with the same planner and rule model as the real thing. It shows the cost as plainly as
+the benefit: the guard cuts the fall in a long bear market but can lock in the loss before a fast rebound. The
+scenarios are stated as shapes, not history or forecasts.
+
 **Taxes.** The web app rebuilds the vault's tax lots from its onchain history ([`agent/tax.ts`](agent/tax.ts)):
 deposits priced by the vault's own oracles at that block, every trade, the fee paid in kind. Sales are matched first in,
 first out, lot by lot, split into short and long term, with exact integer arithmetic, and download as a CSV in the
@@ -177,7 +184,7 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
   guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, listing and hiring a pilot
   in the marketplace, naming an heir who then claims the vault, a taxable sale exported as CSV, asking the vault why it
-  sold, a market crash tripping the crash guard, and a live vault created, piloted, paused and emptied from the
+  sold, a market crash tripping the crash guard, the stress test, and a live vault created, piloted, paused and emptied from the
   browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),

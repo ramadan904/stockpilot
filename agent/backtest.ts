@@ -56,6 +56,22 @@ export interface PathResult {
   maxDriftBps: number;
   /** Largest weight any single risky (non-stable) asset reached, in percent. */
   maxRiskyWeightPct: number;
+  /** Day the crash guard tripped, if it did. */
+  defensiveDay: number | null;
+}
+
+/** The vault's crash guard, as `setCrashGuard` arms it. */
+export interface GuardConfig {
+  /** Index of the safe asset in the mandate. */
+  safeIndex: number;
+  safeTargetBps: number;
+  drawdownBps: number;
+}
+
+/** The targets the vault switches to in defensive mode: exactly `PilotVault._target`, rounding included. */
+export function defensiveTargets(targets: number[], g: GuardConfig): number[] {
+  const safeNormal = targets[g.safeIndex];
+  return targets.map((t, i) => (i === g.safeIndex ? g.safeTargetBps : Math.floor((t * (10_000 - g.safeTargetBps)) / (10_000 - safeNormal))));
 }
 
 export interface Summary {
@@ -118,7 +134,7 @@ export function simulatePrices(assets: AssetModel[], days: number, u: () => numb
 }
 
 /** One path: the pilot flying the mandate, and the same starting portfolio left alone. */
-export function runPath(o: BacktestOptions, prices: number[][]): PathResult {
+export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardConfig): PathResult {
   const cooldown = BigInt(Math.max(o.mandate.limits.cooldown, 1));
   let now = 1_700_000_000n;
   let state: VaultState = {
@@ -142,7 +158,8 @@ export function runPath(o: BacktestOptions, prices: number[][]): PathResult {
   };
   const holdBalances = state.assets.map((a) => a.balance);
   const total = (assets: AssetState[]) => fromWad(assets.reduce((t, a) => t + valueOf(a.balance, a.price, a.decimals), 0n));
-  const out: PathResult = { pilot: [], hold: [], trades: 0, volumeUsd: 0, feesUsd: 0, rejected: 0, maxDriftBps: 0, maxRiskyWeightPct: 0 };
+  const out: PathResult = { pilot: [], hold: [], trades: 0, volumeUsd: 0, feesUsd: 0, rejected: 0, maxDriftBps: 0, maxRiskyWeightPct: 0, defensiveDay: null };
+  let peak = 0n;
   const dailyFee = BigInt(Math.round((o.feeBps / 252) * 1e6)); // per trading day, in millionths of a bp
 
   for (let d = 0; d < prices[0].length; d++) {
@@ -153,6 +170,17 @@ export function runPath(o: BacktestOptions, prices: number[][]): PathResult {
       const before = total(state.assets);
       state = { ...state, assets: state.assets.map((a) => ({ ...a, balance: a.balance - (a.balance * dailyFee) / (BPS * 1_000_000n) })) };
       out.feesUsd += before - total(state.assets);
+    }
+
+    // The crash guard, as the vault runs it (poked daily by the fleet, and again by every trade).
+    if (guard && out.defensiveDay === null) {
+      const t = state.assets.reduce((s, a) => s + valueOf(a.balance, a.price, a.decimals), 0n);
+      if (t > peak) peak = t;
+      else if (t * BPS < peak * (BPS - BigInt(guard.drawdownBps))) {
+        out.defensiveDay = d;
+        const next = defensiveTargets(state.assets.map((a) => a.targetBps), guard);
+        state = { ...state, assets: state.assets.map((a, i) => ({ ...a, targetBps: next[i] })) };
+      }
     }
 
     // The pilot gets a few chances a day, the cooldown apart.

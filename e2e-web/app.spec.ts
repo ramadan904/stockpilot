@@ -46,7 +46,23 @@ test("the backtest never proposes a trade the vault would reject", async ({ page
   const tiles = page.locator(".card").filter({ hasText: "What the pilot did" });
   await expect(tiles).toContainText("Trades the vault would reject", { timeout: 30_000 });
   await expect(tiles.locator(".stat").filter({ hasText: "would reject" }).locator(".value")).toHaveText("0");
-  await expect(page.locator("figure.chart svg path.line")).toHaveCount(2);
+  await expect(page.locator(".card").filter({ hasText: "A typical path" }).locator("figure.chart svg path.line")).toHaveCount(2);
+});
+
+test("stress test: the draft mandate through five shaped crashes, with and without the crash guard", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Backtest" }).click();
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Stress test before you sign" }) });
+  await expect(card.locator("tbody tr")).toHaveCount(5);
+  await expect(card.locator("tbody tr").filter({ hasText: "Long bear market" })).toContainText(/guard trips on day \d+/);
+  await expect(card.locator("tbody tr").filter({ hasText: "Flash crash" })).toContainText("guard not tripped");
+  await card.getByRole("button", { name: "Long bear market" }).click();
+  await expect(card.locator("figcaption")).toContainText("Long bear market");
+  await expect(card.locator("figure.chart svg path.line")).toHaveCount(3);
+  // A looser guard trips later, or not at all.
+  const before = await card.locator("tbody tr").filter({ hasText: "Tech wreck" }).textContent();
+  await card.getByLabel("Crash guard trips at").selectOption("30");
+  await expect(card.locator("tbody tr").filter({ hasText: "Tech wreck" })).not.toHaveText(before!);
 });
 
 test("refining the draft in plain words lists exactly what changed", async ({ page }) => {

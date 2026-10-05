@@ -4,6 +4,7 @@ import type { Mandate } from "../../agent/mandate";
 import { DEFAULT_MODELS, backtest, modelsFor, type BacktestResult, type Percentiles } from "../../agent/backtest";
 import { LineChart, compactUsd } from "./LineChart";
 import { Card } from "./ui";
+import { StressTest } from "./StressTest";
 
 const money = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const pctf = (v: number) => `${v.toFixed(1)}%`;
@@ -104,6 +105,8 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
           </div>
         </div>
       )}
+
+      <StressTest mandate={mandate} usdSize={usdSize} />
 
       <Card title="Assumptions">
         <p className="small muted" style={{ margin: 0 }}>
