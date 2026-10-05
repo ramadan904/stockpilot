@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 38 tests: vault rules, a hostile venue, a randomized model check, planner, strategist
+npm test          # 90 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -126,9 +126,17 @@ you like: any agent with the pilot key gets the same onchain limits.
 
 - **Vault rules** ([`test/PilotVault.test.ts`](test/PilotVault.test.ts)): every limit, custody, pause, ownership, mandate
   validation, and a hostile venue that lies about output or tries to re-enter.
-- **Model vs contract** ([`test/model.test.ts`](test/model.test.ts)): 360 random trades under random price moves and
-  venue fees. For each one, the TypeScript model and the contract must agree on whether it passes and, if not, on the
-  exact error.
+- **Model vs contract** ([`test/model.test.ts`](test/model.test.ts)): 600 random trades under random price moves, venue
+  fees and clock jumps. For each one, the TypeScript model and the contract must agree, to the second, on whether it
+  passes and, if not, on the exact error (bands, slippage, trade budget, cooldown, stale prices).
+- **Fees and adapters** ([`test/PilotVault.test.ts`](test/PilotVault.test.ts), [`test/adapters.test.ts`](test/adapters.test.ts),
+  [`test/production.test.ts`](test/production.test.ts)): pro-rata fees that leave weights untouched and stop while
+  paused; Uniswap V3 routing and path checks; Pyth scaling and confidence; a full production deploy against mocks.
+- **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
+  [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
+  [`test/backtest.test.ts`](test/backtest.test.ts)): the fleet flies only its vaults and survives one failing; an MCP
+  client drives the server end to end; reports never invent numbers; the relayer's push rules; the backtest never
+  proposes a rejected trade.
 - **Planner** ([`test/planner.test.ts`](test/planner.test.ts)): after market shocks, the pilot returns the portfolio near
   target using only trades the vault accepts, stops at the daily limit, and refuses to trade on stale prices.
 - **Strategist** ([`test/strategist.test.ts`](test/strategist.test.ts)): a sloppy proposal (unknown assets, weights that
@@ -159,10 +167,10 @@ This is a hackathon build. The contracts are tested but **not audited**; do not 
 
 ## Roadmap
 
-1. Live deployments on Robinhood Chain testnet and Arbitrum Sepolia, and the web app on Vercel.
-2. A hosted pilot service, so owners don't run `agent/run.ts` themselves.
-3. A real venue adapter (DEX router) and production price feeds for tokenized stocks.
-4. Pilot as an MCP server, so any agent can fly a vault under the same onchain limits.
+1. Live deployments on Robinhood Chain testnet and Arbitrum Sepolia, the relayer running, and the web app on Vercel.
+2. Mainnet: real tokenized-stock tokens, feeds and DEX pools in a `deploy/` config, then an audit.
+3. Run the hosted fleet pilot as a service, with owner notifications by email as well as webhooks.
+4. More chains where tokenized stocks trade, including Solana.
 
 ## License
 

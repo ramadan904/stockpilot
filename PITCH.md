@@ -39,9 +39,9 @@ watch many of these. Read the **bold** lines word for word; the rest is what is 
 
 **1:55–2:10 · Proof** (cut to the terminal: `npm test` passing, then `npm run demo`)
 
-> **This isn't a mockup. The vault is live on Robinhood Chain testnet. Thirty-eight tests, including three hundred
-> sixty random trades where our model of the rules and the real contract must agree exactly. And you can pause the
-> pilot or withdraw everything, any time.**
+> **This isn't a mockup. The vault is live on Robinhood Chain testnet. Ninety tests, including six hundred random
+> trades where our model of the rules and the real contract must agree exactly. Bring your own AI: any agent can fly a
+> vault through our MCP server, under the same limits. And you can pause the pilot or withdraw everything, any time.**
 
 (Only say "live on Robinhood Chain testnet" once it is deployed; otherwise say "deployable to Robinhood Chain".)
 
@@ -67,8 +67,9 @@ StockPilot is an AI autopilot for tokenized stock portfolios that can only trade
 describe your goal in plain words; Claude drafts a mandate (target weights, drift bands, trade and daily limits); you
 sign it into a vault you own. A pilot rebalances the portfolio, and the vault contract checks every trade against the
 mandate at oracle prices, so even a compromised pilot cannot withdraw, change the rules, concentrate the portfolio or
-take a bad price. Built on Robinhood Chain, with 38 tests including a randomized model-versus-contract check, a
-no-wallet simulator, and a live testnet app.
+take a bad price. A capped onchain fee pays a hosted pilot fleet; any AI agent can fly a vault through an MCP server;
+Claude writes the owner's reports. Built on Robinhood Chain, with 90 tests including a randomized model-versus-contract
+check, a no-wallet simulator, a backtest, and a live testnet app.
 
 ## One-liners
 

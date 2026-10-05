@@ -19,8 +19,11 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 38 tests, including 360 random trades on which an exact TypeScript model of the rules and
-  the deployed contract must agree. In the demo, a rogue pilot tries eight attacks and the contract stops all eight.
+- **Proof, not promises:** 90 tests, including 600 random trades on which an exact TypeScript model of the rules and
+  the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
+  stops all eight.
+- **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; any AI agent can fly a
+  vault through our MCP server; Claude writes the owner's reports; a backtest shows what the mandate does to risk.
 - **Try it in one click:** the web app's simulator needs no wallet. Live mode creates, funds, pilots, pauses and
   withdraws from a real vault on Robinhood Chain testnet.
 
@@ -82,7 +85,13 @@ Everything; the repository started empty.
   live pilot loop, and a JSONL logbook of the rationale behind each hash.
 - **Web app** (React, viem): a no-wallet simulator with market controls, autopilot and eight attack buttons; and a live
   mode to create, fund, pilot, pause, re-mandate and withdraw from a vault, with the onchain trade history.
-- **Testing:** 38 tests. Vault rules, custody, pause and ownership; a hostile venue that lies or re-enters; 360
+- **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
+  cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
+  Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
+  built from onchain facts; a backtest against buy-and-hold; a relayer that brings real stock prices to testnet.
+- **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
+  that refuses wide confidence intervals, and a config-driven production deploy.
+- **Testing:** 90 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -98,8 +107,10 @@ onchain equities.
 - **Embedded:** the vault and pilot are infrastructure. A wallet, neobank or brokerage app offers "autopilot" to its
   users, under its own brand, on contracts that keep users in custody.
 
-**Revenue (planned, not built yet).** A management fee on vaults run by the hosted pilot, taken onchain by the vault
-so it is transparent and capped by the mandate; and B2B licensing for embedded use. Self-hosting the pilot stays free.
+**Revenue (built).** A management fee on vaults run by the hosted pilot, taken onchain by the vault: transparent,
+capped at 2% a year, charged pro-rata so it never moves the weights, paused while the vault is paused, and cancellable
+by the owner at any time. The fleet pilot can serve only vaults that pay it. Next: B2B licensing for embedded use.
+Self-hosting the pilot, or flying it with your own agent over MCP, stays free.
 The open contracts are the trust anchor; the hosted pilot, strategist and UX are the business.
 
 ## Honest limits
@@ -108,20 +119,20 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 - Testnets have no tokenized-stock liquidity or stock feeds, so the testnet deployment uses stand-in tokens, mock
   feeds and an oracle-priced market maker behind the same interfaces a mainnet deployment would use.
 - Oracle prices are the main trust assumption: the slippage and band checks are only as good as the feed.
-- The daily limit resets at 00:00 UTC rather than on a rolling 24-hour window.
 
 ## Roadmap
 
-1. Mainnet path on Robinhood Chain: a real DEX/RFQ venue adapter and production stock price feeds; then an audit.
-2. A hosted pilot with the onchain fee module, and notifications ("your pilot sold $408 of NVDA, here's why").
-3. Pilot as an MCP server, so any agent (Claude, or the user's own) can fly a vault under the same onchain limits.
+1. Mainnet on Robinhood Chain: real token, feed and pool addresses in a `deploy/` config (the adapters and deploy
+   script are built), then an audit.
+2. Run the hosted fleet as a service, with email notifications alongside webhooks.
+3. Embedded "autopilot" for wallets and apps, under their brand, on the same contracts.
 4. More chains where tokenized stocks trade, including Solana, with the same mandate model.
 
 ## Run it
 
 ```bash
 npm install
-npm test          # 38 tests
+npm test          # 90 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```
