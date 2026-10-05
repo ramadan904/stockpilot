@@ -173,6 +173,16 @@ function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pi
       return { ...base, kind: "control", text: "Owner checked in: the inheritance clock restarted" };
     case "InheritanceClaimed":
       return { ...base, kind: "control", text: `${short(String(a.heir))} inherited the vault from ${short(String(a.previousOwner))}` };
+    case "CrashGuardSet":
+      return {
+        ...base,
+        kind: "control",
+        text: /^0x0+$/.test(String(a.safeAsset)) ? "Crash guard turned off" : `Crash guard armed: past a ${Number(a.drawdownBps) / 100}% fall, ${sym(a.safeAsset)} goes to ${Number(a.safeTargetBps) / 100}%`,
+      };
+    case "DefensiveModeEntered":
+      return { ...base, kind: "control", text: `Crash guard tripped: ${usd(a.valueUsd as bigint)} against a ${usd(a.peakUsd as bigint)} peak; defensive targets in force` };
+    case "DefensiveModeExited":
+      return { ...base, kind: "control", text: "Back to normal targets" };
     case "OwnershipTransferStarted":
       return { ...base, kind: "control", text: `Ownership transfer to ${short(String(a.newOwner))} started` };
     case "OwnershipTransferred":

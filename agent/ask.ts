@@ -63,6 +63,9 @@ export const VaultFacts = z.object({
     .object({ year: z.number(), shortTermGainUsd: z.number(), longTermGainUsd: z.number(), feesPaidUsd: z.number(), unrealizedGainUsd: z.number() })
     .nullable(),
   inheritance: z.object({ heir: z.string().nullable(), periodDays: z.number(), heirCanClaimFrom: z.string().nullable() }),
+  crashGuard: z
+    .object({ armed: z.boolean(), defensive: z.boolean(), tripsAtFallPct: z.number(), safeAsset: z.string().nullable(), safeTargetPct: z.number(), peakUsd: z.number() })
+    .optional(),
 });
 export type VaultFacts = z.infer<typeof VaultFacts>;
 
@@ -87,7 +90,8 @@ export interface AskResult extends Answer {
 const SYSTEM = `You answer a portfolio owner's questions about their StockPilot vault. StockPilot is an automated pilot
 that rebalances the owner's tokenized stock portfolio, but only inside rules (a mandate) the owner signed onchain:
 target weights with bands, a per-trade cap, a 24-hour trade budget, a cooldown, a slippage limit against oracle prices,
-and a maximum price age. The owner can pause, withdraw, change the pilot or the rules, and name an heir.
+and a maximum price age. The owner can pause, withdraw, change the pilot or the rules, name an heir, and arm a crash
+guard (past a set fall from the recorded peak, the vault switches to defensive targets and the pilot can only de-risk).
 
 Use only the facts you are given, which code read from the chain. If the facts do not answer the question, say so and
 say what would. Never invent numbers, trades, dates or reasons. When you explain why the pilot traded, quote or
@@ -185,6 +189,18 @@ export function basicAnswer(question: string, f: VaultFacts): Answer {
       answer: t
         ? `In ${t.year} so far: ${money(t.shortTermGainUsd)} short-term and ${money(t.longTermGainUsd)} long-term realized gains, ${money(t.feesPaidUsd)} in fees, and ${money(t.unrealizedGainUsd)} unrealized on open lots. The Taxes card has every lot and a CSV. This is not tax advice.`
         : "Build the tax report in the Taxes card first; then I can summarize it.",
+      citations: [],
+      followUps: follow,
+    };
+  }
+  if (/\b(crash|crashes|drawdown|guard|stop.?loss|protect|protected|defensive)\b/.test(q)) {
+    const g = f.crashGuard;
+    return {
+      answer: !g || !g.armed
+        ? "The crash guard is off: if markets fall, the pilot keeps rebalancing to your normal targets. You can arm it in the Crash guard card."
+        : g.defensive
+          ? `The crash guard has tripped: the vault is on defensive targets, ${g.safeAsset} at ${g.safeTargetPct}%, and the pilot can only de-risk until you lift it.`
+          : `The crash guard is armed: if the vault falls more than ${g.tripsAtFallPct}% below its recorded peak${g.peakUsd ? ` of ${money(g.peakUsd)}` : ""}, ${g.safeAsset} goes to ${g.safeTargetPct}% and the pilot can only de-risk. The contract enforces it.`,
       citations: [],
       followUps: follow,
     };

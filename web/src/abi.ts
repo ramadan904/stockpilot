@@ -61,6 +61,11 @@ export const pilotVaultAbi = [
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "CrashGuardOff",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -74,6 +79,11 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "DailyLimitExceeded",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "DrawdownOutOfRange",
     "type": "error"
   },
   {
@@ -142,6 +152,11 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "InvalidPrice",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidSafeTarget",
     "type": "error"
   },
   {
@@ -350,6 +365,56 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "AdapterSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "safeAsset",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "safeTargetBps",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "drawdownBps",
+        "type": "uint16"
+      }
+    ],
+    "name": "CrashGuardSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "peakUsd",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "valueUsd",
+        "type": "uint256"
+      }
+    ],
+    "name": "DefensiveModeEntered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [],
+    "name": "DefensiveModeExited",
     "type": "event"
   },
   {
@@ -718,6 +783,19 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "MAX_DRAWDOWN_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_FEE_BPS",
     "outputs": [
       {
@@ -745,6 +823,19 @@ export const pilotVaultAbi = [
   {
     "inputs": [],
     "name": "MAX_SLIPPAGE_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MIN_DRAWDOWN_BPS",
     "outputs": [
       {
         "internalType": "uint256",
@@ -880,6 +971,19 @@ export const pilotVaultAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "defensive",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -893,6 +997,26 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "deposit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "drawdownBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "exitDefensive",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1187,6 +1311,19 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "peakValueUsd",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "pendingOwner",
     "outputs": [
       {
@@ -1209,6 +1346,19 @@ export const pilotVaultAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "poke",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "triggered",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1323,6 +1473,32 @@ export const pilotVaultAbi = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "safeAsset",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "safeTargetBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -1331,6 +1507,29 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "setAdapter",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "safeAsset_",
+        "type": "address"
+      },
+      {
+        "internalType": "uint16",
+        "name": "safeTargetBps_",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "drawdownBps_",
+        "type": "uint16"
+      }
+    ],
+    "name": "setCrashGuard",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

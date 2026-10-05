@@ -31,6 +31,7 @@ import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 import { InheritanceCard } from "./Inheritance";
+import { CrashGuardCard } from "./CrashGuard";
 import { TaxCard } from "./Tax";
 import { AskCard, rememberReason } from "./Ask";
 
@@ -519,6 +520,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         feeBps={roles.feeBps}
       />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
+      <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 

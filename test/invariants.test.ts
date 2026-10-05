@@ -55,6 +55,7 @@ describe("vault invariants", () => {
       const [, , , heirWallet] = await hre.viem.getWalletClients();
       const asHeir = await hre.viem.getContractAt("PilotVault", f.vault.address, { client: { wallet: heirWallet } });
       let inherited = 0;
+      let enteredSeen = 0;
 
       const pilotStart = await Promise.all(tokens.map((t) => t.read.balanceOf([pilotAddr])));
       const maxSeen = await Promise.all(tokens.map((t) => t.read.balanceOf([f.vault.address])));
@@ -70,7 +71,7 @@ describe("vault invariants", () => {
         const recipientBefore = await Promise.all(tokens.map((t) => t.read.balanceOf([recipient])));
         const eventsBefore = (await f.vault.getEvents.Rebalanced({}, { fromBlock: 0n })).length;
         const wasPaused = await f.vault.read.paused();
-        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach", "setHeir", "heirClaim"] as const);
+        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach", "setHeir", "heirClaim", "crashGuard", "poke", "crash"] as const);
         counts[action] = (counts[action] ?? 0) + 1;
 
         try {
@@ -135,12 +136,39 @@ describe("vault invariants", () => {
               await expect(attempt()).to.be.rejectedWith("OwnableUnauthorizedAccount");
               break;
             }
+            case "crashGuard": {
+              const r = rand();
+              if (r < 0.2) await f.vault.write.setCrashGuard([zeroAddress, 0, 0]);
+              else if (r < 0.35) await f.vault.write.exitDefensive().catch(() => {});
+              else await f.vault.write.setCrashGuard([f.usdg.address, 5_000 + Math.floor(rand() * 4_000), 500 + Math.floor(rand() * 2_000)]);
+              break;
+            }
+            case "crash": {
+              // Usually with the guard armed at a fresh peak, so its trigger path gets exercised.
+              if (rand() < 0.7) {
+                await refresh();
+                if ((await f.vault.read.drawdownBps()) === 0) await f.vault.write.setCrashGuard([f.usdg.address, 7_000, 1_500]);
+                await asStranger.write.poke();
+              }
+              // Every stock falls together, as in a market crash.
+              const factor = BigInt(55 + Math.floor(rand() * 20));
+              for (const feed of feeds) await feed.write.setPrice([((await feed.read.latestRoundData())[1] * factor) / 100n]);
+              break;
+            }
+            case "poke":
+              await asStranger.write.poke().catch((e: Error) => {
+                if (!/CrashGuardOff|StalePrice/.test(e.message)) throw e;
+              });
+              break;
             case "setHeir":
               await f.vault.write.setHeir(rand() < 0.2 ? [zeroAddress, 0] : [heirWallet.account.address, 30 * 86_400 + Math.floor(rand() * 30 * 86_400)]);
               break;
             case "heirClaim": {
               await expect(asStranger.write.claimInheritance()).to.be.rejectedWith("NotHeir");
-              const claimableAt = await f.vault.read.inheritanceClaimableAt();
+              let claimableAt = await f.vault.read.inheritanceClaimableAt();
+              // Sometimes the owner really does go silent for the whole period.
+              if (claimableAt !== 0n && rand() < 0.4) await time.increaseTo(claimableAt > BigInt(await time.latest()) ? claimableAt : BigInt(await time.latest()) + 1n);
+              claimableAt = await f.vault.read.inheritanceClaimableAt();
               const ok = await asHeir.write.claimInheritance().then(() => true, () => false);
               // Invariant: the heir takes over exactly when named and the owner's silence has lasted the period.
               const now = BigInt(await time.latest());
@@ -167,6 +195,14 @@ describe("vault invariants", () => {
         const eventsAfter = (await f.vault.getEvents.Rebalanced({}, { fromBlock: 0n })).length;
         if (wasPaused) expect(eventsAfter, `step ${step}: traded while paused`).to.equal(eventsBefore);
 
+        // Invariant: defensive mode is entered only past the drawdown from the recorded peak.
+        const entered = await f.vault.getEvents.DefensiveModeEntered({ fromBlock: 0n });
+        for (const e of entered.slice(enteredSeen)) {
+          const dd = BigInt(await f.vault.read.drawdownBps({ blockNumber: e.blockNumber! }));
+          expect(e.args.valueUsd! * 10_000n < e.args.peakUsd! * (10_000n - dd), `step ${step}: defensive without a crash`).to.equal(true);
+        }
+        enteredSeen = entered.length;
+
         // Invariant: the budget never exceeds the daily limit.
         expect((await f.vault.read.tradeBudget()) <= DEFAULT_LIMITS.dailyLimitUsd).to.equal(true);
 
@@ -187,8 +223,8 @@ describe("vault invariants", () => {
         await f.vault.write.withdraw([t.address, 2n ** 255n, owner]);
         expect(await t.read.balanceOf([f.vault.address])).to.equal(0n);
       }
-      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(11);
-      console.log(`      seed ${seed}: ${JSON.stringify(counts)}, inherited ${inherited}x`);
+      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(14);
+      console.log(`      seed ${seed}: ${JSON.stringify(counts)}, inherited ${inherited}x, defensive ${enteredSeen}x`);
     });
   }
 });

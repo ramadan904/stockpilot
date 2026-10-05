@@ -26,7 +26,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 146 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, taxes, Q&A, services, backtest
+npm test          # 155 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -106,6 +106,15 @@ action restarts the clock (`checkIn()` does nothing else); the pilot's trades ne
 the heir calls `claimInheritance()` and owns the vault, still managed, with its mandate and pilot. The fleet reminds
 subscribed owners to check in during the last quarter of the period, and a change of owner clears the heir.
 
+**Crash guard.** A stop-loss for the whole portfolio, enforced by the contract. `setCrashGuard(safeAsset,
+safeTargetBps, drawdownBps)` arms it: when the vault's value falls more than `drawdownBps` (5% to 50%) below its
+recorded peak, it switches to defensive targets (the safe asset, typically the stablecoin, rises to `safeTargetBps`;
+everything else shrinks in proportion), and the band rule then only lets the pilot de-risk toward them. Anyone can
+trip it with `poke()`, and the fleet does every tick; a trade attempted past the drop is judged on the defensive
+targets anyway, so a pilot that never pokes still cannot dodge it. Owner withdrawals re-arm it (money leaving is not a
+crash); only the owner can go back to normal targets. The rules engines need no change: the vault reports the targets
+in force, and the model and planner follow them.
+
 **Taxes.** The web app rebuilds the vault's tax lots from its onchain history ([`agent/tax.ts`](agent/tax.ts)):
 deposits priced by the vault's own oracles at that block, every trade, the fee paid in kind. Sales are matched first in,
 first out, lot by lot, split into short and long term, with exact integer arithmetic, and download as a CSV in the
@@ -168,7 +177,8 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
   guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, listing and hiring a pilot
   in the marketplace, naming an heir who then claims the vault, a taxable sale exported as CSV, asking the vault why it
-  sold, and a live vault created, piloted, paused and emptied from the browser.
+  sold, a market crash tripping the crash guard, and a live vault created, piloted, paused and emptied from the
+  browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),
   [`test/backtest.test.ts`](test/backtest.test.ts), [`test/service.test.ts`](test/service.test.ts)): the fleet flies

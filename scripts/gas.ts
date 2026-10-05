@@ -73,6 +73,11 @@ async function main() {
       rows.push([`${n} assets`, "Unpause", await gas(await vault.write.unpause())]);
       rows.push([`${n} assets`, "Set pilot", await gas(await vault.write.setPilot([pilot.account.address]))]);
       rows.push([`${n} assets`, "Set or cancel fee", await gas(await vault.write.setFee([zeroAddress, 0]))]);
+      rows.push([`${n} assets`, "Arm the crash guard", await gas(await vault.write.setCrashGuard([tokens[0], 7_000, 2_000]))]);
+      rows.push([`${n} assets`, "Poke: record a new peak", await gas(await asPilot.write.poke())]);
+      for (const m of mandate.slice(1)) await (await hre.viem.getContractAt("MockPriceFeed", m.feed)).write.setPrice([px(60)]);
+      rows.push([`${n} assets`, "Poke: crash guard trips", await gas(await asPilot.write.poke())]);
+      rows.push([`${n} assets`, "Back to normal targets", await gas(await vault.write.exitDefensive())]);
       rows.push([`${n} assets`, "Name an heir", await gas(await vault.write.setHeir([recipient.account.address, 90 * 86_400]))]);
       rows.push([`${n} assets`, "Check in (proof of life)", await gas(await vault.write.checkIn())]);
       await hre.network.provider.send("evm_increaseTime", [90 * 86_400]);

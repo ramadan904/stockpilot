@@ -225,6 +225,42 @@ test("ask your vault: why the pilot sold, answered from onchain facts with a ver
   expect(errors).toEqual([]);
 });
 
+test("crash guard: arm it, the market falls 40%, and the vault turns defensive so the pilot can only de-risk", async ({ page }) => {
+  const errors = await pageErrors(page);
+  const open = async () => {
+    await page.getByRole("tab", { name: "Live (testnet)" }).click();
+    await page.getByLabel("Network").selectOption("31337");
+    await page.getByRole("button", { name: "Use local dev account" }).click();
+  };
+  await page.goto("/");
+  await open();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+  await movePrice("TSLA", 1); // fresh prices everywhere (earlier tests may have skipped time)
+
+  const guard = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Crash guard" }) });
+  await guard.getByRole("button", { name: "Arm the crash guard" }).click();
+  await guard.getByLabel("Trip after a fall from the peak of").selectOption("20");
+  await guard.getByRole("button", { name: "Save" }).click();
+  await expect(guard.getByText("Armed")).toBeVisible({ timeout: 30_000 });
+  await guard.getByRole("button", { name: "Check now" }).click();
+  await expect(guard).toContainText("0.0% below the peak", { timeout: 30_000 });
+
+  for (const s of ["TSLA", "AAPL", "NVDA", "SPY"]) await movePrice(s, 0.6);
+  await page.reload();
+  await open();
+  await guard.getByRole("button", { name: "Check now" }).click();
+  await expect(guard.getByText("Defensive", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Pilot's next move")).toContainText(/for USDG/, { timeout: 30_000 });
+  const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
+  await expect(activity).toContainText("Crash guard tripped");
+  await guard.getByRole("button", { name: "Back to normal targets" }).click();
+  await expect(guard.getByText("Armed")).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");

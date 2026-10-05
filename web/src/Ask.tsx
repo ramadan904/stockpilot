@@ -49,6 +49,8 @@ async function gatherFacts(p: {
   const total = totalUsd(state.assets);
   const now = Number(state.now);
   const head = await client.getBlockNumber();
+  const readGuard = <T,>(functionName: string) => client.readContract({ address: vault, abi, functionName }) as Promise<T>;
+  const guardP = Promise.all([readGuard<number>("drawdownBps"), readGuard<boolean>("defensive"), readGuard<Address>("safeAsset"), readGuard<number>("safeTargetBps"), readGuard<bigint>("peakValueUsd")]).catch(() => null);
   const [activity, tradeLogs, heir, period, claimableAt, taxEvents] = await Promise.all([
     loadActivity(client, vault, abi, state.assets, p.owner, p.pilot),
     client.getContractEvents({ address: vault, abi, eventName: "Rebalanced", fromBlock: head > 50_000n ? head - 50_000n : 0n }),
@@ -73,6 +75,7 @@ async function gatherFacts(p: {
     taxes = { year, shortTermGainUsd: usdNum(y?.shortTermUsd ?? 0n), longTermGainUsd: usdNum(y?.longTermUsd ?? 0n), feesPaidUsd: usdNum(y?.feesUsd ?? 0n), unrealizedGainUsd: usdNum(unrealized) };
   }
   const p2 = plan(state);
+  const g = await guardP;
   const hasHeir = !/^0x0+$/.test(heir);
 
   return {
@@ -130,6 +133,9 @@ async function gatherFacts(p: {
       periodDays: Number(period) / 86_400,
       heirCanClaimFrom: hasHeir ? iso(Number(claimableAt)) : null,
     },
+    crashGuard: g
+      ? { armed: Number(g[0]) > 0, defensive: g[1], tripsAtFallPct: Number(g[0]) / 100, safeAsset: Number(g[0]) > 0 ? sym(g[2]) : null, safeTargetPct: Number(g[3]) / 100, peakUsd: usdNum(g[4]) }
+      : undefined,
   };
 }
 

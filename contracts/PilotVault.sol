@@ -37,6 +37,12 @@ import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
 /// Inheritance: the owner may name an heir and an inactivity period (30 days to 10 years). Every owner action resets
 /// the clock; if the owner does nothing for the whole period (lost keys, incapacity, death), the heir can take
 /// ownership. The portfolio keeps being managed in the meantime. Ownership changing hands clears the heir.
+///
+/// Crash guard: the owner may set a maximum drawdown. When the vault's value falls that far below its recorded peak,
+/// it switches to defensive targets (a safe asset, typically the stablecoin, rises to a set weight and the rest shrink
+/// in proportion), and the band rule then only lets the pilot de-risk toward them. Anyone can trigger the switch with
+/// `poke()`, and any trade attempted while the condition holds is judged against the defensive targets, so the pilot
+/// cannot ignore it. Only the owner can leave defensive mode.
 contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -50,6 +56,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Bounds on the inactivity period before an heir can take over.
     uint256 public constant MIN_INACTIVITY = 30 days;
     uint256 public constant MAX_INACTIVITY = 3650 days;
+    /// @notice Bounds on the crash guard's drawdown trigger: 5% to 50%.
+    uint256 public constant MIN_DRAWDOWN_BPS = 500;
+    uint256 public constant MAX_DRAWDOWN_BPS = 5_000;
     uint256 private constant WAD = 1e18;
 
     /// @notice One asset of the mandate, as the owner passes it in.
@@ -126,6 +135,15 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice When the owner last did anything with the vault (or became its owner).
     uint64 public lastOwnerActivity;
 
+    /// @notice Crash guard settings; `drawdownBps == 0` means off.
+    address public safeAsset;
+    uint16 public safeTargetBps;
+    uint16 public drawdownBps;
+    /// @notice True while the vault runs on defensive targets.
+    bool public defensive;
+    /// @notice Highest total value (USD, 18 decimals) recorded since the guard was armed or last re-armed.
+    uint128 public peakValueUsd;
+
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
@@ -136,6 +154,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     event HeirSet(address indexed heir, uint32 inactivityPeriod);
     event OwnerCheckedIn();
     event InheritanceClaimed(address indexed previousOwner, address indexed heir);
+    event CrashGuardSet(address indexed safeAsset, uint16 safeTargetBps, uint16 drawdownBps);
+    event DefensiveModeEntered(uint256 peakUsd, uint256 valueUsd);
+    event DefensiveModeExited();
     /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
     event Rebalanced(
         address indexed tokenIn,
@@ -178,6 +199,9 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     error InvalidHeir();
     error InactivityOutOfRange();
     error OwnerStillActive(uint256 claimableAt);
+    error DrawdownOutOfRange();
+    error InvalidSafeTarget();
+    error CrashGuardOff();
 
     modifier onlyPilot() {
         if (msg.sender != pilot) revert NotPilot();
@@ -255,6 +279,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         if (to == address(0)) revert ZeroAddress();
         _collectFee(); // pay what is owed before the balance shrinks
         if (amount > IERC20(token).balanceOf(address(this))) amount = IERC20(token).balanceOf(address(this));
+        if (!defensive) peakValueUsd = 0; // money leaving is not a crash: re-arm from the next recorded value
         IERC20(token).safeTransfer(to, amount);
         emit Withdrawn(to, token, amount);
     }
@@ -335,6 +360,52 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     // ------------------------------------------------------------------------------------------------------------
+    // Crash guard
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Arm the crash guard: past a `drawdownBps_` fall from the recorded peak, `safeAsset_`'s target becomes
+    /// `safeTargetBps_` and the other targets shrink in proportion. `drawdownBps_ == 0` turns it off.
+    function setCrashGuard(address safeAsset_, uint16 safeTargetBps_, uint16 drawdownBps_) external ownerAction {
+        if (drawdownBps_ == 0) {
+            _disarm();
+            return;
+        }
+        if (safeAsset_ == address(0)) revert ZeroAddress();
+        Asset memory a = assets[safeAsset_];
+        if (!a.listed) revert AssetNotInMandate(safeAsset_);
+        if (drawdownBps_ < MIN_DRAWDOWN_BPS || drawdownBps_ > MAX_DRAWDOWN_BPS) revert DrawdownOutOfRange();
+        if (safeTargetBps_ <= a.targetBps || safeTargetBps_ > BPS) revert InvalidSafeTarget();
+        safeAsset = safeAsset_;
+        safeTargetBps = safeTargetBps_;
+        drawdownBps = drawdownBps_;
+        defensive = false;
+        peakValueUsd = 0;
+        emit CrashGuardSet(safeAsset_, safeTargetBps_, drawdownBps_);
+    }
+
+    /// @notice Back to the normal targets. The guard stays armed and starts again from the next recorded value.
+    function exitDefensive() external ownerAction {
+        defensive = false;
+        peakValueUsd = 0;
+        emit DefensiveModeExited();
+    }
+
+    /// @notice Record the vault's value at fresh oracle prices: a new peak, or, past the drawdown, defensive mode.
+    /// Anyone can call it (a keeper, the pilot, the owner); it never moves funds.
+    function poke() external nonReentrant returns (bool triggered) {
+        if (drawdownBps == 0) revert CrashGuardOff();
+        uint256 maxAge = limits.maxPriceAge;
+        uint256 total = 0;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            Asset memory asset = assets[_tokens[i]];
+            (uint256 price,) = _price(asset.feed, asset.feedDecimals, maxAge);
+            total += _value(IERC20(_tokens[i]).balanceOf(address(this)), price, asset.tokenDecimals);
+        }
+        return _guard(total);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
     // Anyone
     // ------------------------------------------------------------------------------------------------------------
 
@@ -375,6 +446,11 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
         // Price everything once; the same prices judge the trade before and after.
         (Leg memory sell, Leg memory buy, uint256 totalBefore) = _legs(tokenIn, tokenOut);
+        // A trade attempted past the drawdown is judged against the defensive targets.
+        if (_guard(totalBefore)) {
+            sell.targetBps = _target(sell.token);
+            buy.targetBps = _target(buy.token);
+        }
 
         uint256 valueIn = _value(amountIn, sell.price, sell.decimals);
         _checkSizeAndSpend(valueIn);
@@ -409,7 +485,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
             (uint256 price, uint256 updatedAt) = _price(asset.feed, asset.feedDecimals, 0);
             uint256 balance = IERC20(token).balanceOf(address(this));
             uint256 value = _value(balance, price, asset.tokenDecimals);
-            holdings[i] = Holding(token, balance, price, updatedAt, value, 0, asset.targetBps, asset.bandBps);
+            holdings[i] = Holding(token, balance, price, updatedAt, value, 0, _target(token), asset.bandBps);
             totalUsd += value;
         }
         if (totalUsd > 0) {
@@ -475,6 +551,42 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         budgetUpdatedAt = uint64(block.timestamp);
         limits = lim;
         emit MandateSet(++mandateVersion, cfg, lim);
+        // The guard needs its safe asset listed, below its defensive target.
+        if (drawdownBps != 0 && (!assets[safeAsset].listed || assets[safeAsset].targetBps >= safeTargetBps)) _disarm();
+    }
+
+    function _disarm() internal {
+        safeAsset = address(0);
+        safeTargetBps = 0;
+        drawdownBps = 0;
+        defensive = false;
+        peakValueUsd = 0;
+        emit CrashGuardSet(address(0), 0, 0);
+    }
+
+    /// @dev Records a new peak, or enters defensive mode past the drawdown. Returns true when it just entered it.
+    function _guard(uint256 total) internal returns (bool) {
+        uint256 dd = drawdownBps;
+        if (dd == 0 || defensive) return false;
+        uint256 peak = peakValueUsd;
+        if (total > peak) {
+            peakValueUsd = uint128(total);
+            return false;
+        }
+        if (total * BPS >= peak * (BPS - dd)) return false;
+        defensive = true;
+        emit DefensiveModeEntered(peak, total);
+        return true;
+    }
+
+    /// @dev The target in force: the mandate's, or in defensive mode the safe asset's raised target and everyone
+    /// else's scaled down in proportion (rounded down, so the safe asset never ends below its defensive target).
+    function _target(address token) internal view returns (uint16) {
+        uint16 t = assets[token].targetBps;
+        if (!defensive) return t;
+        address safe = safeAsset;
+        if (token == safe) return safeTargetBps;
+        return uint16((uint256(t) * (BPS - safeTargetBps)) / (BPS - assets[safe].targetBps));
     }
 
     function _available(uint256 cap) internal view returns (uint256) {
@@ -547,7 +659,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
             uint256 value = _value(balance, price, asset.tokenDecimals);
             total += value;
             if (token == tokenIn || token == tokenOut) {
-                Leg memory leg = Leg(token, asset.tokenDecimals, asset.targetBps, asset.bandBps, price, balance, value);
+                Leg memory leg = Leg(token, asset.tokenDecimals, _target(token), asset.bandBps, price, balance, value);
                 if (token == tokenIn) sell = leg;
                 else buy = leg;
             }

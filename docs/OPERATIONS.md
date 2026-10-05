@@ -51,7 +51,7 @@ Set `HEALTH_PORT` (the image sets 8080) and each service serves:
 | `stockpilot_ticks_total{service}` | counter | Ticks that completed |
 | `stockpilot_failed_ticks_total{service}` | counter | Ticks that threw (RPC down, Hermes unreachable). The service keeps going. |
 | `stockpilot_last_tick_timestamp_seconds{service}` | gauge | When the last tick completed |
-| `stockpilot_events_total{service,kind}` | counter | fleet: `trade`, `hold`, `skip`, `error`, `fee`, `digest`. relayer: `pushed`, `skipped`, `missing_quote` |
+| `stockpilot_events_total{service,kind}` | counter | fleet: `trade`, `hold`, `skip`, `error`, `fee`, `digest`, `check_in_reminder`, `defensive` (a crash guard it tripped). relayer: `pushed`, `skipped`, `missing_quote` |
 | `stockpilot_vaults{service="fleet"}` | gauge | Vaults that name this pilot |
 
 Alerts worth having: `time() - stockpilot_last_tick_timestamp_seconds > 300`, a rising `failed_ticks_total`, and any

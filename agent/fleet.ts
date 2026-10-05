@@ -25,7 +25,8 @@ export type FleetEvent =
   | { kind: "hold"; vault: Address; reason: string }
   | { kind: "skip"; vault: Address; reason: string }
   | { kind: "error"; vault: Address; error: string }
-  | { kind: "fee"; vault: Address; tx: Hash };
+  | { kind: "fee"; vault: Address; tx: Hash }
+  | { kind: "defensive"; vault: Address; tx: Hash; peakUsd: bigint; valueUsd: bigint };
 
 export type Notifier = (event: FleetEvent) => Promise<void> | void;
 
@@ -50,11 +51,45 @@ export async function fleetTick(cfg: FleetConfig): Promise<FleetEvent[]> {
   const vaults = await discoverVaults(cfg, me);
   const events: FleetEvent[] = [];
   for (const vault of vaults) {
+    const guardEvent = await watchGuard(cfg, vault).catch(() => null); // a failed poke (stale prices) must not stop the trade
+    if (guardEvent) {
+      events.push(guardEvent);
+      await cfg.notify?.(guardEvent);
+    }
     const event = await flyOne(cfg, vault, me).catch((e): FleetEvent => ({ kind: "error", vault, error: firstLine(e) }));
     events.push(event);
     await cfg.notify?.(event);
   }
   return events;
+}
+
+/**
+ * What a keeper should do about a vault's crash guard at `totalUsd`: record a new peak (once it is 1% above the
+ * recorded one, to save gas), trigger defensive mode, or nothing.
+ */
+export function guardAction(g: { drawdownBps: number; defensive: boolean; peakUsd: bigint }, totalUsd: bigint): "record" | "trigger" | null {
+  if (g.drawdownBps === 0 || g.defensive || totalUsd === 0n) return null;
+  if (g.peakUsd === 0n || totalUsd * 100n >= g.peakUsd * 101n) return "record";
+  if (totalUsd * 10_000n < g.peakUsd * BigInt(10_000 - g.drawdownBps)) return "trigger";
+  return null;
+}
+
+/** Keep a guarded vault's peak current and trip its crash guard when due, before planning the next trade. */
+async function watchGuard(cfg: FleetConfig, vault: Address): Promise<FleetEvent | null> {
+  const { client, vaultAbi, wallet } = cfg;
+  const read = <T,>(functionName: string) => client.readContract({ address: vault, abi: vaultAbi, functionName }) as Promise<T>;
+  const [drawdownBps, defensive, peakUsd, [, totalUsd]] = await Promise.all([
+    read<number>("drawdownBps"),
+    read<boolean>("defensive"),
+    read<bigint>("peakValueUsd"),
+    read<readonly [unknown, bigint]>("portfolio"),
+  ]);
+  const action = guardAction({ drawdownBps: Number(drawdownBps), defensive, peakUsd }, totalUsd);
+  if (!action) return null;
+  const { request } = await client.simulateContract({ account: wallet.account!, address: vault, abi: vaultAbi, functionName: "poke" });
+  const tx = await wallet.writeContract(request);
+  await client.waitForTransactionReceipt({ hash: tx });
+  return action === "trigger" && (await read<boolean>("defensive")) ? { kind: "defensive", vault, tx, peakUsd, valueUsd: totalUsd } : null;
 }
 
 async function flyOne(cfg: FleetConfig, vault: Address, me: Address): Promise<FleetEvent> {
@@ -116,6 +151,10 @@ export function describe(event: FleetEvent) {
       return `Vault ${v}: error, ${event.error}`;
     case "fee":
       return `Vault ${v}: management fee collected (${event.tx})`;
+    case "defensive": {
+      const drop = Number(((event.peakUsd - event.valueUsd) * 1000n) / event.peakUsd) / 10;
+      return `Crash guard: vault ${v} is worth ${fmtUsd(event.valueUsd)}, ${drop}% below its ${fmtUsd(event.peakUsd)} peak. It switched to its defensive targets, and the pilot can now only de-risk until you lift it.`;
+    }
   }
 }
 
