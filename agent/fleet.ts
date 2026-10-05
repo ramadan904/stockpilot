@@ -26,7 +26,8 @@ export type FleetEvent =
   | { kind: "skip"; vault: Address; reason: string }
   | { kind: "error"; vault: Address; error: string }
   | { kind: "fee"; vault: Address; tx: Hash }
-  | { kind: "defensive"; vault: Address; tx: Hash; peakUsd: bigint; valueUsd: bigint };
+  | { kind: "defensive"; vault: Address; tx: Hash; peakUsd: bigint; valueUsd: bigint }
+  | { kind: "deposit"; vault: Address; tx: Hash; amount: bigint; symbol: string; decimals: number };
 
 export type Notifier = (event: FleetEvent) => Promise<void> | void;
 
@@ -51,6 +52,11 @@ export async function fleetTick(cfg: FleetConfig): Promise<FleetEvent[]> {
   const vaults = await discoverVaults(cfg, me);
   const events: FleetEvent[] = [];
   for (const vault of vaults) {
+    const depositEvent = await pullDueDeposit(cfg, vault).catch((e): FleetEvent => ({ kind: "error", vault, error: `recurring investment: ${firstLine(e)}` }));
+    if (depositEvent) {
+      events.push(depositEvent);
+      await cfg.notify?.(depositEvent);
+    }
     const guardEvent = await watchGuard(cfg, vault).catch(() => null); // a failed poke (stale prices) must not stop the trade
     if (guardEvent) {
       events.push(guardEvent);
@@ -72,6 +78,24 @@ export function guardAction(g: { drawdownBps: number; defensive: boolean; peakUs
   if (g.peakUsd === 0n || totalUsd * 100n >= g.peakUsd * 101n) return "record";
   if (totalUsd * 10_000n < g.peakUsd * BigInt(10_000 - g.drawdownBps)) return "trigger";
   return null;
+}
+
+/** Pull a vault's recurring investment when it is due, so the pilot can invest it in the same tick. */
+async function pullDueDeposit(cfg: FleetConfig, vault: Address): Promise<FleetEvent | null> {
+  const { client, vaultAbi, wallet } = cfg;
+  const read = <T,>(functionName: string) => client.readContract({ address: vault, abi: vaultAbi, functionName }) as Promise<T>;
+  const [amount, nextAt, paused, block] = await Promise.all([read<bigint>("recurringAmount"), read<bigint>("recurringNextAt"), read<boolean>("paused"), client.getBlock()]);
+  if (amount === 0n || paused || block.timestamp < nextAt) return null;
+  const token = await read<Address>("recurringToken");
+  const erc20 = [
+    { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+    { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+  ] as const;
+  const [symbol, decimals] = await Promise.all([client.readContract({ address: token, abi: erc20, functionName: "symbol" }), client.readContract({ address: token, abi: erc20, functionName: "decimals" })]);
+  const { request } = await client.simulateContract({ account: wallet.account!, address: vault, abi: vaultAbi, functionName: "pullRecurringDeposit" });
+  const tx = await wallet.writeContract(request);
+  await client.waitForTransactionReceipt({ hash: tx });
+  return { kind: "deposit", vault, tx, amount, symbol, decimals };
 }
 
 /** Keep a guarded vault's peak current and trip its crash guard when due, before planning the next trade. */
@@ -151,6 +175,10 @@ export function describe(event: FleetEvent) {
       return `Vault ${v}: error, ${event.error}`;
     case "fee":
       return `Vault ${v}: management fee collected (${event.tx})`;
+    case "deposit": {
+      const n = Number(event.amount) / 10 ** event.decimals;
+      return `Recurring investment: ${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${event.symbol} moved from the owner's wallet into vault ${v}; the pilot invests it inside the mandate.`;
+    }
     case "defensive": {
       const drop = Number(((event.peakUsd - event.valueUsd) * 1000n) / event.peakUsd) / 10;
       return `Crash guard: vault ${v} is worth ${fmtUsd(event.valueUsd)}, ${drop}% below its ${fmtUsd(event.peakUsd)} peak. It switched to its defensive targets, and the pilot can now only de-risk until you lift it.`;

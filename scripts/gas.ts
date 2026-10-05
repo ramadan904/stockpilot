@@ -73,6 +73,21 @@ async function main() {
       rows.push([`${n} assets`, "Unpause", await gas(await vault.write.unpause())]);
       rows.push([`${n} assets`, "Set pilot", await gas(await vault.write.setPilot([pilot.account.address]))]);
       rows.push([`${n} assets`, "Set or cancel fee", await gas(await vault.write.setFee([zeroAddress, 0]))]);
+      const cashToken = await hre.viem.getContractAt("MockERC20", tokens[0]);
+      await cashToken.write.mint([owner.account.address, parseUnits("1000", 18)]);
+      await cashToken.write.approve([vault.address, parseUnits("1000", 18)]);
+      rows.push([`${n} assets`, "Set up a recurring investment", await gas(await vault.write.setRecurringDeposit([tokens[0], parseUnits("100", 18), 7 * 86_400]))]);
+      rows.push([`${n} assets`, "Pull a recurring investment", await gas(await asPilot.write.pullRecurringDeposit())]);
+      const chainId = await client.getChainId();
+      const deadline = BigInt((await client.getBlock()).timestamp) + 3_600n;
+      const sig = await owner.signTypedData({
+        account: owner.account!,
+        domain: { name: "StockPilot Vault", version: "1", chainId, verifyingContract: vault.address },
+        types: { CheckIn: [{ name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+        primaryType: "CheckIn",
+        message: { nonce: await vault.read.sigNonce(), deadline },
+      });
+      rows.push([`${n} assets`, "Check in by signature (relayed)", await gas(await asPilot.write.checkInWithSig([deadline, sig]))]);
       rows.push([`${n} assets`, "Arm the crash guard", await gas(await vault.write.setCrashGuard([tokens[0], 7_000, 2_000]))]);
       rows.push([`${n} assets`, "Poke: record a new peak", await gas(await asPilot.write.poke())]);
       for (const m of mandate.slice(1)) await (await hre.viem.getContractAt("MockPriceFeed", m.feed)).write.setPrice([px(60)]);

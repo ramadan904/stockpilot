@@ -6,6 +6,7 @@ import { isAddress, type Address, type Chain, type Hash, type PublicClient, type
 import { hardhat } from "viem/chains";
 import { pilotVaultAbi } from "./abi";
 import { Card } from "./ui";
+import { signAndRelay } from "./signed";
 
 const DAY = 86_400;
 const PERIODS = [30, 90, 180, 365, 730];
@@ -124,6 +125,16 @@ export function InheritanceCard(props: {
               <>
                 <button className="btn primary" onClick={write("Check in", "checkIn")}>
                   I'm here: restart the clock
+                </button>
+                <button
+                  className="btn"
+                  title="Sign a check-in; the operator's relay submits it, so you need no gas"
+                  onClick={run(async () => {
+                    await send("Check in by signature", () => signAndRelay(client, wallet, chain, vault, "checkIn"));
+                    setTick((t) => t + 1);
+                  })}
+                >
+                  Check in, no gas
                 </button>
                 <button className="btn" onClick={() => (setHeir(status.heir), setDays(status.period / DAY), setEditing(true))}>
                   Change

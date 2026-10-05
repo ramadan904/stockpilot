@@ -301,6 +301,42 @@ test("crash guard: arm it, the market falls 40%, and the vault turns defensive s
   expect(errors).toEqual([]);
 });
 
+test("recurring investment and gasless safety: invest on a schedule, check in and pause without gas", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Cash only" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit USDG: done." })).toBeVisible({ timeout: 60_000 });
+
+  const rec = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Recurring investment" }) });
+  await rec.getByRole("button", { name: "Set up recurring investment" }).click();
+  await rec.getByLabel("Amount (USDG)").fill("250");
+  await rec.getByRole("button", { name: "Save" }).click();
+  await expect(rec).toContainText("250 USDG every week", { timeout: 30_000 });
+  await expect(rec).toContainText("Approved for 12 more");
+  await rec.getByRole("button", { name: "Pull now" }).click();
+  await expect(rec).toContainText("Approved for 11 more", { timeout: 30_000 });
+  const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
+  await expect(activity).toContainText("Recurring investment pulled: 250 USDG");
+
+  // Name an heir, then check in by signature: the relay pays the gas.
+  const inh = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Inheritance" }) });
+  await inh.getByRole("button", { name: "Name an heir" }).click();
+  await inh.getByLabel("Heir's address").fill("0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+  await inh.getByRole("button", { name: "Save heir" }).click();
+  await expect(inh).toContainText("If the owner does nothing until", { timeout: 30_000 });
+  await inh.getByRole("button", { name: "Check in, no gas" }).click();
+  await expect(activity).toContainText("Owner checked in", { timeout: 30_000 });
+
+  await page.getByRole("button", { name: "Pause, no gas" }).click();
+  await expect(page.getByRole("button", { name: "Unpause" })).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");

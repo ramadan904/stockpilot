@@ -71,7 +71,7 @@ describe("vault invariants", () => {
         const recipientBefore = await Promise.all(tokens.map((t) => t.read.balanceOf([recipient])));
         const eventsBefore = (await f.vault.getEvents.Rebalanced({}, { fromBlock: 0n })).length;
         const wasPaused = await f.vault.read.paused();
-        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach", "setHeir", "heirClaim", "crashGuard", "poke", "crash"] as const);
+        const action = pick(["price", "time", "plannedTrade", "randomTrade", "deposit", "withdraw", "setFee", "pauseToggle", "collect", "pilotOverreach", "setHeir", "heirClaim", "crashGuard", "poke", "crash", "recurring"] as const);
         counts[action] = (counts[action] ?? 0) + 1;
 
         try {
@@ -155,6 +155,22 @@ describe("vault invariants", () => {
               for (const feed of feeds) await feed.write.setPrice([((await feed.read.latestRoundData())[1] * factor) / 100n]);
               break;
             }
+            case "recurring": {
+              if (rand() < 0.3) {
+                await f.vault.write.setRecurringDeposit([f.usdg.address, parseUnits(String(10 + Math.floor(rand() * 90)), 6), 86_400 * (1 + Math.floor(rand() * 7))]);
+                await f.usdg.write.mint([owner, parseUnits("500", 6)]);
+                await f.usdg.write.approve([f.vault.address, parseUnits(String(Math.floor(rand() * 400)), 6)]);
+                break;
+              }
+              // Invariant: a pull moves exactly the set amount, never before it is due.
+              const [amount, nextAt, ownerBefore] = await Promise.all([f.vault.read.recurringAmount(), f.vault.read.recurringNextAt(), f.usdg.read.balanceOf([owner])]);
+              const ok = await asStranger.write.pullRecurringDeposit().then(() => true, () => false);
+              if (ok) {
+                expect(BigInt(await time.latest()) >= nextAt, `step ${step}: pulled early`).to.equal(true);
+                expect(ownerBefore - (await f.usdg.read.balanceOf([owner])), `step ${step}: pulled the wrong amount`).to.equal(amount);
+              }
+              break;
+            }
             case "poke":
               await asStranger.write.poke().catch((e: Error) => {
                 if (!/CrashGuardOff|StalePrice/.test(e.message)) throw e;
@@ -223,7 +239,7 @@ describe("vault invariants", () => {
         await f.vault.write.withdraw([t.address, 2n ** 255n, owner]);
         expect(await t.read.balanceOf([f.vault.address])).to.equal(0n);
       }
-      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(14);
+      expect(Object.keys(counts).length, JSON.stringify(counts)).to.be.at.least(15);
       console.log(`      seed ${seed}: ${JSON.stringify(counts)}, inherited ${inherited}x, defensive ${enteredSeen}x`);
     });
   }

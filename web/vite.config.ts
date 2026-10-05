@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 /** Serve /api/* from the same handlers the Vercel functions use, so `npm run web` behaves like production. */
 function apiInDev(): Plugin {
-  const routes = { "/api/propose": "handlePropose", "/api/refine": "handleRefine", "/api/report": "handleReport", "/api/subscribe": "handleSubscribe", "/api/ask": "handleAsk" } as const;
+  const routes = { "/api/propose": "handlePropose", "/api/refine": "handleRefine", "/api/report": "handleReport", "/api/subscribe": "handleSubscribe", "/api/ask": "handleAsk", "/api/relay": "handleRelay" } as const;
   return {
     name: "stockpilot-api",
     configureServer(server) {

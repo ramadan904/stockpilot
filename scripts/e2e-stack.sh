@@ -11,4 +11,6 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 npx hardhat run scripts/deploy.ts --network localhost
+# The relay for gasless signed actions uses Hardhat's public dev account #3; it exists only on this local chain.
+export SIGNATURE_RELAY_KEY=${SIGNATURE_RELAY_KEY:-0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a}
 exec npx vite web --port 5173 --strictPort

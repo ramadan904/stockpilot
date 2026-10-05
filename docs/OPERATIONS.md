@@ -51,7 +51,7 @@ Set `HEALTH_PORT` (the image sets 8080) and each service serves:
 | `stockpilot_ticks_total{service}` | counter | Ticks that completed |
 | `stockpilot_failed_ticks_total{service}` | counter | Ticks that threw (RPC down, Hermes unreachable). The service keeps going. |
 | `stockpilot_last_tick_timestamp_seconds{service}` | gauge | When the last tick completed |
-| `stockpilot_events_total{service,kind}` | counter | fleet: `trade`, `hold`, `skip`, `error`, `fee`, `digest`, `check_in_reminder`, `defensive` (a crash guard it tripped). relayer: `pushed`, `skipped`, `missing_quote` |
+| `stockpilot_events_total{service,kind}` | counter | fleet: `trade`, `hold`, `skip`, `error`, `fee`, `digest`, `check_in_reminder`, `defensive` (a crash guard it tripped), `deposit` (a recurring investment it pulled). relayer: `pushed`, `skipped`, `missing_quote` |
 | `stockpilot_vaults{service="fleet"}` | gauge | Vaults that name this pilot |
 
 Alerts worth having: `time() - stockpilot_last_tick_timestamp_seconds > 300`, a rising `failed_ticks_total`, and any
@@ -82,6 +82,7 @@ Everything is environment variables; [`.env.example`](../.env.example) lists the
 | `SUBSCRIPTIONS`, `RESEND_API_KEY`, `ALERT_FROM` | fleet | | Owner alerts by email and webhook, signed by owners ([`agent/alerts.ts`](../agent/alerts.ts)) |
 | `ANTHROPIC_API_KEY` | fleet | | Claude-written daily digests; without it, digests are plain |
 | `PYTH_IDS`, `HERMES_URL`, `DEVIATION_BPS`, `HEARTBEAT` | relayer | | Price sources and push rules |
+| `SIGNATURE_RELAY_KEY` | web (`/api/relay`) | | A funded key that submits owners' signed check-ins and pauses; it can only pay gas for those two actions |
 | `ONCE` | both | | Run one tick and exit, non-zero if it failed (for cron) |
 
 Building behind a TLS-intercepting proxy: `docker build --secret id=ca,src=/path/to/ca.pem -t stockpilot .` hands the

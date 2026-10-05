@@ -8,6 +8,8 @@ import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
@@ -43,7 +45,17 @@ import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
 /// in proportion), and the band rule then only lets the pilot de-risk toward them. Anyone can trigger the switch with
 /// `poke()`, and any trade attempted while the condition holds is judged against the defensive targets, so the pilot
 /// cannot ignore it. Only the owner can leave defensive mode.
-contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
+///
+/// Recurring investment: the owner may set an amount of one listed asset (typically the stablecoin) to be pulled from
+/// their wallet at most once per interval. Anyone can trigger a due pull; it only ever moves the owner's preset amount
+/// from the owner's own wallet into the owner's vault, within the allowance the owner gave. Pulls are not owner
+/// activity, so they never keep an heir waiting.
+///
+/// Gasless safety actions: the owner can sign (EIP-712, or ERC-1271 for a smart wallet) a check-in or a pause, and
+/// anyone can submit it, so proof of life and the emergency brake never depend on the owner holding gas. Each
+/// signature names this vault and chain, carries a nonce and a deadline, and works once. Nothing that moves funds or
+/// changes rules can be done this way.
+contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS = 10_000;
@@ -59,6 +71,11 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Bounds on the crash guard's drawdown trigger: 5% to 50%.
     uint256 public constant MIN_DRAWDOWN_BPS = 500;
     uint256 public constant MAX_DRAWDOWN_BPS = 5_000;
+    /// @notice Bounds on the recurring investment interval: daily to yearly.
+    uint256 public constant MIN_RECURRING_INTERVAL = 1 days;
+    uint256 public constant MAX_RECURRING_INTERVAL = 365 days;
+    bytes32 public constant CHECK_IN_TYPEHASH = keccak256("CheckIn(uint256 nonce,uint256 deadline)");
+    bytes32 public constant PAUSE_TYPEHASH = keccak256("Pause(uint256 nonce,uint256 deadline)");
     uint256 private constant WAD = 1e18;
 
     /// @notice One asset of the mandate, as the owner passes it in.
@@ -144,6 +161,16 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Highest total value (USD, 18 decimals) recorded since the guard was armed or last re-armed.
     uint128 public peakValueUsd;
 
+    /// @notice Recurring investment: `recurringAmount` of `recurringToken` from the owner's wallet, at most once per
+    /// `recurringInterval`, next due at `recurringNextAt`. Zero amount means off.
+    address public recurringToken;
+    uint128 public recurringAmount;
+    uint32 public recurringInterval;
+    uint64 public recurringNextAt;
+
+    /// @notice Nonce for the owner's next signed action; each signature works once.
+    uint256 public sigNonce;
+
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
@@ -157,6 +184,8 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     event CrashGuardSet(address indexed safeAsset, uint16 safeTargetBps, uint16 drawdownBps);
     event DefensiveModeEntered(uint256 peakUsd, uint256 valueUsd);
     event DefensiveModeExited();
+    event RecurringDepositSet(address indexed token, uint256 amount, uint32 interval);
+    event RecurringDepositPulled(address indexed token, uint256 amount, uint256 nextAt);
     /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
     event Rebalanced(
         address indexed tokenIn,
@@ -202,6 +231,11 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     error DrawdownOutOfRange();
     error InvalidSafeTarget();
     error CrashGuardOff();
+    error RecurringOff();
+    error RecurringNotDue(uint256 nextAt);
+    error IntervalOutOfRange();
+    error SignatureExpired();
+    error InvalidSignature();
 
     modifier onlyPilot() {
         if (msg.sender != pilot) revert NotPilot();
@@ -217,7 +251,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @dev The implementation behind every vault clone. It is locked: it can never be initialised or hold a mandate.
     /// Its own owner is the deployer (the factory) and is irrelevant to clones, which have their own storage.
-    constructor() Ownable(msg.sender) {
+    constructor() Ownable(msg.sender) EIP712("StockPilot Vault", "1") {
         _initialized = true;
     }
 
@@ -406,6 +440,77 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     // ------------------------------------------------------------------------------------------------------------
+    // Gasless safety actions, signed by the owner and submitted by anyone
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Proof of life by signature: restarts the inheritance clock as `checkIn()` would.
+    function checkInWithSig(uint256 deadline, bytes calldata signature) external {
+        _useOwnerSignature(CHECK_IN_TYPEHASH, deadline, signature);
+        lastOwnerActivity = uint64(block.timestamp);
+        emit OwnerCheckedIn();
+    }
+
+    /// @notice The emergency brake by signature: pauses the vault as the owner's `pause()` would.
+    function pauseWithSig(uint256 deadline, bytes calldata signature) external nonReentrant {
+        _useOwnerSignature(PAUSE_TYPEHASH, deadline, signature);
+        lastOwnerActivity = uint64(block.timestamp);
+        _collectFee(); // fees stop accruing from here
+        _pause();
+    }
+
+    /// @notice The EIP-712 digest the owner signs for `typehash` with the current nonce.
+    function signedActionDigest(bytes32 typehash, uint256 deadline) public view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(typehash, sigNonce, deadline)));
+    }
+
+    function _useOwnerSignature(bytes32 typehash, uint256 deadline, bytes calldata signature) internal {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        bytes32 digest = signedActionDigest(typehash, deadline);
+        if (!SignatureChecker.isValidSignatureNow(owner(), digest, signature)) revert InvalidSignature();
+        ++sigNonce;
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Recurring investment
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Invest `amount` of `token` from your wallet every `interval` seconds (approve the vault for it first).
+    /// The first pull is due now. `amount == 0` turns it off.
+    function setRecurringDeposit(address token, uint128 amount, uint32 interval) external ownerAction {
+        if (amount == 0) {
+            delete recurringToken;
+            delete recurringAmount;
+            delete recurringInterval;
+            delete recurringNextAt;
+            emit RecurringDepositSet(address(0), 0, 0);
+            return;
+        }
+        if (!assets[token].listed) revert AssetNotInMandate(token);
+        if (interval < MIN_RECURRING_INTERVAL || interval > MAX_RECURRING_INTERVAL) revert IntervalOutOfRange();
+        recurringToken = token;
+        recurringAmount = amount;
+        recurringInterval = interval;
+        recurringNextAt = uint64(block.timestamp);
+        emit RecurringDepositSet(token, amount, interval);
+    }
+
+    /// @notice Pull the owner's recurring investment when due. Anyone can call it; missed periods are not caught up.
+    function pullRecurringDeposit() external whenNotPaused nonReentrant {
+        uint256 amount = recurringAmount;
+        if (amount == 0) revert RecurringOff();
+        uint256 next = recurringNextAt;
+        if (block.timestamp < next) revert RecurringNotDue(next);
+        address token = recurringToken;
+        uint256 nextAt = block.timestamp + recurringInterval;
+        recurringNextAt = uint64(nextAt);
+        _collectFee(); // as for any deposit: new money is never charged for time it was not in the vault
+        address from = owner();
+        IERC20(token).safeTransferFrom(from, address(this), amount);
+        emit Deposited(from, token, amount);
+        emit RecurringDepositPulled(token, amount, nextAt);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
     // Anyone
     // ------------------------------------------------------------------------------------------------------------
 
@@ -553,6 +658,14 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard {
         emit MandateSet(++mandateVersion, cfg, lim);
         // The guard needs its safe asset listed, below its defensive target.
         if (drawdownBps != 0 && (!assets[safeAsset].listed || assets[safeAsset].targetBps >= safeTargetBps)) _disarm();
+        // A recurring investment into an asset no longer in the mandate stops.
+        if (recurringAmount != 0 && !assets[recurringToken].listed) {
+            delete recurringToken;
+            delete recurringAmount;
+            delete recurringInterval;
+            delete recurringNextAt;
+            emit RecurringDepositSet(address(0), 0, 0);
+        }
     }
 
     function _disarm() internal {

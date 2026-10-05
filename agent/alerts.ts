@@ -98,7 +98,13 @@ export function routedNotifier(subs: () => Map<string, Subscription>, email: Ema
     if (!sub) return;
     const text = describeEvent(event);
     const subject =
-      event.kind === "trade" ? "StockPilot traded in your vault" : event.kind === "defensive" ? "Crash guard: your vault switched to defensive targets" : "StockPilot could not fly your vault";
+      event.kind === "trade"
+        ? "StockPilot traded in your vault"
+        : event.kind === "defensive"
+          ? "Crash guard: your vault switched to defensive targets"
+          : event.kind === "deposit"
+            ? "Your recurring investment arrived"
+            : "StockPilot could not fly your vault";
     await Promise.all([
       sub.webhook ? postWebhook(sub.webhook, text, event, fetchImpl).catch((e) => console.error(`webhook failed: ${(e as Error).message}`)) : null,
       sub.email ? sendEmail(email, sub.email, subject, text, fetchImpl).catch((e) => console.error((e as Error).message)) : null,

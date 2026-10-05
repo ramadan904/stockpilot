@@ -32,6 +32,8 @@ import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 import { InheritanceCard } from "./Inheritance";
 import { CrashGuardCard } from "./CrashGuard";
+import { RecurringCard } from "./Recurring";
+import { signAndRelay } from "./signed";
 import { TaxCard } from "./Tax";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
@@ -475,6 +477,15 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
                 <button className={`btn ${state.paused ? "" : "danger"}`} onClick={run(() => call(state.paused ? "Unpause" : "Pause", state.paused ? "unpause" : "pause"))}>
                   {state.paused ? "Unpause" : "Pause pilot"}
                 </button>
+                {!state.paused && (
+                  <button
+                    className="btn danger"
+                    title="Sign a pause; the operator's relay submits it, so you need no gas"
+                    onClick={run(() => send("Pause by signature", () => signAndRelay(client as never, w, ctx.chain, vault, "pause")))}
+                  >
+                    Pause, no gas
+                  </button>
+                )}
                 {draft && (
                   <button className="btn" onClick={() => setReviewing(true)}>
                     Review drafted mandate
@@ -554,6 +565,18 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         feeBps={roles.feeBps}
       />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
+      <RecurringCard
+        client={client as never}
+        wallet={w}
+        chain={ctx.chain}
+        vault={vault}
+        owner={roles.owner}
+        assets={state.assets}
+        isOwner={isOwner}
+        canWrite={wallet.kind !== "watch"}
+        send={send}
+        run={run}
+      />
       <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}

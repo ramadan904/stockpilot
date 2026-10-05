@@ -3,11 +3,14 @@
 // POST /api/report ReportFacts -> { report, source }.
 // POST /api/subscribe Subscription -> { verified, forwarded } (alerts signed by the vault's owner).
 // POST /api/ask { question, facts, history } -> AskResult (answers grounded in the vault's onchain facts).
+// POST /api/relay { chainId, vault, action, deadline, signature } -> { tx } (submits an owner's signed check-in or
+// pause, paid by the operator's SIGNATURE_RELAY_KEY, so the owner needs no gas).
 // The API key stays on the server; the browser turns the proposal into a mandate for whichever chain it is on.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createPublicClient, getAddress, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, getAddress, http, isAddress, isHex, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { VaultFacts, askVault, attachRationales, type Turn } from "./ask";
 import { LOG_DIR } from "./log";
 import { verifySubscription } from "./alerts";
@@ -135,5 +138,47 @@ export async function handleAsk(body: unknown, log: (vault: string) => { rationa
     return { status: 200, json: await askVault(question.trim(), attachRationales(parsed.data, log(parsed.data.vault)), turns) };
   } catch (e) {
     return { status: 502, json: { error: (e as Error).message } };
+  }
+}
+
+const RELAY_ABI = [
+  { type: "function", name: "checkInWithSig", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "bytes" }], outputs: [] },
+  { type: "function", name: "pauseWithSig", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "bytes" }], outputs: [] },
+] as const;
+
+export interface Relayer {
+  /** Dry-runs the call (reverts on a bad signature, so nothing is paid for it), then sends it. */
+  send(vault: Address, functionName: "checkInWithSig" | "pauseWithSig", deadline: bigint, signature: Hex): Promise<Hex>;
+}
+
+function chainRelayer(chainId: number): Relayer | null {
+  const key = process.env.SIGNATURE_RELAY_KEY as Hex | undefined;
+  const url = process.env[`RPC_${chainId}`] ?? RPCS[chainId];
+  if (!key || !url) return null;
+  const account = privateKeyToAccount(key);
+  const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [url] } } };
+  const pub = createPublicClient({ chain, transport: http(url) });
+  const wallet = createWalletClient({ account, chain, transport: http(url) });
+  return {
+    async send(vault, functionName, deadline, signature) {
+      const { request } = await pub.simulateContract({ account, address: vault, abi: RELAY_ABI, functionName, args: [deadline, signature] });
+      return wallet.writeContract(request);
+    },
+  };
+}
+
+/** Submits an owner's signed check-in or pause. Only these two harmless actions can be relayed. */
+export async function handleRelay(body: unknown, relayerFor: (chainId: number) => Relayer | null = chainRelayer): Promise<{ status: number; json: unknown }> {
+  const { chainId, vault, action, deadline, signature } = (body ?? {}) as Record<string, unknown>;
+  if (typeof vault !== "string" || !isAddress(vault)) return { status: 400, json: { error: "Bad vault address." } };
+  if (action !== "checkIn" && action !== "pause") return { status: 400, json: { error: "Only check-in and pause can be relayed." } };
+  if (typeof signature !== "string" || !isHex(signature) || typeof deadline !== "string" || !/^\d+$/.test(deadline)) return { status: 400, json: { error: "Malformed signature." } };
+  const relayer = relayerFor(Number(chainId));
+  if (!relayer) return { status: 501, json: { error: "No relayer is configured here. Submit the signed message from any wallet." } };
+  try {
+    const tx = await relayer.send(vault, action === "checkIn" ? "checkInWithSig" : "pauseWithSig", BigInt(deadline), signature);
+    return { status: 200, json: { tx } };
+  } catch (e) {
+    return { status: 422, json: { error: (e as { shortMessage?: string }).shortMessage ?? (e as Error).message.split("\n")[0] } };
   }
 }

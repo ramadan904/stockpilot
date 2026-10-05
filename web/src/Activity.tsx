@@ -183,6 +183,14 @@ function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pi
       return { ...base, kind: "control", text: `Crash guard tripped: ${usd(a.valueUsd as bigint)} against a ${usd(a.peakUsd as bigint)} peak; defensive targets in force` };
     case "DefensiveModeExited":
       return { ...base, kind: "control", text: "Back to normal targets" };
+    case "RecurringDepositSet":
+      return {
+        ...base,
+        kind: "control",
+        text: /^0x0+$/.test(String(a.token)) ? "Recurring investment stopped" : `Recurring investment set: ${amount(a.token, a.amount)} every ${Math.round(Number(a.interval) / 86_400)} days`,
+      };
+    case "RecurringDepositPulled":
+      return { ...base, kind: "money", text: `Recurring investment pulled: ${amount(a.token, a.amount)}` };
     case "OwnershipTransferStarted":
       return { ...base, kind: "control", text: `Ownership transfer to ${short(String(a.newOwner))} started` };
     case "OwnershipTransferred":

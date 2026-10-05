@@ -30,6 +30,8 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Crash guard** | Past a set fall from the peak, defensive targets; the pilot can only de-risk; only the owner lifts it | Fleet keeper, stress test of the trade-off before signing |
 | **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
 | **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a picker, MCP tools for agents to get hired |
+| **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
+| **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
 | **Owner tools** | | Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
@@ -39,7 +41,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 165 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 176 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -132,6 +134,18 @@ trip it with `poke()`, and the fleet does every tick; a trade attempted past the
 targets anyway, so a pilot that never pokes still cannot dodge it. Owner withdrawals re-arm it (money leaving is not a
 crash); only the owner can go back to normal targets. The rules engines need no change: the vault reports the targets
 in force, and the model and planner follow them.
+
+**Recurring investment.** "Invest $100 every week", like a brokerage's recurring buy, enforced by the vault:
+`setRecurringDeposit(token, amount, interval)` lets anyone (in practice the fleet) pull exactly that amount from the
+owner's wallet into the vault, at most once per interval (missed periods are not caught up), never while paused, and
+never beyond the allowance the owner gave. The pilot invests the cash inside the mandate in the same tick. Pulls are
+not proof of life, so they never keep an heir waiting.
+
+**Gasless safety actions.** Proof of life and the emergency brake must not depend on holding gas. The owner signs a
+check-in or a pause (EIP-712, or ERC-1271 for a smart wallet), and anyone submits it: the web app's "no gas" buttons
+send it to the operator's relay (`POST /api/relay`, paid by `SIGNATURE_RELAY_KEY`), which dry-runs it first so it
+only pays for signatures the vault accepts. Each signature names the vault and chain, carries a nonce and a deadline,
+and works once; nothing that moves funds or changes rules can be signed this way.
 
 **Stress test before you sign.** The Backtest tab runs the draft mandate through five shaped markets ([`agent/stress.ts`](agent/stress.ts)):
 a sharp crash with a fast recovery, a two-year bear market, a tech-only wreck, a flash crash and a melt-up. Each is
