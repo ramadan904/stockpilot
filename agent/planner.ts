@@ -21,12 +21,18 @@ export interface PlannerOptions {
   slippageToleranceBps: number;
   /** Ignore trades smaller than this (USD, 18 decimals); not worth the gas. */
   minTradeUsd: bigint;
+  /**
+   * Start rebalancing once an asset drifts this fraction of the way to its band edge. The band is the hard limit
+   * the vault enforces; the trigger is the pilot's own, tighter, habit.
+   */
+  triggerFraction: number;
 }
 
 export const DEFAULT_PLANNER: PlannerOptions = {
   expectedFeeBps: 10,
   slippageToleranceBps: 50,
   minTradeUsd: 10n * WAD,
+  triggerFraction: 0.5,
 };
 
 export interface PlannedTrade extends Trade {
@@ -49,9 +55,11 @@ export interface Drift {
   /** Weight minus target, in bps. */
   driftBps: number;
   outOfBand: boolean;
+  /** Past the pilot's trigger: worth trading back toward target. */
+  triggered: boolean;
 }
 
-export function drift(state: VaultState): Drift[] {
+export function drift(state: VaultState, triggerFraction = DEFAULT_PLANNER.triggerFraction): Drift[] {
   const total = totalValue(state.assets);
   return state.assets.map((a) => {
     const weightBps = Number((weightWad(valueOf(a.balance, a.price, a.decimals), total) * BPS) / WAD);
@@ -63,17 +71,19 @@ export function drift(state: VaultState): Drift[] {
       bandBps: a.bandBps,
       driftBps,
       outOfBand: Math.abs(driftBps) > a.bandBps,
+      triggered: Math.abs(driftBps) > a.bandBps * triggerFraction,
     };
   });
 }
 
 /**
- * Threshold rebalancing: do nothing while every asset sits inside its band. When one drifts out, sell the most
+ * Threshold rebalancing: do nothing while every asset sits near its target. When one drifts past the trigger (by
+ * default, halfway to its band edge), sell the most
  * overweight asset into the most underweight one, sized to bring the worse of the two back to target, then shrunk
  * until the vault's own rules accept it. One trade per call; the cooldown spaces them out.
  */
 export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER): Plan {
-  const d = drift(state);
+  const d = drift(state, opts.triggerFraction);
   if (state.paused) return { action: "hold", reason: "The vault is paused.", drift: d };
   if (state.assets.some((a) => state.now - a.priceUpdatedAt > BigInt(state.limits.maxPriceAge))) {
     return { action: "hold", reason: "A price is stale (market closed or feed down); not trading on it.", drift: d };
@@ -82,7 +92,9 @@ export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER):
   if (state.lastTradeAt !== 0n && state.now < cooldownEnds) {
     return { action: "hold", reason: `Cooling down for ${cooldownEnds - state.now}s more.`, drift: d };
   }
-  if (!d.some((x) => x.outOfBand)) return { action: "hold", reason: "Every asset is inside its band.", drift: d };
+  if (!d.some((x) => x.triggered)) {
+    return { action: "hold", reason: "Every asset is within its rebalancing trigger.", drift: d };
+  }
 
   const total = totalValue(state.assets);
   const gap = (a: AssetState) => valueOf(a.balance, a.price, a.decimals) - (total * BigInt(a.targetBps)) / BPS;

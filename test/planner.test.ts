@@ -30,17 +30,17 @@ describe("agent/planner", () => {
     const f = await loadFixture(deployStockPilot);
     const p = plan(await readVault(f.publicClient, f.vault.abi, f.vault.address));
     expect(p.action).to.equal("hold");
-    expect(p.action === "hold" && p.reason).to.match(/inside its band/);
+    expect(p.action === "hold" && p.reason).to.match(/within its rebalancing trigger/);
   });
 
-  it("brings a portfolio back inside its bands after a rally, with only accepted trades", async () => {
+  it("brings a portfolio back near target after a rally, with only accepted trades", async () => {
     const f = await loadFixture(deployStockPilot);
     await f.nvdaFeed.write.setPrice([px(200)]); // +60%
     await f.tslaFeed.write.setPrice([px(190)]); // -24%
     const run = await fly(f);
     expect(run.trades.length).to.be.greaterThan(0);
-    expect(run.hold).to.match(/inside its band/);
-    for (const d of run.drift) expect(Math.abs(d.driftBps)).to.be.at.most(d.bandBps);
+    expect(run.hold).to.match(/within its rebalancing trigger/);
+    for (const d of run.drift) expect(Math.abs(d.driftBps)).to.be.at.most(d.bandBps / 2);
   });
 
   it("commits the hash of each rationale onchain", async () => {
