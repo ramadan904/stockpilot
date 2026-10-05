@@ -31,6 +31,7 @@ import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 import { MarketplaceCard, PilotPicker, useMarket, type Market } from "./Pilots";
 import { InheritanceCard } from "./Inheritance";
+import { TaxCard } from "./Tax";
 
 declare global {
   interface Window {
@@ -503,6 +504,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         })}
       />
 
+      <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 

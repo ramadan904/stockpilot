@@ -150,3 +150,61 @@ test("inheritance: name an heir, go silent, and the heir takes over the vault", 
   await expect(activity).toContainText("inherited the vault from");
   expect(errors).toEqual([]);
 });
+
+test("taxes: a profitable sale shows up lot by lot and downloads as Form 8949-style CSV", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 }); // the last of five
+
+  // NVDA rallies 40% on the local chain (the dev account deployed the feeds), and the pilot trims it at a gain.
+  await movePrice("NVDA", 1.4);
+  await page.reload();
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await expect(page.getByText("Pilot's next move")).toContainText("Selling", { timeout: 30_000 });
+  await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
+  const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
+  await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
+
+  const tax = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Taxes" }) });
+  await tax.getByRole("button", { name: "Build tax report" }).click();
+  const row = tax.locator("tbody tr").filter({ hasText: "NVDA" });
+  await expect(row).toContainText("Short", { timeout: 30_000 });
+  await expect(row.locator("td.num.up")).toHaveCount(1); // a gain
+  const download = page.waitForEvent("download");
+  await tax.getByRole("button", { name: /Download \d{4} CSV/ }).click();
+  const csv = await (await download).createReadStream().then(async (s) => {
+    let text = "";
+    for await (const chunk of s) text += chunk;
+    return text;
+  });
+  expect(csv.split("\n")[0]).toBe("Description,Date acquired,Date sold,Proceeds (USD),Cost basis (USD),Gain or loss (USD),Term,Basis source,Transaction");
+  expect(csv).toMatch(/NVDA,\d{4}-\d\d-\d\d,\d{4}-\d\d-\d\d,[\d.]+,[\d.]+,[\d.]+,Short term,Onchain,0x[0-9a-f]{64}/);
+  expect(errors).toEqual([]);
+});
+
+async function movePrice(symbol: string, factor: number) {
+  const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const { hardhat } = await import("viem/chains");
+  const { readFileSync } = await import("node:fs");
+  const d = JSON.parse(readFileSync(`${__dirname}/../deployments/localhost.json`, "utf8"));
+  const abi = parseAbi(["function latestRoundData() view returns (uint80,int256,uint256,uint256,uint80)", "function setPrice(int256)"]);
+  const account = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+  const pub = createPublicClient({ chain: hardhat, transport: http() });
+  const wallet = createWalletClient({ account, chain: hardhat, transport: http() });
+  // Every stock feed gets a fresh update (earlier tests may have skipped time ahead); `symbol` also moves by `factor`.
+  for (const [s, feed] of Object.entries(d.feeds as Record<string, `0x${string}`>)) {
+    if (s === "USDG") continue; // a fixed $1 feed
+    const [, answer] = await pub.readContract({ address: feed, abi, functionName: "latestRoundData" });
+    const next = s === symbol ? (answer * BigInt(Math.round(factor * 1000))) / 1000n : answer;
+    await pub.waitForTransactionReceipt({ hash: await wallet.writeContract({ address: feed, abi, functionName: "setPrice", args: [next] }) });
+  }
+}

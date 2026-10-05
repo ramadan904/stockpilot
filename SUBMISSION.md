@@ -19,7 +19,7 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 134 tests, including 600 random trades on which an exact TypeScript model of the rules and
+- **Proof, not promises:** 140 tests, including 600 random trades on which an exact TypeScript model of the rules and
   the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
   stops all eight.
 - **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; an onchain pilot
@@ -97,6 +97,9 @@ Everything; the repository started empty.
   the clock and the pilot's never do; after a full period of silence the heir takes the vault over, still managed.
   The contract enforces it; the fleet sends check-in reminders; the web app shows the clock and lets the heir claim.
   Self-custody's biggest everyday risk, losing the key or the person, finally has the answer a brokerage account has.
+- **Taxes:** the vault's tax lots rebuilt from onchain events, FIFO, short and long term, the fee treated as a sale in
+  kind, a Form 8949-style CSV and loss-harvesting candidates, all in the browser with exact integer arithmetic. The
+  boring thing every stock investor needs in April, and almost no crypto app gets right.
 - **Security:** Slither in CI (fails on any untriaged finding), stateful invariant fuzzing (600 random owner, pilot,
   heir and stranger actions over three seeds), and a threat model ([SECURITY.md](SECURITY.md)). This work found and
   fixed two real issues: a token that freezes the vault could have blocked withdrawals of every other asset, and
@@ -111,7 +114,7 @@ Everything; the repository started empty.
   ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 134 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 140 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -154,7 +157,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 134 tests
+npm test          # 140 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```
