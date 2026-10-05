@@ -22,6 +22,19 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
         Pilot (deterministic planner) ── rebalance() ─────────┘  every trade checked against the mandate
 ```
 
+## What's in it
+
+| | Enforced by the contract | Built on it |
+|---|---|---|
+| **Mandate vault** | Target weights and bands, per-trade and 24-hour caps, cooldown, slippage at oracle prices, fresh prices; the pilot can only `rebalance` | An exact TypeScript model and a Rust core that reach the same verdicts, proven on thousands of random trades |
+| **Crash guard** | Past a set fall from the peak, defensive targets; the pilot can only de-risk; only the owner lifts it | Fleet keeper, stress test of the trade-off before signing |
+| **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
+| **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a picker, MCP tools for agents to get hired |
+| **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
+| **Owner tools** | | Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
+| **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
+| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts | Conformance-tested against the TypeScript model |
+
 ## Try it in ten seconds
 
 ```bash
@@ -58,12 +71,15 @@ npm run web       # http://localhost:5173
   start in cash and watch it invest, chart the vault against buy-and-hold, and try eight attacks a rogue pilot might
   make.
 - **Backtest**: the mandate over 200 simulated markets against buy-and-hold: returns, drawdowns, volatility and how
-  concentrated each gets. The simulated vault runs the same `check()` the real pilot uses, and
+  concentrated each gets. Plus a **stress test** through five shaped crashes and rallies, left alone, piloted, and
+  piloted with the crash guard. The simulated vault runs the same `check()` the real pilot uses, and
   the randomized test proves `check()` agrees with the contract trade for trade, so what you see is what the chain does.
 - **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
   drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
-  with "new since your last visit" markers. Refine the draft in plain words ("less Tesla, more cash"), review any
+  with "new since your last visit" markers. Pick a pilot from the **marketplace** by its onchain record, name an
+  **heir**, arm the **crash guard**, **ask the vault** questions in plain words, see **performance** against your
+  untraded deposits, and download **tax** lots as CSV. Refine the draft in plain words ("less Tesla, more cash"), review any
   mandate change side by side before signing it, and turn on alerts: in the browser, or by email and webhook from the
   hosted pilot with a daily digest. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
   is committed.
