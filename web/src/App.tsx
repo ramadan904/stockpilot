@@ -1,0 +1,121 @@
+import { useMemo, useState } from "react";
+import { presetFor, toMandate, type Mandate, type Proposal, type Strategy } from "../../agent/mandate";
+import { LISTINGS } from "../../agent/listings";
+import { Live } from "./Live";
+import { Simulator } from "./Simulator";
+import { simUniverse } from "./sim";
+import { Strategist } from "./Strategist";
+
+export interface Draft {
+  proposal: Proposal;
+  source: Strategy["source"];
+  /** The mandate in the simulator's units; Live rebuilds it with the chain's addresses. */
+  mandate: Mandate;
+  adjustments: string[];
+  usd: number;
+}
+
+const FIRST_GOAL = "I'm 30 and believe in AI and big tech for the long run. I can handle swings but want some cash on hand.";
+
+function makeDraft(proposal: Proposal, source: Strategy["source"], usd: number): Draft {
+  const { mandate, adjustments } = toMandate(proposal, simUniverse(), usd);
+  return { proposal, source, mandate, adjustments, usd };
+}
+
+/** Ask the server's strategist; fall back to the offline preset if it is unreachable. */
+async function requestDraft(goal: string, usd: number): Promise<{ proposal: Proposal; source: Strategy["source"]; note?: string }> {
+  try {
+    const res = await fetch("/api/propose", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ goal, usd }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  } catch (e) {
+    return {
+      proposal: presetFor(goal, [...LISTINGS]),
+      source: "preset",
+      note: `The strategist is unavailable (${(e as Error).message}); using an offline preset.`,
+    };
+  }
+}
+
+export function App() {
+  const [tab, setTab] = useState<"sim" | "live">("sim");
+  const [draft, setDraft] = useState<Draft | null>(() => makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onDraft(goal: string, usd: number) {
+    setBusy(true);
+    setError(null);
+    const r = await requestDraft(goal, usd);
+    if (r.note) setError(r.note);
+    setDraft(makeDraft(r.proposal, r.source, usd));
+    setBusy(false);
+  }
+
+  const mandate = useMemo(() => draft?.mandate, [draft]);
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="wrap">
+          <div className="brand">
+            <span className="brand-mark" aria-hidden>
+              <svg width="18" height="18" viewBox="0 0 32 32">
+                <path d="M5 23l7-7 5 5 10-11" strokeWidth="3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            StockPilot
+          </div>
+          <nav className="tabs" role="tablist">
+            <button role="tab" aria-selected={tab === "sim"} onClick={() => setTab("sim")}>
+              Simulator
+            </button>
+            <button role="tab" aria-selected={tab === "live"} onClick={() => setTab("live")}>
+              Live (testnet)
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <div className="wrap">
+        <div className="hero">
+          <h1>An AI autopilot for your tokenized stocks that can only trade inside the rules you sign.</h1>
+          <p>
+            Describe what you want in plain words. Claude drafts a mandate: target weights, how far they may drift, how much can trade. You sign it into
+            a vault you own. A pilot keeps the portfolio on target, and the vault contract rejects any trade that breaks your rules.
+          </p>
+          <ul className="hero-points">
+            <li>Your keys, your vault: withdraw any time</li>
+            <li>Pilot can't withdraw or change the rules</li>
+            <li>Every trade checked onchain against oracle prices</li>
+          </ul>
+        </div>
+
+        <main>
+          <Strategist
+            draft={draft}
+            busy={busy}
+            error={error}
+            onDraft={onDraft}
+            onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
+          />
+          {tab === "sim" ? mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} /> : <Live draft={draft} />}
+        </main>
+      </div>
+
+      <footer>
+        <div className="wrap spread">
+          <span>StockPilot · built for Crypto World's Fair · testnet software, unaudited, not financial advice</span>
+          <a href="https://github.com/ramadan904/stockpilot" target="_blank" rel="noreferrer">
+            Source
+          </a>
+        </div>
+      </footer>
+    </>
+  );
+}

@@ -3,15 +3,11 @@
 
 import type { HardhatRuntimeEnvironment } from "hardhat/types";
 import { parseUnits, type Address } from "viem";
-import type { UniverseAsset } from "../../agent/strategist";
+import type { UniverseAsset } from "../../agent/mandate";
+import { LISTINGS } from "../../agent/listings";
 
-export const LISTINGS = [
-  { symbol: "USDG", name: "Global Dollar", decimals: 6, price: 1, profile: "USD stablecoin; no price risk", stable: true },
-  { symbol: "TSLA", name: "Tesla", decimals: 18, price: 250, profile: "EV and energy maker; very volatile" },
-  { symbol: "AAPL", name: "Apple", decimals: 18, price: 230, profile: "consumer hardware and services; steady large-cap" },
-  { symbol: "NVDA", name: "NVIDIA", decimals: 18, price: 180, profile: "AI and data-centre chips; volatile, high growth" },
-  { symbol: "SPY", name: "S&P 500 ETF", decimals: 18, price: 660, profile: "broad US market index fund; diversified" },
-] as const;
+export { LISTINGS };
+
 
 export async function deployStack(hre: HardhatRuntimeEnvironment) {
   const v = hre.viem;

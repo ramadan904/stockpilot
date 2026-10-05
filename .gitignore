@@ -6,3 +6,4 @@ coverage/
 .env
 deployments/localhost.json
 pilot-log/
+web/dist/

@@ -45,6 +45,25 @@ the pilot rebalance, and then has a rogue pilot try five ways to break the rules
 No network, wallet, or API key needed. The compiler is the solc-js build pinned in `package.json`, so builds work
 offline.
 
+## The web app
+
+```bash
+npm run web       # http://localhost:5173
+```
+
+- **Simulator** (no wallet): draft a mandate from a goal, move the market, run the pilot or let it fly on autopilot,
+  and try eight attacks a rogue pilot might make. The simulated vault runs the same `check()` the real pilot uses, and
+  the randomized test proves `check()` agrees with the contract trade for trade, so what you see is what the chain does.
+- **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create and fund a vault
+  with the drafted mandate, run the pilot, pause it, change the pilot, withdraw everything, and read every trade's
+  onchain record with its reason hash. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
+  is committed.
+
+The strategist runs server-side at `POST /api/propose`, so the Anthropic key never reaches the browser. In development
+Vite serves it; on Vercel it is the function in [`api/propose.ts`](api/propose.ts). Deploy with the repository root as
+the project root (`vercel.json` sets the build) and set `ANTHROPIC_API_KEY` in the project's environment. Without a
+key the endpoint answers with the offline preset.
+
 ## What the vault guarantees
 
 [`PilotVault`](contracts/PilotVault.sol) is owned by you. The pilot's only power is `rebalance()`, and a trade
@@ -80,7 +99,10 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`agent/planner.ts`](agent/planner.ts) | The pilot's brain: deterministic threshold rebalancing that only proposes trades the model accepts |
 | [`agent/strategist.ts`](agent/strategist.ts) | Claude turns a goal in plain words into a draft mandate; code validates it and converts it to onchain units |
 | [`agent/run.ts`](agent/run.ts) | The live pilot loop for a testnet or mainnet vault |
-| [`scripts/`](scripts) | `demo`, `deploy`, `create-vault` |
+| [`agent/mandate.ts`](agent/mandate.ts) | Proposal schema, validation and presets; shared by the server, scripts and browser |
+| [`web/`](web) | The web app: simulator and live mode (React, viem) |
+| [`api/propose.ts`](api/propose.ts) | The strategist endpoint, as a Vercel function |
+| [`scripts/`](scripts) | `demo`, `deploy`, `create-vault`, `export-abi` |
 
 **Why the AI drafts the mandate, but code flies the plane.** Choosing an allocation from someone's goals is a
 judgment call, and Claude is good at it. The output is a draft the owner reads and signs. Executing trades is
@@ -125,8 +147,8 @@ This is a hackathon build. The contracts are tested but **not audited**; do not 
 
 ## Roadmap
 
-1. Web app: connect a wallet, describe a goal, review the drafted mandate, sign, and watch the pilot's log.
-2. Live deployments on Robinhood Chain testnet and Arbitrum Sepolia.
+1. Live deployments on Robinhood Chain testnet and Arbitrum Sepolia, and the web app on Vercel.
+2. A hosted pilot service, so owners don't run `agent/run.ts` themselves.
 3. A real venue adapter (DEX router) and production price feeds for tokenized stocks.
 4. Pilot as an MCP server, so any agent can fly a vault under the same onchain limits.
 

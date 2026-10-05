@@ -9,7 +9,10 @@ const erc20SymbolAbi = [
   { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
 ] as const;
 
-export async function readVault(client: PublicClient, vaultAbi: Abi, vault: Address): Promise<VaultState> {
+/** Only what reading needs, so any viem public client fits (Node scripts, Hardhat, the browser). */
+type Reader = Pick<PublicClient, "readContract" | "getBlock">;
+
+export async function readVault(client: Reader, vaultAbi: Abi, vault: Address): Promise<VaultState> {
   const read = <T>(functionName: string, args: unknown[] = []) =>
     client.readContract({ address: vault, abi: vaultAbi, functionName, args }) as Promise<T>;
 
