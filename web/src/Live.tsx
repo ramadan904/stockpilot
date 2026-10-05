@@ -25,6 +25,7 @@ import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
+import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 
 declare global {
   interface Window {
@@ -416,6 +417,21 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           </div>
         )}
       </Card>
+
+      <ReportCard
+        title="Weekly report"
+        facts={() => ({
+          period: "the recent trades shown below",
+          valueStartUsd: null,
+          valueNowUsd: valueFacts(state),
+          paused: state.paused,
+          budgetLeftUsd: Number(available(state) / 10n ** 16n) / 100,
+          feeBps: roles.feeBps,
+          holdings: holdingsFacts(state),
+          trades: events.slice(0, 50).map((e) => ({ sold: symbolOf(e.tokenIn), bought: symbolOf(e.tokenOut), valueUsd: Number(e.valueInUsd / 10n ** 16n) / 100, reason: null })),
+          blocked: [],
+        })}
+      />
 
       <Card title="Trades onchain" aside={<span className="muted small">Rebalanced events, newest first</span>}>
         {events.length === 0 ? (

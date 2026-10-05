@@ -4,12 +4,16 @@ import { amountFor, available, type AssetState, type Trade } from "../../agent/m
 import { drift, plan } from "../../agent/planner";
 import { advance, createSim, hashOf, isStable, movePrice, randomDay, rebalance, vaultState, type Sim } from "./sim";
 import { Card, HoldingsTable, totalUsd, usd, valueUsd } from "./ui";
+import { ReportCard, holdingsFacts, valueFacts } from "./Report";
+import type { ReportFacts } from "../../agent/report";
 
 interface LogEntry {
   id: number;
   kind: "trade" | "hold" | "blocked" | "allowed" | "market" | "owner";
   text: string;
   hash?: string;
+  trade?: ReportFacts["trades"][number];
+  blocked?: ReportFacts["blocked"][number];
 }
 
 const LABEL: Record<LogEntry["kind"], [string, string]> = {
@@ -26,6 +30,7 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
   const [log, setLog] = useState<LogEntry[]>([]);
   const [auto, setAuto] = useState(false);
   const start = useRef(totalUsd(sim.assets));
+  const startPrices = useRef<Record<string, bigint>>(Object.fromEntries(sim.assets.map((a) => [a.symbol, a.price])));
   const nextId = useRef(0);
   const simRef = useRef(sim);
   simRef.current = sim;
@@ -35,12 +40,13 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
     const fresh = createSim(mandate, usdSize);
     setSim(fresh);
     start.current = totalUsd(fresh.assets);
+    startPrices.current = Object.fromEntries(fresh.assets.map((a) => [a.symbol, a.price]));
     setLog([]);
     setAuto(false);
   }, [mandate, usdSize]);
 
-  const push = (kind: LogEntry["kind"], text: string, hash?: string) =>
-    setLog((l) => [{ id: nextId.current++, kind, text, hash }, ...l].slice(0, 200));
+  const push = (kind: LogEntry["kind"], text: string, hash?: string, extra: Partial<LogEntry> = {}) =>
+    setLog((l) => [{ id: nextId.current++, kind, text, hash, ...extra }, ...l].slice(0, 200));
 
   const d = useMemo(() => drift(vaultState(sim)), [sim]);
   const state = vaultState(sim);
@@ -60,7 +66,10 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
       push("blocked", `The vault rejected the pilot's own trade: ${verdict.reason}. (This would be a planner bug.)`);
       return s;
     }
-    push("trade", p.trade.rationale, hashOf(p.trade.rationale));
+    const sym = (t: string) => s.assets.find((a) => a.token === t)!.symbol;
+    push("trade", p.trade.rationale, hashOf(p.trade.rationale), {
+      trade: { sold: sym(p.trade.tokenIn), bought: sym(p.trade.tokenOut), valueUsd: Number(p.trade.valueUsd / 10n ** 16n) / 100, reason: p.trade.rationale },
+    });
     return next;
   }
 
@@ -105,6 +114,24 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
             Shaded: the band the vault enforces. Darker: where the pilot leaves things alone. Line: target.
           </p>
         </Card>
+
+        <ReportCard
+          title="Session report"
+          facts={() => {
+            const st = vaultState(sim);
+            return {
+              period: "this session",
+              valueStartUsd: Number(start.current / 10n ** 16n) / 100,
+              valueNowUsd: valueFacts(st),
+              paused: sim.paused,
+              budgetLeftUsd: Number(available(st) / 10n ** 16n) / 100,
+              feeBps: 0,
+              holdings: holdingsFacts(st, startPrices.current),
+              trades: log.filter((e) => e.trade).map((e) => e.trade!).reverse().slice(0, 50),
+              blocked: log.filter((e) => e.blocked).map((e) => e.blocked!).slice(0, 20),
+            };
+          }}
+        />
 
         <Card title="Pilot log" aside={<span className="muted small">Each trade commits keccak256(reason) onchain</span>}>
           {log.length === 0 ? (
@@ -201,7 +228,7 @@ export function Simulator({ mandate, usdSize }: { mandate: Mandate; usdSize: num
                 className="btn small"
                 onClick={() => {
                   const r = a.run(sim);
-                  push(r.ok ? "allowed" : "blocked", `${a.name}: ${r.text}`);
+                  push(r.ok ? "allowed" : "blocked", `${a.name}: ${r.text}`, undefined, r.ok ? {} : { blocked: { attempt: a.name, reason: r.text } });
                 }}
               >
                 Attempt

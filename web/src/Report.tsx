@@ -1,0 +1,93 @@
+import { useState } from "react";
+import { basicReport, type Report, type ReportFacts } from "../../agent/report";
+import type { VaultState } from "../../agent/model";
+import { drift } from "../../agent/planner";
+import { Card, totalUsd, valueUsd } from "./ui";
+
+const num = (wad: bigint) => Number(wad / 10n ** 14n) / 10_000;
+
+/** The holdings part of ReportFacts, from any vault state. `startPrices` (by symbol) adds price changes. */
+export function holdingsFacts(state: VaultState, startPrices?: Record<string, bigint>): ReportFacts["holdings"] {
+  const d = drift(state);
+  return state.assets.map((a, i) => {
+    const start = startPrices?.[a.symbol];
+    return {
+      symbol: a.symbol,
+      valueUsd: Math.round(num(valueUsd(a)) * 100) / 100,
+      weightPct: d[i].weightBps / 100,
+      targetPct: d[i].targetBps / 100,
+      bandPct: d[i].bandBps / 100,
+      priceChangePct: start ? Math.round((Number(((a.price - start) * 100_000n) / start) / 1000) * 100) / 100 : null,
+    };
+  });
+}
+
+export function valueFacts(state: VaultState) {
+  return Math.round(num(totalUsd(state.assets)) * 100) / 100;
+}
+
+async function fetchReport(facts: ReportFacts): Promise<{ report: Report; source: "claude" | "basic" }> {
+  try {
+    const res = await fetch("/api/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(facts) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch {
+    return { report: basicReport(facts), source: "basic" };
+  }
+}
+
+export function ReportCard({ facts, title = "Owner's report" }: { facts: () => ReportFacts; title?: string }) {
+  const [out, setOut] = useState<{ report: Report; source: "claude" | "basic" } | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Card
+      title={title}
+      aside={
+        <button
+          className="btn small"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setOut(await fetchReport(facts()));
+            setBusy(false);
+          }}
+        >
+          {busy ? "Writing…" : out ? "Rewrite" : "Write my report"}
+        </button>
+      }
+    >
+      {!out ? (
+        <p className="muted small" style={{ margin: 0 }}>
+          A plain-English summary of what happened and why, written by Claude from numbers computed onchain. It never invents figures.
+        </p>
+      ) : (
+        <div className="report">
+          <div className="spread">
+            <strong>{out.report.headline}</strong>
+            <span className={`pill ${out.source === "claude" ? "info" : "warn"}`}>{out.source === "claude" ? "Written by Claude" : "Basic report"}</span>
+          </div>
+          {out.report.summary.split(/\n+/).map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+          {out.report.highlights.length > 0 && (
+            <ul>
+              {out.report.highlights.map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+            </ul>
+          )}
+          {out.report.watch.length > 0 && (
+            <>
+              <div className="small muted">Keep an eye on</div>
+              <ul>
+                {out.report.watch.map((h) => (
+                  <li key={h}>{h}</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}

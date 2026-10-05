@@ -583,3 +583,14 @@ footer {
     flex: 1;
   }
 }
+
+.report p {
+  margin: 8px 0;
+}
+.report ul {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+.report li {
+  margin: 3px 0;
+}

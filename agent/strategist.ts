@@ -77,7 +77,8 @@ export async function draft(
   return { proposal: response.parsed_output, source: "claude" };
 }
 
-function defaultClient() {
+/** A client when credentials are configured, else null (callers fall back to offline behaviour). */
+export function defaultClient() {
   const hasCredentials = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_PROFILE;
   return hasCredentials ? new Anthropic() : null;
 }
