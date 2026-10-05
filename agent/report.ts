@@ -2,6 +2,8 @@
 // builds ReportFacts from the chain or the simulator and sends them to the server.
 
 import { z } from "zod/v4";
+import { valueOf, type VaultState } from "./model";
+import { drift } from "./planner";
 
 export const ReportFacts = z.object({
   period: z.string().max(60).describe('e.g. "the last 7 days" or "this session"'),
@@ -75,4 +77,27 @@ export function basicReport(f: ReportFacts): Report {
     f.budgetLeftUsd < 1 ? "The pilot has used its trading budget; it refills over the next 24 hours." : null,
   ].filter((x): x is string => x !== null);
   return { headline, summary: `${valueLine} ${tradeLine}`, highlights, watch };
+}
+
+const num = (wad: bigint) => Number(wad / 10n ** 14n) / 10_000;
+
+/** The holdings part of ReportFacts, from any vault state. `startPrices` (by symbol) adds price changes. */
+export function holdingsFacts(state: VaultState, startPrices?: Record<string, bigint>): ReportFacts["holdings"] {
+  const d = drift(state);
+  return state.assets.map((a, i) => {
+    const start = startPrices?.[a.symbol];
+    return {
+      symbol: a.symbol,
+      valueUsd: Math.round(num(valueOf(a.balance, a.price, a.decimals)) * 100) / 100,
+      weightPct: d[i].weightBps / 100,
+      targetPct: d[i].targetBps / 100,
+      bandPct: d[i].bandBps / 100,
+      priceChangePct: start ? Math.round((Number(((a.price - start) * 100_000n) / start) / 1000) * 100) / 100 : null,
+    };
+  });
+}
+
+/** Total value in USD, rounded to cents. */
+export function valueFacts(state: VaultState) {
+  return Math.round(num(state.assets.reduce((t, a) => t + valueOf(a.balance, a.price, a.decimals), 0n)) * 100) / 100;
 }

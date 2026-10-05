@@ -26,6 +26,7 @@ import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
 import { ActivityFeed } from "./Activity";
+import { AlertsCard } from "./Alerts";
 import { MandateDiffCard } from "./MandateDiff";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
 
@@ -461,6 +462,8 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           blocked: [],
         })}
       />
+
+      {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
       <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
     </>

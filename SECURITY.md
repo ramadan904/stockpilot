@@ -26,6 +26,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 | A token freezes the vault (regulated stablecoins and stock tokens can) | Fee collection skips a failing token, so it can never block withdrawing the other assets or pausing | `test/invariants.test.ts` (frozen token) |
 | Excessive fees | Fee capped at 2%/yr in the contract, taken pro-rata (weights never move), not accrued while paused, settled before withdrawals and deposits so new money is never charged for past time, cancellable by the owner | `test/PilotVault.test.ts` (fees), `test/invariants.test.ts` (fee never above the cap) |
 | A pilot rewrites its own limits by re-mandating | Only the owner can set the mandate; the spent budget carries over a re-mandate | `test/PilotVault.test.ts` |
+| Someone redirects an owner's alerts | Subscriptions are signed messages; the fleet and `/api/subscribe` accept only signatures by the vault's current onchain owner, and edits after signing invalidate them | `test/alerts.test.ts` |
 | Funds locked forever | `renounceOwnership` reverts; ownership moves in two steps; `withdraw` clamps to the balance | `test/PilotVault.test.ts`, `test/invariants.test.ts` (owner always withdraws everything) |
 
 ## Trust assumptions (out of scope)

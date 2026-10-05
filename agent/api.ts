@@ -1,8 +1,11 @@
 // The server-side endpoints. POST /api/propose { goal, usd } -> { proposal, source };
 // POST /api/refine { proposal, instruction, usd } -> { proposal, source, changes };
 // POST /api/report ReportFacts -> { report, source }.
+// POST /api/subscribe Subscription -> { verified, forwarded } (alerts signed by the vault's owner).
 // The API key stays on the server; the browser turns the proposal into a mandate for whichever chain it is on.
 
+import { createPublicClient, http, type Address } from "viem";
+import { verifySubscription } from "./alerts";
 import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
 import { Proposal, draft, refine } from "./strategist";
@@ -43,4 +46,42 @@ export async function handleRefine(body: unknown): Promise<{ status: number; jso
   } catch (e) {
     return { status: 422, json: { error: (e as Error).message } };
   }
+}
+
+const RPCS: Record<number, string> = {
+  46630: "https://rpc.testnet.chain.robinhood.com/rpc",
+  4663: "https://rpc.mainnet.chain.robinhood.com",
+  421614: "https://sepolia-rollup.arbitrum.io/rpc",
+  42161: "https://arb1.arbitrum.io/rpc",
+  31337: "http://127.0.0.1:8545", // local development
+};
+
+const OWNER_ABI = [{ type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
+
+function chainOwnerReader(chainId: number) {
+  const url = process.env[`RPC_${chainId}`] ?? RPCS[chainId];
+  if (!url) return null;
+  const client = createPublicClient({ transport: http(url) });
+  return (vault: Address) => client.readContract({ address: vault, abi: OWNER_ABI, functionName: "owner" });
+}
+
+/**
+ * Checks that a subscription was signed by the vault's owner, then forwards it to the pilot operator's store
+ * (SUBSCRIPTION_SINK_URL, any endpoint accepting a JSON POST). Without a sink it only verifies, and the web app
+ * offers the signed subscription for the owner to send to their operator.
+ */
+export async function handleSubscribe(
+  body: unknown,
+  readOwnerFor: (chainId: number) => ((vault: Address) => Promise<Address>) | null = chainOwnerReader,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ status: number; json: unknown }> {
+  const chainId = Number((body as { chainId?: unknown } | null)?.chainId);
+  const readOwner = Number.isFinite(chainId) ? readOwnerFor(chainId) : null;
+  if (!readOwner) return { status: 400, json: { error: "Unsupported chain." } };
+  const v = await verifySubscription(body, readOwner).catch((e) => ({ ok: false as const, why: (e as Error).message.split("\n")[0] }));
+  if (!v.ok) return { status: 400, json: { error: `Subscription rejected: ${v.why}.` } };
+  const sink = process.env.SUBSCRIPTION_SINK_URL;
+  if (!sink) return { status: 200, json: { verified: true, forwarded: false } };
+  const res = await fetchImpl(sink, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v.sub) }).catch(() => null);
+  return res?.ok ? { status: 200, json: { verified: true, forwarded: true } } : { status: 502, json: { error: "Verified, but the operator's store did not accept it." } };
 }

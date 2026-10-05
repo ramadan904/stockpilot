@@ -1,30 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { basicReport, type Report, type ReportFacts } from "../../agent/report";
-import type { VaultState } from "../../agent/model";
-import { drift } from "../../agent/planner";
-import { Card, totalUsd, valueUsd } from "./ui";
+import { Card } from "./ui";
 
-const num = (wad: bigint) => Number(wad / 10n ** 14n) / 10_000;
-
-/** The holdings part of ReportFacts, from any vault state. `startPrices` (by symbol) adds price changes. */
-export function holdingsFacts(state: VaultState, startPrices?: Record<string, bigint>): ReportFacts["holdings"] {
-  const d = drift(state);
-  return state.assets.map((a, i) => {
-    const start = startPrices?.[a.symbol];
-    return {
-      symbol: a.symbol,
-      valueUsd: Math.round(num(valueUsd(a)) * 100) / 100,
-      weightPct: d[i].weightBps / 100,
-      targetPct: d[i].targetBps / 100,
-      bandPct: d[i].bandBps / 100,
-      priceChangePct: start ? Math.round((Number(((a.price - start) * 100_000n) / start) / 1000) * 100) / 100 : null,
-    };
-  });
-}
-
-export function valueFacts(state: VaultState) {
-  return Math.round(num(totalUsd(state.assets)) * 100) / 100;
-}
+export { holdingsFacts, valueFacts } from "../../agent/report";
 
 async function fetchReport(facts: ReportFacts): Promise<{ report: Report; source: "claude" | "basic" }> {
   try {

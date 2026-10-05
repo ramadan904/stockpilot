@@ -63,7 +63,9 @@ npm run web       # http://localhost:5173
 - **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
   drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
-  with "new since your last visit" markers. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
+  with "new since your last visit" markers. Refine the draft in plain words ("less Tesla, more cash"), review any
+  mandate change side by side before signing it, and turn on alerts: in the browser, or by email and webhook from the
+  hosted pilot with a daily digest. Networks appear once a `deployments/<network>.json` from `scripts/deploy.ts`
   is committed.
 
 The strategist runs server-side at `POST /api/propose`, so the Anthropic key never reaches the browser. In development
@@ -114,6 +116,7 @@ written reason, so its logbook (`pilot-log/*.jsonl`) can be checked against the 
 | [`agent/strategist.ts`](agent/strategist.ts) | Claude turns a goal in plain words into a draft mandate; code validates it and converts it to onchain units |
 | [`agent/run.ts`](agent/run.ts) | The live pilot loop for one vault |
 | [`agent/fleet.ts`](agent/fleet.ts) | The hosted pilot: flies every vault that names it, optionally only fee-paying ones, collects fees, posts trades to a Slack/Discord webhook (`npm run fleet`) |
+| [`agent/alerts.ts`](agent/alerts.ts) | Owner alerts: each owner signs a subscription with the vault's owner key (email, webhook, daily digest written by Claude); the fleet honours only signatures from the vault's current owner |
 | [`agent/mcp.ts`](agent/mcp.ts) | MCP server: any AI agent can fly a vault under the same onchain limits ([docs/MCP.md](docs/MCP.md), `npm run mcp`) |
 | [`agent/relayer.ts`](agent/relayer.ts) | Testnet oracle relayer: real stock prices from Pyth's Hermes API onto the testnet feeds, with deviation and heartbeat rules, honest publish times, and no updates while the market is closed (`npm run relay`) |
 | [`agent/backtest.ts`](agent/backtest.ts) | The real planner and rules over 200 simulated markets against buy-and-hold (the web app's Backtest tab) |
