@@ -44,7 +44,8 @@ export interface Mandate {
 export interface Strategy {
   proposal: Proposal;
   mandate: Mandate;
-  source: "claude" | "preset";
+  /** Who drafted it: Claude, the offline preset, or a link someone shared. */
+  source: "claude" | "preset" | "shared";
   /** Anything the validator had to fix in the proposal. Show these to the owner. */
   adjustments: string[];
 }

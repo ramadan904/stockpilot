@@ -35,6 +35,7 @@ import { CrashGuardCard } from "./CrashGuard";
 import { RecurringCard } from "./Recurring";
 import { signAndRelay } from "./signed";
 import { TaxCard } from "./Tax";
+import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
 
@@ -564,6 +565,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         pilotName={ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? null}
         feeBps={roles.feeBps}
       />
+      <StatementCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} state={state} owner={roles.owner} chainName={ctx.chain.name} />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
       <RecurringCard
         client={client as never}

@@ -1,3 +1,4 @@
+import { encodeStrategy } from "../../agent/share";
 import { useState } from "react";
 import type { Proposal } from "../../agent/mandate";
 import { LISTINGS } from "../../agent/listings";
@@ -52,7 +53,16 @@ export function Strategist(props: {
 
       <Card
         title={<><span className="step">2</span>Review the mandate</>}
-        aside={draft && <span className={`pill ${draft.source === "claude" ? "info" : "warn"}`}>{draft.source === "claude" ? "Drafted by Claude" : "Offline preset"}</span>}
+        aside={
+          draft && (
+            <span className="row" style={{ gap: 6 }}>
+              <ShareStrategy draft={draft} />
+              <span className={`pill ${draft.source === "preset" ? "warn" : "info"}`}>
+                {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : "Offline preset"}
+              </span>
+            </span>
+          )
+        }
       >
         {!draft ? (
           <p className="muted">Your draft appears here: target weights, how far each may drift, and how much the pilot may trade.</p>
@@ -172,5 +182,26 @@ function MandateEditor({ draft, onEdit, onRefine }: { draft: Draft; onEdit: (p: 
         </details>
       )}
     </>
+  );
+}
+
+/** Copies a link that opens this draft for anyone: the allocation and guardrails only, no addresses or keys. */
+function ShareStrategy({ draft }: { draft: Draft }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="btn small"
+      title="A link that opens this strategy for anyone to simulate, stress-test or copy into their own vault"
+      onClick={() => {
+        const link = `${window.location.origin}${window.location.pathname}?strategy=${encodeStrategy(draft.proposal)}`;
+        navigator.clipboard?.writeText(link).then(
+          () => setCopied(true),
+          () => window.prompt("Copy this link", link),
+        );
+        setTimeout(() => setCopied(false), 2_000);
+      }}
+    >
+      {copied ? "Link copied" : "Share strategy"}
+    </button>
   );
 }

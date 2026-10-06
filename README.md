@@ -33,7 +33,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
 | **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
-| **Owner tools** | | Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
+| **Owner tools** | | Monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
 | **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance and the crash guard | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
 
@@ -41,7 +41,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 182 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 188 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -159,6 +159,17 @@ scenarios are stated as shapes, not history or forecasts.
 same oracle prices ([`agent/performance.ts`](agent/performance.ts)). The gap is what the pilot and its fee added or
 cost, and money moving in or out cannot distort it.
 
+**Monthly statements.** A broker-style statement for any month, built entirely from the chain
+([`agent/statement.ts`](agent/statement.ts)): opening and closing value at the month's boundary blocks, deposits,
+withdrawals and fees valued when they happened, markets and trading, closing holdings against targets, every event with
+its transaction, realized gains (lots matched over the whole history), and the rules in force. It reconciles exactly
+(opening + deposits − withdrawals − fees + markets and trading = closing), names its blocks so anyone can check it, and
+prints or saves as PDF from the browser.
+
+**Share a strategy.** "Share strategy" copies a link (`?strategy=…`) carrying the draft's allocation and guardrails,
+nothing else: anyone who opens it can simulate it, stress-test it and copy it into a vault of their own. Whatever a link
+claims, it becomes a mandate through the same validation as any draft ([`agent/share.ts`](agent/share.ts)).
+
 **Taxes.** The web app rebuilds the vault's tax lots from its onchain history ([`agent/tax.ts`](agent/tax.ts)):
 deposits priced by the vault's own oracles at that block, every trade, the fee paid in kind. Sales are matched first in,
 first out, lot by lot, split into short and long term, with exact integer arithmetic, and download as a CSV in the
@@ -221,7 +232,7 @@ you like: any agent with the pilot key gets the same onchain limits.
 - **Browser** ([`e2e-web/`](e2e-web), `npm run e2e`): Playwright against a local chain and the real dev server: the
   guided tour, every attack blocked in the simulator, the backtest, plain-words refinement, listing and hiring a pilot
   in the marketplace, naming an heir who then claims the vault, a taxable sale exported as CSV, asking the vault why it
-  sold, a market crash tripping the crash guard, the stress test, and a live vault created, piloted, paused and emptied from the
+  sold, a market crash tripping the crash guard, the stress test, a shared strategy, a monthly statement, and a live vault created, piloted, paused and emptied from the
   browser.
 - **Services** ([`test/fleet.test.ts`](test/fleet.test.ts), [`test/mcp.test.ts`](test/mcp.test.ts),
   [`test/reporter.test.ts`](test/reporter.test.ts), [`test/relayer.test.ts`](test/relayer.test.ts),

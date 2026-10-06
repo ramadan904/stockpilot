@@ -37,7 +37,8 @@ export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Add
   const [deps, wds, head] = await Promise.all([
     client.getLogs({ address: vault, event: deposited, fromBlock }),
     client.getLogs({ address: vault, event: withdrawn, fromBlock }),
-    client.getBlockNumber(),
+    // The latest block itself: getBlockNumber() is cached for a few seconds in the browser and could miss the newest.
+    client.getBlock({ blockTag: "latest" }).then((b) => b.number),
   ]);
   type Flow = { block: bigint; index: number; token: string; signed: bigint };
   const flows: Flow[] = [

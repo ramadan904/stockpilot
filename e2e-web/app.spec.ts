@@ -111,7 +111,7 @@ test("live: create a cash vault, let the pilot invest, pause, and withdraw every
   await page.getByRole("button", { name: "Pause pilot" }).click();
   await expect(page.getByRole("button", { name: "Unpause" })).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Withdraw everything" }).click();
-  await expect(page.locator(".stat").filter({ hasText: "Value" }).locator(".value")).toHaveText("$0.00", { timeout: 60_000 });
+  await expect(page.locator(".stat").filter({ has: page.locator(".label", { hasText: /^Value$/ }) }).locator(".value")).toHaveText("$0.00", { timeout: 60_000 });
   expect(errors).toEqual([]);
 });
 
@@ -334,6 +334,39 @@ test("recurring investment and gasless safety: invest on a schedule, check in an
 
   await page.getByRole("button", { name: "Pause, no gas" }).click();
   await expect(page.getByRole("button", { name: "Unpause" })).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test("a shared strategy link opens that strategy, ready to simulate", async ({ page }) => {
+  const { encodeStrategy } = await import("../agent/share");
+  const { presetFor } = await import("../agent/mandate");
+  const { LISTINGS } = await import("../agent/listings");
+  const proposal = { ...presetFor("balanced", [...LISTINGS]), summary: "Half cash, half the S&P 500." };
+  proposal.allocations = proposal.allocations.map((a) => ({ ...a, weight_percent: a.symbol === "USDG" || a.symbol === "SPY" ? 50 : 0 }));
+  await page.goto(`/?strategy=${encodeStrategy(proposal)}`);
+  await expect(page.getByText("Shared strategy", { exact: true })).toBeVisible();
+  await expect(page.getByText("Half cash, half the S&P 500.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Share strategy" })).toBeVisible();
+});
+
+test("statements: a month's statement reconciles and is ready to print", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Cash only" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit USDG: done." })).toBeVisible({ timeout: 60_000 });
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Statements" }) });
+  await card.getByRole("button", { name: "Open statement" }).click();
+  const sheet = card.locator(".statement-sheet");
+  await expect(sheet).toContainText("StockPilot vault statement", { timeout: 60_000 });
+  await expect(sheet).toContainText("Closing value");
+  await expect(sheet.locator("tbody tr").filter({ hasText: "Deposit of" }).first()).toBeVisible();
+  await expect(card.getByRole("button", { name: "Print / Save as PDF" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

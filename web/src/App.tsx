@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { diffProposals, presetFor, refineOffline, toMandate, type Mandate, type Proposal, type Strategy } from "../../agent/mandate";
+import { decodeStrategy } from "../../agent/share";
 import { LISTINGS } from "../../agent/listings";
 import { Backtest } from "./Backtest";
 import { Live } from "./Live";
@@ -67,7 +68,12 @@ export function App() {
   // A shared vault link (?chain=…&vault=…) opens straight on the Live tab.
   const [tab, setTab] = useState<"sim" | "backtest" | "live">(() => (new URLSearchParams(window.location.search).get("vault") ? "live" : "sim"));
   const [tourRequest, setTourRequest] = useState(0);
-  const [draft, setDraft] = useState<Draft | null>(() => makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000));
+  const [draft, setDraft] = useState<Draft | null>(() => {
+    // A shared strategy link (?strategy=…) opens with that draft, ready to simulate, stress-test or sign.
+    const shared = new URLSearchParams(window.location.search).get("strategy");
+    const proposal = shared ? decodeStrategy(shared, LISTINGS) : null;
+    return proposal ? makeDraft(proposal, "shared", 10_000) : makeDraft(presetFor(FIRST_GOAL, [...LISTINGS]), "preset", 10_000);
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
