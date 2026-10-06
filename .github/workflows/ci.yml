@@ -55,7 +55,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Rust conformance vectors match the TypeScript model
-        run: npm run --silent vectors && git diff --exit-code solana/mandate-core/tests/vectors.json
+        run: npm run --silent vectors && git diff --exit-code solana/mandate-core/tests/vectors.json solana/mandate-core/tests/guard-vectors.json
 
   browser:
     runs-on: ubuntu-latest

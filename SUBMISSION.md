@@ -127,8 +127,9 @@ Everything; the repository started empty.
   signed by the vault's owner, so nobody can redirect them. Gas for every action is in [docs/GAS.md](docs/GAS.md).
 - **Multi-chain:** the mandate rules also exist as a Rust crate that reproduces 3,000 random verdicts of the TypeScript
   model exactly (which is itself proven equal to the EVM contract), and a Solana program built on it: vault PDAs,
-  pilot-only rebalancing through an owner-chosen venue, owner-only withdrawals. A proof of concept, tested natively
-  ([solana/README.md](solana/README.md)).
+  pilot-only rebalancing through an owner-chosen venue, owner-only withdrawals, Pyth price accounts, and the same
+  inheritance and crash guard as the EVM vault (the guard's rules match the TypeScript model on 2,000 more vectors).
+  A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
 - **Testing:** 176 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600

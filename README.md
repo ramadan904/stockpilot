@@ -35,7 +35,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
 | **Owner tools** | | Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
-| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts | Conformance-tested against the TypeScript model |
+| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance and the crash guard | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
 
 ## Try it in ten seconds
 

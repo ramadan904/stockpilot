@@ -68,6 +68,16 @@ export interface GuardConfig {
   drawdownBps: number;
 }
 
+/**
+ * One crash-guard check at `totalUsd`, exactly `PilotVault._guard`: off or already defensive, nothing changes; above the
+ * peak, a new peak; past the drawdown below it, a trip. The Solana rules core reproduces it (solana/mandate-core).
+ */
+export function guardStep(totalUsd: bigint, peakUsd: bigint, drawdownBps: number, defensive: boolean): { peakUsd: bigint; trip: boolean } {
+  if (drawdownBps === 0 || defensive) return { peakUsd, trip: false };
+  if (totalUsd > peakUsd) return { peakUsd: totalUsd, trip: false };
+  return { peakUsd, trip: totalUsd * BPS < peakUsd * (BPS - BigInt(drawdownBps)) };
+}
+
 /** The targets the vault switches to in defensive mode: exactly `PilotVault._target`, rounding included. */
 export function defensiveTargets(targets: number[], g: GuardConfig): number[] {
   const safeNormal = targets[g.safeIndex];
@@ -174,9 +184,9 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
 
     // The crash guard, as the vault runs it (poked daily by the fleet, and again by every trade).
     if (guard && out.defensiveDay === null) {
-      const t = state.assets.reduce((s, a) => s + valueOf(a.balance, a.price, a.decimals), 0n);
-      if (t > peak) peak = t;
-      else if (t * BPS < peak * (BPS - BigInt(guard.drawdownBps))) {
+      const step = guardStep(state.assets.reduce((s, a) => s + valueOf(a.balance, a.price, a.decimals), 0n), peak, guard.drawdownBps, false);
+      peak = step.peakUsd;
+      if (step.trip) {
         out.defensiveDay = d;
         const next = defensiveTargets(state.assets.map((a) => a.targetBps), guard);
         state = { ...state, assets: state.assets.map((a, i) => ({ ...a, targetBps: next[i] })) };

@@ -5,7 +5,7 @@
 import { keccak256, toHex, zeroAddress, type Address } from "viem";
 import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
-import { defensiveTargets, type GuardConfig } from "../../agent/backtest";
+import { defensiveTargets, guardStep, type GuardConfig } from "../../agent/backtest";
 import { BPS, WAD, afterSpend, amountFor, check, valueOf, type AssetState, type Trade, type VaultState, type Verdict } from "../../agent/model";
 
 export interface Sim {
@@ -81,9 +81,8 @@ export function liftDefensive(sim: Sim): Sim {
 /** `PilotVault.poke()`: record a new peak, or past the drawdown switch to defensive targets. Needs fresh prices. */
 export function pokeGuard(sim: Sim): { sim: Sim; tripped: boolean } {
   if (!sim.guard || sim.defensive || !fresh(sim)) return { sim, tripped: false };
-  const total = totalValue(sim);
-  if (total > sim.peakUsd) return { sim: { ...sim, peakUsd: total }, tripped: false };
-  if (total * BPS >= sim.peakUsd * (BPS - BigInt(sim.guard.drawdownBps))) return { sim, tripped: false };
+  const step = guardStep(totalValue(sim), sim.peakUsd, sim.guard.drawdownBps, sim.defensive);
+  if (!step.trip) return { sim: { ...sim, peakUsd: step.peakUsd }, tripped: false };
   const next = defensiveTargets(sim.normalTargets, sim.guard);
   return { sim: { ...sim, defensive: true, assets: sim.assets.map((a, i) => ({ ...a, targetBps: next[i] })) }, tripped: true };
 }

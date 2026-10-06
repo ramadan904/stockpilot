@@ -38,7 +38,15 @@ pub const MAX_ASSETS: usize = 8;
 pub const VAULT_TAG: [u8; 8] = *b"SPVAULT1";
 pub const FEED_TAG: [u8; 8] = *b"SPPRICE1";
 /// Enough for a vault with the maximum number of assets.
-pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + 64;
+pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + INHERITANCE_SPACE + GUARD_SPACE + 64;
+const INHERITANCE_SPACE: usize = 32 + 4 + 8;
+const GUARD_SPACE: usize = 32 + 2 + 2 + 1 + 16;
+/// Inheritance periods, as on the EVM vault: 30 days to 10 years.
+pub const MIN_INACTIVITY: u32 = 30 * 86_400;
+pub const MAX_INACTIVITY: u32 = 3_650 * 86_400;
+/// Crash guard trigger, as on the EVM vault: a 5% to 50% fall from the peak.
+pub const MIN_DRAWDOWN_BPS: u16 = 500;
+pub const MAX_DRAWDOWN_BPS: u16 = 5_000;
 pub const FEED_SPACE: usize = 8 + 32 + 8 + 8;
 const PRICE_TO_WAD: u128 = 10_000_000_000; // 8-decimal feed price to 18 decimals
 
@@ -85,6 +93,17 @@ pub struct Vault {
     pub last_trade_at: i64,
     pub budget_usd: u128,
     pub budget_updated_at: i64,
+    /// Inheritance: who may take ownership after `inactivity_period` seconds without any owner action.
+    pub heir: [u8; 32],
+    pub inactivity_period: u32,
+    pub last_owner_activity: i64,
+    /// Crash guard: past a `drawdown_bps` fall from `peak_usd`, the asset with `safe_mint` goes to `safe_target_bps`
+    /// and the rest shrink in proportion. `drawdown_bps == 0` means off.
+    pub safe_mint: [u8; 32],
+    pub safe_target_bps: u16,
+    pub drawdown_bps: u16,
+    pub defensive: bool,
+    pub peak_usd: u128,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,8 +136,20 @@ pub enum StockPilotInstruction {
     /// Accounts: [vault (w), pilot (signer), vault authority, venue program, ...n vault token accounts (w) in mandate
     /// order, ...n price feeds in mandate order, ...extra accounts the venue needs]
     Rebalance { sell: u8, buy: u8, amount_in: u64, min_amount_out: u64, rationale: [u8; 32], venue_data: Vec<u8> },
-    /// Accounts: [vault, owner (signer), vault authority, source (w, owned by the authority), destination (w), token program]
+    /// Accounts: [vault (w), owner (signer), vault authority, source (w, owned by the authority), destination (w), token program]
     Withdraw { amount: u64 },
+    /// Accounts: [vault (w), owner (signer)]. A zero heir clears it.
+    SetHeir { heir: [u8; 32], period: u32 },
+    /// Accounts: [vault (w), owner (signer)]. Proof of life: restarts the inheritance clock.
+    CheckIn,
+    /// Accounts: [vault (w), heir (signer)]
+    ClaimInheritance,
+    /// Accounts: [vault (w), owner (signer)]. `drawdown_bps == 0` turns it off.
+    SetCrashGuard { safe_mint: [u8; 32], safe_target_bps: u16, drawdown_bps: u16 },
+    /// Accounts: [vault (w), ...n vault token accounts in mandate order, ...n price feeds in mandate order]. Anyone.
+    Poke,
+    /// Accounts: [vault (w), owner (signer)]
+    ExitDefensive,
 }
 
 /// Program errors. Codes 0 to 11 are the mandate reasons, in the same names the EVM contract uses.
@@ -136,6 +167,13 @@ pub enum StockPilotError {
     NotFeedAuthority,
     PriceUnverified,
     PriceUncertain,
+    NotHeir,
+    OwnerStillActive,
+    InvalidHeir,
+    InactivityOutOfRange,
+    DrawdownOutOfRange,
+    InvalidSafeTarget,
+    CrashGuardOff,
 }
 
 impl StockPilotError {
@@ -153,6 +191,13 @@ impl StockPilotError {
             StockPilotError::NotFeedAuthority => 108,
             StockPilotError::PriceUnverified => 109,
             StockPilotError::PriceUncertain => 110,
+            StockPilotError::NotHeir => 111,
+            StockPilotError::OwnerStillActive => 112,
+            StockPilotError::InvalidHeir => 113,
+            StockPilotError::InactivityOutOfRange => 114,
+            StockPilotError::DrawdownOutOfRange => 115,
+            StockPilotError::InvalidSafeTarget => 116,
+            StockPilotError::CrashGuardOff => 117,
         }
     }
 }
@@ -181,6 +226,15 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
             rebalance(program_id, accounts, sell as usize, buy as usize, amount_in, min_amount_out, rationale, venue_data)
         }
         StockPilotInstruction::Withdraw { amount } => withdraw(program_id, accounts, amount),
+        StockPilotInstruction::SetHeir { heir, period } => set_heir(program_id, accounts, heir, period),
+        StockPilotInstruction::CheckIn => owner_update(program_id, accounts, |_| {}),
+        StockPilotInstruction::ClaimInheritance => claim_inheritance(program_id, accounts),
+        StockPilotInstruction::SetCrashGuard { safe_mint, safe_target_bps, drawdown_bps } => set_crash_guard(program_id, accounts, safe_mint, safe_target_bps, drawdown_bps),
+        StockPilotInstruction::Poke => poke(program_id, accounts),
+        StockPilotInstruction::ExitDefensive => owner_update(program_id, accounts, |v| {
+            v.defensive = false;
+            v.peak_usd = 0;
+        }),
     }
 }
 
@@ -403,6 +457,14 @@ fn init_vault(program_id: &Pubkey, accounts: &[AccountInfo], pilot: [u8; 32], ve
         limits,
         last_trade_at: 0,
         budget_updated_at: now,
+        heir: [0; 32],
+        inactivity_period: 0,
+        last_owner_activity: now,
+        safe_mint: [0; 32],
+        safe_target_bps: 0,
+        drawdown_bps: 0,
+        defensive: false,
+        peak_usd: 0,
     };
     save(vault_info, &vault)
 }
@@ -422,6 +484,150 @@ fn set_mandate(program_id: &Pubkey, accounts: &[AccountInfo], assets: Vec<AssetC
     vault.assets = assets;
     vault.limits = limits;
     vault.mandate_version += 1;
+    vault.last_owner_activity = now;
+    // The guard needs its safe asset listed, below its defensive target.
+    if vault.drawdown_bps != 0 && safe_index(&vault).map(|i| vault.assets[i].target_bps >= vault.safe_target_bps).unwrap_or(true) {
+        disarm(&mut vault);
+    }
+    save(vault_info, &vault)
+}
+
+fn safe_index(v: &Vault) -> Option<usize> {
+    v.assets.iter().position(|a| a.mint == v.safe_mint)
+}
+
+fn disarm(v: &mut Vault) {
+    v.safe_mint = [0; 32];
+    v.safe_target_bps = 0;
+    v.drawdown_bps = 0;
+    v.defensive = false;
+    v.peak_usd = 0;
+}
+
+fn set_heir(program_id: &Pubkey, accounts: &[AccountInfo], heir: [u8; 32], period: u32) -> ProgramResult {
+    if heir != [0; 32] && !(MIN_INACTIVITY..=MAX_INACTIVITY).contains(&period) {
+        return Err(StockPilotError::InactivityOutOfRange.into());
+    }
+    let mut invalid = false;
+    owner_update(program_id, accounts, |v| {
+        if heir == v.owner {
+            invalid = true;
+            return;
+        }
+        v.heir = heir;
+        v.inactivity_period = if heir == [0; 32] { 0 } else { period };
+    })?;
+    if invalid {
+        return Err(StockPilotError::InvalidHeir.into());
+    }
+    Ok(())
+}
+
+/// The heir takes ownership once the owner has done nothing for the whole period. Pilot, mandate and venue stay.
+fn claim_inheritance(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    let it = &mut accounts.iter();
+    let vault_info = next_account_info(it)?;
+    let heir = next_account_info(it)?;
+    let mut vault = load_vault(program_id, vault_info)?;
+    if vault.heir == [0; 32] || !heir.is_signer || heir.key.to_bytes() != vault.heir {
+        return Err(StockPilotError::NotHeir.into());
+    }
+    let now = now()?;
+    if now < vault.last_owner_activity + vault.inactivity_period as i64 {
+        return Err(StockPilotError::OwnerStillActive.into());
+    }
+    msg!("Inheritance claimed: {} succeeds {}", heir.key, Pubkey::new_from_array(vault.owner));
+    vault.owner = vault.heir;
+    vault.heir = [0; 32];
+    vault.inactivity_period = 0;
+    vault.last_owner_activity = now;
+    save(vault_info, &vault)
+}
+
+fn set_crash_guard(program_id: &Pubkey, accounts: &[AccountInfo], safe_mint: [u8; 32], safe_target_bps: u16, drawdown_bps: u16) -> ProgramResult {
+    let mut err = None;
+    owner_update(program_id, accounts, |v| {
+        if drawdown_bps == 0 {
+            disarm(v);
+            return;
+        }
+        let Some(safe) = v.assets.iter().position(|a| a.mint == safe_mint) else {
+            err = Some(StockPilotError::Mandate(core::Reason::AssetNotInMandate));
+            return;
+        };
+        if !(MIN_DRAWDOWN_BPS..=MAX_DRAWDOWN_BPS).contains(&drawdown_bps) {
+            err = Some(StockPilotError::DrawdownOutOfRange);
+            return;
+        }
+        if safe_target_bps <= v.assets[safe].target_bps || safe_target_bps as u128 > core::BPS {
+            err = Some(StockPilotError::InvalidSafeTarget);
+            return;
+        }
+        v.safe_mint = safe_mint;
+        v.safe_target_bps = safe_target_bps;
+        v.drawdown_bps = drawdown_bps;
+        v.defensive = false;
+        v.peak_usd = 0;
+    })?;
+    match err {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
+
+/// Reads every asset's balance and price, checking each account is the one the mandate names.
+fn read_assets(program_id: &Pubkey, vault_key: &Pubkey, vault: &Vault, tokens: &[AccountInfo], feeds: &[AccountInfo]) -> Result<Vec<core::Asset>, ProgramError> {
+    let (authority_key, _) = vault_authority(vault_key, program_id);
+    let mut assets = Vec::with_capacity(vault.assets.len());
+    for (i, cfg) in vault.assets.iter().enumerate() {
+        if tokens[i].key.to_bytes() != cfg.vault_token || feeds[i].key.to_bytes() != cfg.price_feed {
+            return Err(StockPilotError::WrongAccount.into());
+        }
+        let (_, owner, balance) = token_account(&tokens[i])?;
+        if owner != authority_key.to_bytes() {
+            return Err(StockPilotError::WrongAccount.into());
+        }
+        let (price, price_updated_at) = read_price(program_id, &feeds[i], cfg)?;
+        assets.push(core::Asset { balance: balance as u128, price, decimals: cfg.decimals, price_updated_at, target_bps: cfg.target_bps, band_bps: cfg.band_bps });
+    }
+    Ok(assets)
+}
+
+/// The crash guard at these assets' value: a new peak or a trip. Then, in defensive mode, the targets in force.
+fn apply_guard(vault: &mut Vault, assets: &mut [core::Asset]) {
+    let g = core::guard_step(core::total_value(assets), vault.peak_usd, vault.drawdown_bps, vault.defensive);
+    vault.peak_usd = g.peak;
+    if g.trip {
+        vault.defensive = true;
+        msg!("Crash guard tripped: defensive targets in force");
+    }
+    if vault.defensive {
+        if let Some(safe) = safe_index(vault) {
+            let targets: Vec<u16> = vault.assets.iter().map(|a| a.target_bps).collect();
+            for (i, a) in assets.iter_mut().enumerate() {
+                a.target_bps = core::defensive_target(&targets, safe, vault.safe_target_bps, i);
+            }
+        }
+    }
+}
+
+/// Anyone records the vault's value at fresh prices: a new peak, or past the drawdown, defensive mode.
+fn poke(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    let vault_info = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let mut vault = load_vault(program_id, vault_info)?;
+    if vault.drawdown_bps == 0 {
+        return Err(StockPilotError::CrashGuardOff.into());
+    }
+    let n = vault.assets.len();
+    if accounts.len() < 1 + 2 * n {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let mut assets = read_assets(program_id, vault_info.key, &vault, &accounts[1..1 + n], &accounts[1 + n..1 + 2 * n])?;
+    let now = now()?;
+    if assets.iter().any(|a| now - a.price_updated_at > vault.limits.max_price_age as i64) {
+        return Err(StockPilotError::Mandate(core::Reason::StalePrice).into());
+    }
+    apply_guard(&mut vault, &mut assets);
     save(vault_info, &vault)
 }
 
@@ -431,6 +637,7 @@ fn owner_update(program_id: &Pubkey, accounts: &[AccountInfo], f: impl FnOnce(&m
     let owner = next_account_info(it)?;
     let mut vault = load_vault(program_id, vault_info)?;
     require_signer(owner, &vault.owner, StockPilotError::NotOwner)?;
+    vault.last_owner_activity = now()?; // every owner action is proof of life
     f(&mut vault);
     save(vault_info, &vault)
 }
@@ -443,6 +650,9 @@ fn pause(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let key = caller.key.to_bytes();
     if !caller.is_signer || (key != vault.owner && key != vault.pilot) {
         return Err(StockPilotError::NotOwnerOrPilot.into());
+    }
+    if key == vault.owner {
+        vault.last_owner_activity = now()?;
     }
     vault.paused = true;
     save(vault_info, &vault)
@@ -482,25 +692,9 @@ fn rebalance(program_id: &Pubkey, accounts: &[AccountInfo], sell: usize, buy: us
     let (feeds, venue_accounts) = rest.split_at(n);
 
     // Every account must be the one the mandate names: a pilot cannot swap in its own token account or price feed.
-    let mut assets = Vec::with_capacity(n);
-    for (i, cfg) in vault.assets.iter().enumerate() {
-        if tokens[i].key.to_bytes() != cfg.vault_token || feeds[i].key.to_bytes() != cfg.price_feed {
-            return Err(StockPilotError::WrongAccount.into());
-        }
-        let (_, owner, balance) = token_account(&tokens[i])?;
-        if owner != authority_key.to_bytes() {
-            return Err(StockPilotError::WrongAccount.into());
-        }
-        let (price, price_updated_at) = read_price(program_id, &feeds[i], cfg)?;
-        assets.push(core::Asset {
-            balance: balance as u128,
-            price,
-            decimals: cfg.decimals,
-            price_updated_at,
-            target_bps: cfg.target_bps,
-            band_bps: cfg.band_bps,
-        });
-    }
+    let mut assets = read_assets(program_id, vault_info.key, &vault, tokens, feeds)?;
+    // A trade attempted past the drawdown is judged against the defensive targets (and records a new peak otherwise).
+    apply_guard(&mut vault, &mut assets);
     if sell >= n || buy >= n {
         return Err(StockPilotError::Mandate(core::Reason::AssetNotInMandate).into());
     }
@@ -546,8 +740,13 @@ fn withdraw(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) -> Progr
     let source = next_account_info(it)?;
     let destination = next_account_info(it)?;
     let token_program = next_account_info(it)?;
-    let vault = load_vault(program_id, vault_info)?;
+    let mut vault = load_vault(program_id, vault_info)?;
     require_signer(owner, &vault.owner, StockPilotError::NotOwner)?;
+    vault.last_owner_activity = now()?;
+    if !vault.defensive {
+        vault.peak_usd = 0; // money leaving is not a crash: re-arm from the next recorded value
+    }
+    save(vault_info, &vault)?;
     let (authority_key, bump) = vault_authority(vault_info.key, program_id);
     let (_, source_owner, _) = token_account(source)?;
     if *authority.key != authority_key || source_owner != authority_key.to_bytes() || *token_program.key != TOKEN_PROGRAM_ID {

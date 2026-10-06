@@ -1,11 +1,14 @@
 // Generates solana/mandate-core/tests/vectors.json: random scenarios judged by agent/model.ts, which
 // test/model.test.ts proves equal to the EVM contract. The Rust crate must reproduce every verdict.
+// Also guard-vectors.json: crash-guard checks and defensive targets from agent/backtest.ts, which reproduce the
+// vault's _guard and _target (test/stress.test.ts and test/crashguard.test.ts use the same numbers).
 //
 //   npm run vectors     (deterministic: the same seed always writes the same file)
 
 import { writeFileSync } from "node:fs";
 import { BPS, WAD, amountFor, check, valueOf, type AssetState, type VaultState } from "../agent/model";
 import { largestRemainder } from "../agent/mandate";
+import { defensiveTargets, guardStep } from "../agent/backtest";
 
 let seed = 20261012;
 const rand = () => {
@@ -82,4 +85,36 @@ for (let v = 0; v < N; v++) {
 }
 writeFileSync("solana/mandate-core/tests/vectors.json", JSON.stringify(vectors));
 console.log(`wrote ${N} vectors:`, counts);
+
+// Crash guard: one check at a total value against a recorded peak, and the defensive targets it switches to.
+const guardVectors: unknown[] = [];
+const outcomes: Record<string, number> = {};
+const G = 2_000;
+for (let v = 0; v < G; v++) {
+  const n = int(2, 8);
+  const targets = largestRemainder(Array.from({ length: n }, () => rand() * 10 + 0.2), 10_000);
+  const safe = int(0, n - 1);
+  const safeTarget = int(Math.min(targets[safe] + 1, 10_000), 10_000);
+  const drawdown = rand() < 0.08 ? 0 : int(500, 5_000);
+  const defensive = rand() < 0.08;
+  const peak = rand() < 0.1 ? 0n : usd(rand() * 1e6);
+  const total = rand() < 0.05 ? peak : (peak * BigInt(int(300, 1_400))) / 1_000n + BigInt(int(0, 3));
+  const step = guardStep(total, peak, drawdown, defensive);
+  const kind = step.trip ? "trip" : step.peakUsd !== peak ? "peak" : "nothing";
+  outcomes[kind] = (outcomes[kind] ?? 0) + 1;
+  guardVectors.push({
+    total: String(total),
+    peak: String(peak),
+    drawdown_bps: drawdown,
+    defensive,
+    expected_peak: String(step.peakUsd),
+    expected_trip: step.trip,
+    targets,
+    safe,
+    safe_target_bps: safeTarget,
+    expected_targets: defensiveTargets(targets, { safeIndex: safe, safeTargetBps: safeTarget, drawdownBps: drawdown }),
+  });
+}
+writeFileSync("solana/mandate-core/tests/guard-vectors.json", JSON.stringify(guardVectors));
+console.log(`wrote ${G} guard vectors:`, outcomes);
 void WAD;

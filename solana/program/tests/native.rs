@@ -289,8 +289,30 @@ impl World {
     fn withdraw_as(&mut self, signer: Pubkey, source: Pubkey, amount: u64) -> ProgramResult {
         let dest = key(60);
         self.accounts.entry(dest).or_insert(Acc { owner: TOKEN_PROGRAM_ID, lamports: 1, data: token_data(&self.mints[1], &self.owner, 0), executable: false });
-        let metas = [r(self.vault), s(signer), r(self.authority), w(source), w(dest), r(TOKEN_PROGRAM_ID)];
+        let metas = [w(self.vault), s(signer), r(self.authority), w(source), w(dest), r(TOKEN_PROGRAM_ID)];
         self.call(StockPilotInstruction::Withdraw { amount }, &metas)
+    }
+}
+
+impl World {
+    fn owner_call(&mut self, ix: StockPilotInstruction) -> ProgramResult {
+        let (vault, owner) = (self.vault, self.owner);
+        self.call(ix, &[w(vault), s(owner)])
+    }
+
+    fn poke(&mut self) -> ProgramResult {
+        let mut metas = vec![w(self.vault)];
+        metas.extend(self.tokens.iter().map(|t| r(*t)));
+        metas.extend(self.feeds.iter().map(|f| r(*f)));
+        self.call(StockPilotInstruction::Poke, &metas)
+    }
+
+    /// Every stock's price times `pct` / 100.
+    fn crash(&mut self, pct: u64) {
+        for i in 1..4 {
+            let f: PriceFeed = borsh::BorshDeserialize::deserialize(&mut &self.accounts[&self.feeds[i]].data[..]).unwrap();
+            self.set_price(i, f.price * pct / 100).unwrap();
+        }
     }
 }
 
@@ -316,6 +338,14 @@ const VENUE_SPENT_WRONG: u32 = 105;
 const ALREADY_INIT: u32 = 106;
 const INVALID_MANDATE: u32 = 107;
 const NOT_FEED_AUTHORITY: u32 = 108;
+const NOT_HEIR: u32 = 111;
+const OWNER_STILL_ACTIVE: u32 = 112;
+const INVALID_HEIR: u32 = 113;
+const INACTIVITY_RANGE: u32 = 114;
+const DRAWDOWN_RANGE: u32 = 115;
+const INVALID_SAFE_TARGET: u32 = 116;
+const CRASH_GUARD_OFF: u32 = 117;
+const DAY: i64 = 86_400;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Tests
@@ -601,4 +631,134 @@ fn reads_pyth_exponents_exactly() {
     assert_eq!(p.price_wad, 250_123_456_789_000_000_000); // $250.123456789
     assert_eq!(p.publish_time, 5);
     assert_eq!(p.feed_id, TSLA_FEED_ID);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Inheritance and the crash guard, as on the EVM vault
+// ---------------------------------------------------------------------------------------------------------------------
+
+#[test]
+fn the_heir_takes_over_only_after_the_owners_whole_silence() {
+    let mut world = World::new();
+    let heir = key(4);
+    assert_eq!(code(world.owner_call(StockPilotInstruction::SetHeir { heir: heir.to_bytes(), period: 29 * DAY as u32 })), INACTIVITY_RANGE);
+    assert_eq!(code(world.owner_call(StockPilotInstruction::SetHeir { heir: world.owner.to_bytes(), period: 90 * DAY as u32 })), INVALID_HEIR);
+    world.owner_call(StockPilotInstruction::SetHeir { heir: heir.to_bytes(), period: 90 * DAY as u32 }).unwrap();
+    let vault = world.vault;
+
+    NOW.fetch_add(89 * DAY, Ordering::SeqCst);
+    assert_eq!(code(world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), s(heir)])), OWNER_STILL_ACTIVE);
+    // A stranger cannot claim, and neither can the heir without signing.
+    let pilot = world.pilot;
+    assert_eq!(code(world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), s(pilot)])), NOT_HEIR);
+    assert_eq!(code(world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), r(heir)])), NOT_HEIR);
+
+    // The pilot keeps trading meanwhile; that is not the owner's activity.
+    world.set_price(3, 200_00000000).unwrap();
+    world.refresh_prices();
+    world.trade(3, 0, 2_000_000_000, 10).unwrap();
+    NOW.fetch_add(DAY, Ordering::SeqCst);
+    world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), s(heir)]).unwrap();
+    let v = world.vault_state();
+    assert_eq!(v.owner, heir.to_bytes());
+    assert_eq!(v.heir, [0; 32]);
+    // The old owner is out.
+    assert_eq!(code(world.owner_call(StockPilotInstruction::CheckIn)), NOT_OWNER);
+}
+
+#[test]
+fn every_owner_action_restarts_the_clock() {
+    let mut world = World::new();
+    let heir = key(4);
+    world.owner_call(StockPilotInstruction::SetHeir { heir: heir.to_bytes(), period: 30 * DAY as u32 }).unwrap();
+    let vault = world.vault;
+    for step in 0..3 {
+        NOW.fetch_add(25 * DAY, Ordering::SeqCst);
+        match step {
+            0 => world.owner_call(StockPilotInstruction::CheckIn).unwrap(),
+            1 => world.owner_call(StockPilotInstruction::SetPilot { pilot: world.pilot.to_bytes() }).unwrap(),
+            _ => {
+                let (owner, token) = (world.owner, world.tokens[1]);
+                world.withdraw_as(owner, token, 1).unwrap()
+            }
+        }
+        NOW.fetch_add(25 * DAY, Ordering::SeqCst); // 50 days since the heir was named, 25 since the last action
+        assert_eq!(code(world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), s(heir)])), OWNER_STILL_ACTIVE, "step {step}");
+    }
+}
+
+#[test]
+fn the_crash_guard_trips_on_a_crash_and_the_pilot_can_only_de_risk() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    assert_eq!(code(world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 499 })), DRAWDOWN_RANGE);
+    assert_eq!(code(world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 2_500, drawdown_bps: 2_000 })), INVALID_SAFE_TARGET);
+    assert_eq!(code(world.poke()), CRASH_GUARD_OFF);
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 }).unwrap();
+    world.poke().unwrap();
+    assert_eq!(world.vault_state().peak_usd, 10_000 * WAD);
+
+    world.crash(85); // $8,875: under the 20% trigger
+    world.poke().unwrap();
+    assert!(!world.vault_state().defensive);
+    world.crash(80); // $7,600: past it
+    world.poke().unwrap();
+    assert!(world.vault_state().defensive);
+
+    // Buying a stock with USDG would move USDG away from its new 70% target: refused.
+    let out = world.fair_out(0, 1, 100_000_000, 10);
+    assert_eq!(code(world.trade_as(world.pilot, 0, 1, 100_000_000, out, 0, VENUE, None)), OUTSIDE_BAND);
+    // Selling a stock into USDG is allowed.
+    world.trade(3, 0, 2_000_000_000, 10).unwrap();
+
+    // Only the owner goes back to normal targets.
+    let pilot = world.pilot;
+    let vault = world.vault;
+    assert_eq!(code(world.call(StockPilotInstruction::ExitDefensive, &[w(vault), s(pilot)])), NOT_OWNER);
+    world.owner_call(StockPilotInstruction::ExitDefensive).unwrap();
+    assert!(!world.vault_state().defensive);
+}
+
+#[test]
+fn a_pilot_that_never_pokes_is_judged_on_the_defensive_targets_anyway() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 }).unwrap();
+    world.poke().unwrap();
+    world.crash(65); // nobody pokes
+    // Under the normal targets this tilt toward a stock would pass; past the drop it does not.
+    let out = world.fair_out(0, 1, 100_000_000, 10);
+    assert_eq!(code(world.trade_as(world.pilot, 0, 1, 100_000_000, out, 0, VENUE, None)), OUTSIDE_BAND);
+    world.trade(3, 0, 2_000_000_000, 10).unwrap();
+    assert!(world.vault_state().defensive);
+}
+
+#[test]
+fn withdrawals_re_arm_the_guard_and_stale_prices_cannot_trip_it() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 }).unwrap();
+    world.poke().unwrap();
+    let (owner, token) = (world.owner, world.tokens[3]);
+    world.withdraw_as(owner, token, 15_000_000_000).unwrap(); // 75% of the NVDA position
+    assert_eq!(world.vault_state().peak_usd, 0);
+    world.poke().unwrap();
+    assert!(!world.vault_state().defensive);
+    NOW.fetch_add(2 * 3_600, Ordering::SeqCst);
+    assert_eq!(code(world.poke()), STALE);
+}
+
+#[test]
+fn a_mandate_without_the_safe_asset_disarms_the_guard() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 }).unwrap();
+    // Raise USDG's own target to the defensive one: the guard would mean nothing, so it is turned off.
+    let mut assets = world.mandate(1_000, 500);
+    assets[0].target_bps = 7_000;
+    let (vault, owner) = (world.vault, world.owner);
+    let mut metas = vec![w(vault), s(owner)];
+    metas.extend(world.tokens.iter().map(|t| r(*t)));
+    world.call(StockPilotInstruction::SetMandate { assets, limits: LIMITS }, &metas).unwrap();
+    assert_eq!(world.vault_state().drawdown_bps, 0);
 }

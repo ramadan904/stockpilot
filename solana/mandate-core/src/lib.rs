@@ -222,6 +222,35 @@ pub fn after_spend(limits: &Limits, clock: &Clock, value_usd: u128) -> Clock {
     Clock { budget_usd: available(limits, clock) - value_usd, budget_updated_at: clock.now, last_trade_at: clock.now, ..*clock }
 }
 
+/// The result of one crash-guard check.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuardOutcome {
+    pub peak: u128,
+    pub trip: bool,
+}
+
+/// One crash-guard check at `total`, exactly the EVM vault's `_guard`: off (`drawdown_bps == 0`) or already defensive,
+/// nothing changes; above the peak, a new peak; past the drawdown below it, a trip.
+pub fn guard_step(total: u128, peak: u128, drawdown_bps: u16, defensive: bool) -> GuardOutcome {
+    if drawdown_bps == 0 || defensive {
+        return GuardOutcome { peak, trip: false };
+    }
+    if total > peak {
+        return GuardOutcome { peak: total, trip: false };
+    }
+    let trip = U256::from(total) * U256::from(BPS) < U256::from(peak) * U256::from(BPS - drawdown_bps as u128);
+    GuardOutcome { peak, trip }
+}
+
+/// The target in force for asset `i` in defensive mode, exactly the EVM vault's `_target`: the safe asset at its
+/// defensive target, everyone else scaled down in proportion and rounded down.
+pub fn defensive_target(targets: &[u16], safe: usize, safe_target_bps: u16, i: usize) -> u16 {
+    if i == safe {
+        return safe_target_bps;
+    }
+    ((targets[i] as u128 * (BPS - safe_target_bps as u128)) / (BPS - targets[safe] as u128)) as u16
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

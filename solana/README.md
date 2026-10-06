@@ -13,6 +13,10 @@ cargo test     # rules crate, conformance against the TypeScript model, and the 
 continuously, cooldown, price freshness, trade size, pause. Pure `no_std` Rust with 256-bit `mulDiv`, checks in the EVM
 contract's order, error names identical to the EVM contract's custom errors.
 
+It also has the crash guard's two rules, `guard_step` (record a new peak, or trip past the drawdown) and
+`defensive_target` (the safe asset's raised target, everyone else scaled down, rounding included), exactly the EVM
+vault's `_guard` and `_target`.
+
 It is proven equal to the other two implementations by a chain of tests:
 
 1. `test/model.test.ts`: the TypeScript model (`agent/model.ts`) and the EVM `PilotVault` agree on 600 random trades,
@@ -20,6 +24,8 @@ It is proven equal to the other two implementations by a chain of tests:
 2. `mandate-core/tests/conformance.rs`: this crate reproduces 3,000 random verdicts from that TypeScript model (every
    rule, 2 to 8 assets, 6/8/9/18 decimals), including the exact USD values of accepted trades. The vectors come from
    `npm run vectors` at the repository root; CI regenerates them and fails if they drift.
+3. `mandate-core/tests/guard_conformance.rs`: 2,000 crash-guard checks and defensive-target sets from the TypeScript
+   functions the backtest and simulator use (which `test/crashguard.test.ts` checks against the contract's numbers).
 
 **`program`** is a Solana program built on `mandate-core`:
 
@@ -29,7 +35,9 @@ It is proven equal to the other two implementations by a chain of tests:
 | `SetPilot`, `SetVenue`, `Unpause` | Owner | Replace the agent, choose the venue program trades go through, resume |
 | `Pause` | Owner or pilot | The emergency brake |
 | `Rebalance` | Pilot | Checks the pilot, the venue and that every token account and price feed is the one the mandate names; runs the fill-independent rules before touching the venue; lets the venue swap with the vault authority's PDA signature; requires the venue took exactly `amount_in`; then judges what actually arrived with the full mandate check. Any failure reverts the whole transaction, swap included. |
-| `Withdraw` | Owner | Any amount of any vault token account, paused or not, signed by the vault authority PDA |
+| `Withdraw` | Owner | Any amount of any vault token account, paused or not, signed by the vault authority PDA. Re-arms the crash guard |
+| `SetHeir`, `CheckIn`, `ClaimInheritance` | Owner; heir | Inheritance as on the EVM vault: after 30 days to 10 years with no owner action (every owner instruction counts, the pilot's never do), the heir becomes the owner |
+| `SetCrashGuard`, `Poke`, `ExitDefensive` | Owner; anyone; owner | The crash guard as on the EVM vault: past the set fall from the recorded peak, defensive targets; `Rebalance` runs the same check first, so a pilot that never pokes is judged on them anyway |
 | `InitPriceFeed`, `SetPrice` | Feed authority | A demo USD price with 8 decimals and its update time, for local testing |
 
 **Prices.** Each asset names its price account. A Pyth `PriceUpdateV2` account (owned by Pyth's receiver program
