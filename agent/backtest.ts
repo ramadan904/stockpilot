@@ -308,3 +308,12 @@ export function modelsFor(listings: readonly { symbol: string; decimals: number;
 }
 
 export { WAD };
+
+/**
+ * Defensive targets the vault accepts for a safe asset whose mandate target is `nowPct`: above it, at most 100%.
+ * The default is 70% when allowed, else the next step up. Empty when the safe asset is already at 100%.
+ */
+export function safeTargetChoices(nowPct: number): { options: number[]; fallback: number | null } {
+  const options = [50, 60, 70, 80, 90, 100].filter((t) => t > nowPct);
+  return { options, fallback: options.find((t) => t >= 70) ?? options[0] ?? null };
+}

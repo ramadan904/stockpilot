@@ -256,16 +256,19 @@ export function createStockPilotServer(cfg: McpConfig) {
       async () => {
         const pilots = await listPilots(client, market.registryAbi, market.registry);
         if (!pilots.length) return text("No pilots are listed yet. Use register_as_pilot to be the first.");
-        const records = await trackRecords(client, { factory: market.factoryAbi, vault: vaultAbi }, market.factory, pilots.map((p) => p.address));
+        // Track records need event logs; an RPC that limits log ranges should not hide the directory itself.
+        const records = await trackRecords(client, { factory: market.factoryAbi, vault: vaultAbi }, market.factory, pilots.map((p) => p.address)).catch(() => null);
         const me = cfg.wallet?.account?.address;
         return text(
           pilots
             .map((p) => {
-              const r = records.get(p.address.toLowerCase())!;
+              const r = records?.get(p.address.toLowerCase());
               return [
                 `${p.name} (${p.address})${me && eq(me, p.address) ? " (this server)" : ""}${p.active ? "" : " RETIRED"}`,
                 `  asks ${(p.feeBps / 100).toFixed(2)}% a year${p.uri ? `; ${p.uri}` : ""}`,
-                `  flies ${r.vaults} vault(s) worth ${fmtUsd(r.aumUsd)}, ${r.paused} paused; ${r.trades} trade(s) worth ${fmtUsd(r.tradedUsd)}`,
+                r
+                  ? `  flies ${r.vaults} vault(s) worth ${fmtUsd(r.aumUsd)}, ${r.paused} paused; ${r.trades} trade(s) worth ${fmtUsd(r.tradedUsd)}`
+                  : "  track record unavailable from this RPC",
               ].join("\n");
             })
             .join("\n"),

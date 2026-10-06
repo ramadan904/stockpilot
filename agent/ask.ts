@@ -12,7 +12,7 @@ import { MODEL, defaultClient } from "./strategist";
 const Tx = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
 export const VaultFacts = z.object({
-  vault: z.string(),
+  vault: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
   chain: z.string(),
   asOf: z.string(),
   status: z.object({
@@ -156,7 +156,8 @@ const money = (n: number) => n.toLocaleString("en-US", { style: "currency", curr
 
 export function basicAnswer(question: string, f: VaultFacts): Answer {
   const q = question.toLowerCase();
-  const symbol = f.holdings.find((h) => new RegExp(`\\b${h.symbol.toLowerCase()}\\b`).test(q))?.symbol;
+  const escape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const symbol = f.holdings.find((h) => new RegExp(`(^|[^a-z0-9])${escape(h.symbol.toLowerCase())}($|[^a-z0-9])`).test(q))?.symbol;
   const follow = ["Why did the pilot last trade?", "How much can the pilot trade today?", "What happens if I lose my keys?"];
 
   if (/\b(limit|limits|budget|allowed|can the pilot|how much can)\b/.test(q)) {

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
-import { modelsFor } from "../../agent/backtest";
+import { modelsFor, safeTargetChoices } from "../../agent/backtest";
 import { SCENARIOS, stressTest, type StressResult } from "../../agent/stress";
 import { LineChart, compactUsd } from "./LineChart";
 import { Card } from "./ui";
@@ -15,13 +15,16 @@ export function StressTest({ mandate, usdSize }: { mandate: Mandate; usdSize: nu
   const safeIndex = Math.max(0, LISTINGS.findIndex((l) => "stable" in l));
   const safeNow = mandate.assets[safeIndex].targetBps / 100;
   const [drawdown, setDrawdown] = useState(15);
-  const [safeTarget, setSafeTarget] = useState(Math.max(70, Math.ceil((safeNow + 10) / 10) * 10));
+  const choices = safeTargetChoices(safeNow);
+  const [picked, setSafeTarget] = useState<number | null>(choices.fallback);
+  const safeTarget = picked !== null && choices.options.includes(picked) ? picked : choices.fallback;
   const [selected, setSelected] = useState(SCENARIOS[0].id);
 
   const results = useMemo<StressResult[]>(
     () =>
       SCENARIOS.map((s) =>
-        stressTest({ assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, guard: { safeIndex, safeTargetBps: safeTarget * 100, drawdownBps: drawdown * 100 } }, s),
+        // With the stablecoin already at 100% there is nothing to de-risk: the guard is simply off.
+        stressTest({ assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, guard: { safeIndex, safeTargetBps: (safeTarget ?? safeNow) * 100, drawdownBps: safeTarget === null ? 0 : drawdown * 100 } }, s),
       ),
     [mandate, usdSize, safeIndex, safeTarget, drawdown],
   );
@@ -32,7 +35,7 @@ export function StressTest({ mandate, usdSize }: { mandate: Mandate; usdSize: nu
     <Card title="Stress test before you sign" aside={<span className="muted small">stylized scenarios, not history</span>}>
       <p className="small" style={{ marginTop: 0 }}>
         Your draft mandate through five shaped markets, three ways: left alone, flown by the pilot, and flown with the crash guard armed (past a{" "}
-        {drawdown}% fall from the peak, {stable} goes to {safeTarget}%). Same planner and same rules as the vault.
+        {drawdown}% fall from the peak, {stable} goes to {safeTarget ?? 100}%). Same planner and same rules as the vault.
       </p>
       <div className="row">
         <label className="field" style={{ width: 170 }}>
@@ -47,8 +50,8 @@ export function StressTest({ mandate, usdSize }: { mandate: Mandate; usdSize: nu
         </label>
         <label className="field" style={{ width: 170 }}>
           Then {stable} at
-          <select value={safeTarget} onChange={(e) => setSafeTarget(Number(e.target.value))}>
-            {[50, 60, 70, 80, 90, 100].filter((t) => t > safeNow).map((t) => (
+          <select value={safeTarget ?? ""} disabled={safeTarget === null} onChange={(e) => setSafeTarget(Number(e.target.value))}>
+            {choices.options.map((t) => (
               <option key={t} value={t}>
                 {t}%
               </option>

@@ -762,3 +762,24 @@ fn a_mandate_without_the_safe_asset_disarms_the_guard() {
     world.call(StockPilotInstruction::SetMandate { assets, limits: LIMITS }, &metas).unwrap();
     assert_eq!(world.vault_state().drawdown_bps, 0);
 }
+
+#[test]
+fn dropping_an_asset_re_arms_the_guard_instead_of_tripping_it() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 }).unwrap();
+    world.poke().unwrap();
+    let mut assets = world.mandate(3_334, 500);
+    assets.truncate(3);
+    assets[1].target_bps = 3_333;
+    assets[2].target_bps = 3_333;
+    let (vault, owner) = (world.vault, world.owner);
+    let mut metas = vec![w(vault), s(owner)];
+    metas.extend(world.tokens[..3].iter().map(|t| r(*t)));
+    world.call(StockPilotInstruction::SetMandate { assets, limits: LIMITS }, &metas).unwrap();
+    assert_eq!(world.vault_state().peak_usd, 0);
+    // The vault's state ends exactly where its bytes end: nothing stale is left past it.
+    let data = &world.accounts[&world.vault].data;
+    let used = borsh::to_vec(&world.vault_state()).unwrap().len();
+    assert!(data[used..].iter().all(|b| *b == 0));
+}

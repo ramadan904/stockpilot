@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Mandate } from "../../agent/mandate";
 import { amountFor, available, type AssetState, type Trade } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
+import { safeTargetChoices } from "../../agent/backtest";
 import { advance, armGuard, createSim, hashOf, isStable, liftDefensive, movePrice, pokeGuard, randomDay, rebalance, vaultState, type Sim } from "./sim";
 import { Card, HoldingsTable, totalUsd, usd, valueUsd } from "./ui";
 import { ReportCard, holdingsFacts, valueFacts } from "./Report";
@@ -121,6 +122,8 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
 
   const attacks = useMemo(() => buildAttacks(sim), [sim]);
   const stableIndex = Math.max(0, sim.assets.findIndex((a) => isStable(a.symbol)));
+  // A defensive target the vault would accept: above the stablecoin's own target (none when it is already 100%).
+  const guardTarget = safeTargetChoices(sim.normalTargets[stableIndex] / 100).fallback;
   const peakFall = sim.peakUsd > 0n && total < sim.peakUsd ? Number(((sim.peakUsd - total) * 10_000n) / sim.peakUsd) / 100 : 0;
 
   // ---- Guided tour: drives this simulator through the whole story, one captioned step at a time. ----
@@ -175,9 +178,9 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
     {
       target: "guard",
       title: "Then the market crashes",
-      text: "You armed the crash guard: past a 20% fall from the peak, the vault switches to 70% cash. Every stock falls 35%; the guard trips, and the contract now lets the pilot only de-risk. Only you can lift it.",
+      text: `You armed the crash guard: past a 20% fall from the peak, the vault switches to ${guardTarget ?? 100}% cash. Every stock falls 35%; the guard trips, and the contract now lets the pilot only de-risk. Only you can lift it.`,
       run: () => {
-        let s = pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: 7_000, drawdownBps: 2_000 })).sim;
+        let s = pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: (guardTarget ?? 100) * 100, drawdownBps: 2_000 })).sim;
         for (const a of s.assets) if (!isStable(a.symbol)) s = movePrice(s, a.symbol, 0.65);
         push("market", "Market crash: every stock −35%");
         for (let i = 0; i < 3; i++) s = pilotTick(s, true);
@@ -316,17 +319,21 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
           title="Crash guard"
           aside={sim.defensive ? <span className="pill bad">Defensive</span> : sim.guard ? <span className="pill ok">Armed</span> : <span className="pill warn">Off</span>}
         >
-          {!sim.guard ? (
+          {!sim.guard && guardTarget === null ? (
+            <p className="small muted" style={{ margin: 0 }}>
+              This mandate already holds only the stablecoin, so there is nothing for a crash guard to de-risk.
+            </p>
+          ) : !sim.guard ? (
             <>
               <p className="small" style={{ marginTop: 0 }}>
-                A stop-loss for the whole portfolio, enforced by the vault: past a 20% fall from the peak, {sim.assets[stableIndex].symbol} goes to 70% and the
+                A stop-loss for the whole portfolio, enforced by the vault: past a 20% fall from the peak, {sim.assets[stableIndex].symbol} goes to {guardTarget}% and the
                 pilot can only de-risk until you lift it.
               </p>
               <button
                 className="btn"
                 onClick={() => {
-                  setSim(pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: 7_000, drawdownBps: 2_000 })).sim);
-                  push("owner", "Crash guard armed: past a 20% fall from the peak, the stablecoin goes to 70%.");
+                  setSim(pokeGuard(armGuard(sim, { safeIndex: stableIndex, safeTargetBps: (guardTarget ?? 100) * 100, drawdownBps: 2_000 })).sim);
+                  push("owner", `Crash guard armed: past a 20% fall from the peak, the stablecoin goes to ${guardTarget}%.`);
                 }}
               >
                 Arm the crash guard
@@ -336,7 +343,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
             <>
               <p className="small" style={{ marginTop: 0 }}>
                 {sim.defensive
-                  ? `Tripped: defensive targets in force (${sim.assets[stableIndex].symbol} at 70%). The pilot can only move toward them.`
+                  ? `Tripped: defensive targets in force (${sim.assets[stableIndex].symbol} at ${sim.guard.safeTargetBps / 100}%). The pilot can only move toward them.`
                   : `Armed. Peak ${usd(sim.peakUsd, false)}; now ${peakFall.toFixed(1)}% below it; trips past 20%.`}
               </p>
               <div className="row">

@@ -49,6 +49,7 @@ async function main() {
   const digestSent = new Map<string, number>();
   const digestFrom = new Map<string, bigint>();
   const reminded = new Map<string, number>();
+  const heirCache = new Map<string, { heir: Address; period: number; claimableAt: number; readAt: number }>();
 
   const cfg: FleetConfig = {
     client: client as never,
@@ -111,17 +112,29 @@ async function main() {
         count(state, "digest");
         console.log(`  digest sent for ${sub.vault}: ${report.headline}`);
       }
-      // Inheritance: remind subscribed owners to check in before their heir can claim.
+      // Inheritance: remind subscribed owners to check in before their heir can claim. Each vault is read at most
+      // hourly, and one failing vault or delivery never stops the others' reminders.
       for (const sub of subs.values()) {
         const v = sub.vault as Address;
-        const read = (functionName: "heir" | "inactivityPeriod" | "inheritanceClaimableAt") => client.readContract({ address: v, abi: vaultAbi, functionName });
-        const [heir, period, claimableAt] = (await Promise.all([read("heir"), read("inactivityPeriod"), read("inheritanceClaimableAt")])) as [Address, number, bigint];
-        const r = checkInReminder(v, { heir, period: Number(period), claimableAt: Number(claimableAt) }, now, reminded.get(v.toLowerCase()));
-        if (!r) continue;
-        await deliverReminder(sub, r, email);
-        reminded.set(v.toLowerCase(), now);
-        count(state, "check_in_reminder");
-        console.log(`  check-in reminder for ${v}: ${r.subject}`);
+        const key = v.toLowerCase();
+        try {
+          let status = heirCache.get(key);
+          if (!status || now - status.readAt >= 3_600) {
+            const read = (functionName: "heir" | "inactivityPeriod" | "inheritanceClaimableAt") => client.readContract({ address: v, abi: vaultAbi, functionName });
+            const [heir, period, claimableAt] = (await Promise.all([read("heir"), read("inactivityPeriod"), read("inheritanceClaimableAt")])) as [Address, number, bigint];
+            status = { heir, period: Number(period), claimableAt: Number(claimableAt), readAt: now };
+            heirCache.set(key, status);
+          }
+          const r = checkInReminder(v, status, now, reminded.get(key));
+          if (!r) continue;
+          await deliverReminder(sub, r, email);
+          reminded.set(key, now);
+          heirCache.delete(key); // re-read next time: the owner may well check in now
+          count(state, "check_in_reminder");
+          console.log(`  check-in reminder for ${v}: ${r.subject}`);
+        } catch (e) {
+          console.error(`  check-in reminder for ${v} failed: ${(e as Error).message.split("\n")[0]}`);
+        }
       }
     },
   });

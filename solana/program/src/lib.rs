@@ -285,6 +285,8 @@ fn save<T: BorshSerialize>(info: &AccountInfo, value: &T) -> ProgramResult {
         return Err(ProgramError::AccountDataTooSmall);
     }
     data[..bytes.len()].copy_from_slice(&bytes);
+    // Zero what a longer earlier state left behind, so no stale bytes ever sit past the end of the account's state.
+    data[bytes.len()..].fill(0);
     Ok(())
 }
 
@@ -488,6 +490,9 @@ fn set_mandate(program_id: &Pubkey, accounts: &[AccountInfo], assets: Vec<AssetC
     // The guard needs its safe asset listed, below its defensive target.
     if vault.drawdown_bps != 0 && safe_index(&vault).map(|i| vault.assets[i].target_bps >= vault.safe_target_bps).unwrap_or(true) {
         disarm(&mut vault);
+    } else if !vault.defensive {
+        // Dropped assets are unpriced, which lowers the measured value without any crash: re-arm.
+        vault.peak_usd = 0;
     }
     save(vault_info, &vault)
 }

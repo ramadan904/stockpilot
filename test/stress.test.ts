@@ -58,3 +58,13 @@ describe("agent/stress", () => {
     }
   });
 });
+
+describe("safe target choices", () => {
+  it("offers only targets the vault accepts, defaulting to 70% when it can", async () => {
+    const { safeTargetChoices } = await import("../agent/backtest");
+    expect(safeTargetChoices(30)).to.deep.equal({ options: [50, 60, 70, 80, 90, 100], fallback: 70 });
+    expect(safeTargetChoices(75)).to.deep.equal({ options: [80, 90, 100], fallback: 80 });
+    expect(safeTargetChoices(95)).to.deep.equal({ options: [100], fallback: 100 });
+    expect(safeTargetChoices(100)).to.deep.equal({ options: [], fallback: null });
+  });
+});

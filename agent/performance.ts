@@ -1,7 +1,8 @@
 // How has a live vault done, and what did the pilot add? Read from the chain at sampled blocks: the vault's actual
-// value, and the value of "your deposits, never traded", i.e. the same deposits and withdrawals in the same token units
-// with no trades and no fee, at the same oracle prices. The gap between the two is what the pilot (and its fee) added
-// or cost, and money moving in or out cannot distort it.
+// value, and the value of "your deposits, never traded": every deposit added token for token, never traded and with no
+// fee, and every withdrawal taking the same share of that untraded portfolio as it took of the real vault. The gap
+// between the two is what the pilot (and its fee) added or cost, and money moving in or out cannot distort it, even a
+// withdrawal of a stock the pilot bought.
 
 import { parseAbiItem, type Abi, type Address, type PublicClient } from "viem";
 
@@ -10,7 +11,7 @@ export interface PerformancePoint {
   time: number;
   /** The vault's value at the block's oracle prices (18 decimals). */
   valueUsd: bigint;
-  /** Deposits minus withdrawals up to the block, in token units, never traded, at the same prices. */
+  /** The deposits never traded (withdrawals taking the same share of it as of the vault), at the same prices. */
   untradedUsd: bigint;
   /** Deposits minus withdrawals up to the block, each valued when it happened. */
   netDepositedUsd: bigint;
@@ -61,23 +62,35 @@ export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Add
   // Each flow valued when it happened.
   const flowValues = await Promise.all(flows.map(async (f) => worth(f.token, f.signed < 0n ? -f.signed : f.signed, (await at(f.block))?.byToken.get(f.token))));
 
+  // The untraded portfolio after each flow: a deposit adds its units; a withdrawal of a share of the vault's value
+  // removes the same share of every untraded holding.
+  const snapshots: { block: bigint; units: Map<string, bigint>; net: bigint }[] = [];
+  let units = new Map<string, bigint>();
+  let net = 0n;
+  for (const [k, f] of flows.entries()) {
+    if (f.signed > 0n) {
+      units.set(f.token, (units.get(f.token) ?? 0n) + f.signed);
+      net += flowValues[k];
+    } else {
+      const after = (await at(f.block))?.total ?? 0n; // the vault's value just after the withdrawal
+      const out = flowValues[k];
+      units = new Map([...units].map(([t, u]) => [t, after + out === 0n ? 0n : (u * after) / (after + out)]));
+      net -= out;
+    }
+    snapshots.push({ block: f.block, units: new Map(units), net });
+  }
+
   const blocks = sampleBlocks(flows[0].block, head, samples);
   const points: PerformancePoint[] = [];
   for (let i = 0; i < blocks.length; i += 8) {
     const chunk = await Promise.all(
       blocks.slice(i, i + 8).map(async (b) => {
         const [p, blk] = await Promise.all([at(b), client.getBlock({ blockNumber: b })]);
-        if (!p) return null;
-        const units = new Map<string, bigint>();
-        let net = 0n;
-        flows.forEach((f, k) => {
-          if (f.block > b) return;
-          units.set(f.token, (units.get(f.token) ?? 0n) + f.signed);
-          net += f.signed < 0n ? -flowValues[k] : flowValues[k];
-        });
+        const snap = snapshots.filter((x) => x.block <= b).at(-1);
+        if (!p || !snap) return null;
         let untraded = 0n;
-        for (const [token, u] of units) if (u > 0n) untraded += worth(token, u, p.byToken.get(token));
-        return { block: b, time: Number(blk.timestamp), valueUsd: p.total, untradedUsd: untraded, netDepositedUsd: net };
+        for (const [token, u] of snap.units) untraded += worth(token, u, p.byToken.get(token));
+        return { block: b, time: Number(blk.timestamp), valueUsd: p.total, untradedUsd: untraded, netDepositedUsd: snap.net };
       }),
     );
     for (const c of chunk) if (c) points.push(c);

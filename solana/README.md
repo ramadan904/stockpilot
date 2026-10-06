@@ -46,6 +46,10 @@ must be fully verified, it must carry the asset's configured Pyth feed id (so a 
 price), the price must be positive with a confidence interval within 1%, and its publish time must be within the
 mandate's `max_price_age`. Demo feed accounts owned by this program are accepted for local testing.
 
+**Account layout.** The vault account holds one borsh-serialized `Vault`; inheritance and the crash guard are
+appended after the trading state (layout v2, `VAULT_SPACE` sized for it). No v1 vault was ever deployed, so there is
+nothing to migrate; a deployed program would add a version tag and a `realloc` path before changing the layout again.
+
 The vault authority is the PDA `["authority", vault]`: it owns the vault's token accounts and only this program can
 sign for it, so no key, not even the pilot's, can move the vault's tokens outside `Rebalance` and `Withdraw`.
 

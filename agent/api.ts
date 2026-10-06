@@ -7,7 +7,7 @@
 // pause, paid by the operator's SIGNATURE_RELAY_KEY, so the owner needs no gas).
 // The API key stays on the server; the browser turns the proposal into a mandate for whichever chain it is on.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createPublicClient, createWalletClient, getAddress, http, isAddress, isHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -98,6 +98,7 @@ const MAX_QUESTION_CHARS = 500;
 
 /** The pilot's logbook for a vault, if this server keeps one (the fleet host or local development). */
 function readLog(vault: string): { rationale: string }[] {
+  if (!isAddress(vault)) return []; // never a path
   let names: string[] = [vault];
   try {
     names = [...new Set([vault, getAddress(vault), vault.toLowerCase()])];
@@ -147,9 +148,29 @@ const RELAY_ABI = [
 ] as const;
 
 export interface Relayer {
+  /** True only for a vault created by one of this deployment's factories, so gas is never spent on anything else. */
+  isVault(vault: Address): Promise<boolean>;
   /** Dry-runs the call (reverts on a bad signature, so nothing is paid for it), then sends it. */
   send(vault: Address, functionName: "checkInWithSig" | "pauseWithSig", deadline: bigint, signature: Hex): Promise<Hex>;
 }
+
+/** The factories whose vaults the relay serves, from the deployment files (DEPLOYMENTS_DIR, default deployments/). */
+function factoriesFor(chainId: number): Address[] {
+  const dir = process.env.DEPLOYMENTS_DIR ?? "deployments";
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as { chainId?: number; factory?: string })
+    .filter((d) => d.chainId === chainId && typeof d.factory === "string" && isAddress(d.factory))
+    .map((d) => d.factory as Address);
+}
+
+/** EIP-1167 minimal proxy runtime code pointing at `implementation`: exactly what the factory deploys. */
+export function cloneCode(implementation: Address): Hex {
+  return `0x363d3d373d3d3d363d73${implementation.slice(2).toLowerCase()}5af43d82803e903d91602b57fd5bf3`;
+}
+
+const FACTORY_ABI = [{ type: "function", name: "implementation", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 
 function chainRelayer(chainId: number): Relayer | null {
   const key = process.env.SIGNATURE_RELAY_KEY as Hex | undefined;
@@ -160,6 +181,15 @@ function chainRelayer(chainId: number): Relayer | null {
   const pub = createPublicClient({ chain, transport: http(url) });
   const wallet = createWalletClient({ account, chain, transport: http(url) });
   return {
+    async isVault(vault) {
+      const code = (await pub.getCode({ address: vault }))?.toLowerCase();
+      if (!code) return false;
+      for (const factory of factoriesFor(chainId)) {
+        const impl = (await pub.readContract({ address: factory, abi: FACTORY_ABI, functionName: "implementation" })) as Address;
+        if (code === cloneCode(impl)) return true;
+      }
+      return false;
+    },
     async send(vault, functionName, deadline, signature) {
       const { request } = await pub.simulateContract({ account, address: vault, abi: RELAY_ABI, functionName, args: [deadline, signature] });
       return wallet.writeContract(request);
@@ -168,13 +198,22 @@ function chainRelayer(chainId: number): Relayer | null {
 }
 
 /** Submits an owner's signed check-in or pause. Only these two harmless actions can be relayed. */
-export async function handleRelay(body: unknown, relayerFor: (chainId: number) => Relayer | null = chainRelayer): Promise<{ status: number; json: unknown }> {
+const RELAYS_PER_HOUR = 3;
+const relayLog = new Map<string, number[]>();
+
+export async function handleRelay(body: unknown, relayerFor: (chainId: number) => Relayer | null = chainRelayer, now = Date.now()): Promise<{ status: number; json: unknown }> {
   const { chainId, vault, action, deadline, signature } = (body ?? {}) as Record<string, unknown>;
   if (typeof vault !== "string" || !isAddress(vault)) return { status: 400, json: { error: "Bad vault address." } };
   if (action !== "checkIn" && action !== "pause") return { status: 400, json: { error: "Only check-in and pause can be relayed." } };
   if (typeof signature !== "string" || !isHex(signature) || typeof deadline !== "string" || !/^\d+$/.test(deadline)) return { status: 400, json: { error: "Malformed signature." } };
   const relayer = relayerFor(Number(chainId));
   if (!relayer) return { status: 501, json: { error: "No relayer is configured here. Submit the signed message from any wallet." } };
+  if (!(await relayer.isVault(vault).catch(() => false))) return { status: 400, json: { error: "Not a StockPilot vault on this chain." } };
+  // A safety action is needed now and then, not in a loop: a few per vault per hour, so nobody can drain the relay.
+  const key = `${chainId}:${vault.toLowerCase()}`;
+  const recent = (relayLog.get(key) ?? []).filter((t) => now - t < 3_600_000);
+  if (recent.length >= RELAYS_PER_HOUR) return { status: 429, json: { error: "Too many relayed actions for this vault; try again later or submit it from any wallet." } };
+  relayLog.set(key, [...recent, now]);
   try {
     const tx = await relayer.send(vault, action === "checkIn" ? "checkInWithSig" : "pauseWithSig", BigInt(deadline), signature);
     return { status: 200, json: { tx } };

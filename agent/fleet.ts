@@ -52,7 +52,14 @@ export async function fleetTick(cfg: FleetConfig): Promise<FleetEvent[]> {
   const vaults = await discoverVaults(cfg, me);
   const events: FleetEvent[] = [];
   for (const vault of vaults) {
-    const depositEvent = await pullDueDeposit(cfg, vault).catch((e): FleetEvent => ({ kind: "error", vault, error: `recurring investment: ${firstLine(e)}` }));
+    // Decide whether this fleet serves the vault before spending any gas on it.
+    const refused = await refuses(cfg, vault, me).catch((e): FleetEvent => ({ kind: "error", vault, error: firstLine(e) }));
+    if (refused) {
+      events.push(refused);
+      await cfg.notify?.(refused);
+      continue;
+    }
+    const depositEvent = await pullDueDeposit(cfg, vault).catch((e): FleetEvent | null => onceADay(cfg, vault, `recurring investment: ${firstLine(e)}`));
     if (depositEvent) {
       events.push(depositEvent);
       await cfg.notify?.(depositEvent);
@@ -116,18 +123,32 @@ async function watchGuard(cfg: FleetConfig, vault: Address): Promise<FleetEvent 
   return action === "trigger" && (await read<boolean>("defensive")) ? { kind: "defensive", vault, tx, peakUsd, valueUsd: totalUsd } : null;
 }
 
-async function flyOne(cfg: FleetConfig, vault: Address, me: Address): Promise<FleetEvent> {
+/** A skip event when this fleet does not serve the vault (it does not pay the fee the fleet requires), else null. */
+async function refuses(cfg: FleetConfig, vault: Address, me: Address): Promise<FleetEvent | null> {
   const { client, vaultAbi } = cfg;
   const minFee = cfg.minFeeBps ?? 0;
-  if (minFee > 0) {
-    const [bps, recipient] = await Promise.all([
-      client.readContract({ address: vault, abi: vaultAbi, functionName: "feeBps" }) as Promise<number>,
-      client.readContract({ address: vault, abi: vaultAbi, functionName: "feeRecipient" }) as Promise<Address>,
-    ]);
-    if (Number(bps) < minFee || !eq(recipient, me)) {
-      return { kind: "skip", vault, reason: `pays ${Number(bps) / 100}% to ${recipient}; this service needs ${minFee / 100}% to ${me}` };
-    }
-  }
+  if (minFee === 0) return null;
+  const [bps, recipient] = await Promise.all([
+    client.readContract({ address: vault, abi: vaultAbi, functionName: "feeBps" }) as Promise<number>,
+    client.readContract({ address: vault, abi: vaultAbi, functionName: "feeRecipient" }) as Promise<Address>,
+  ]);
+  if (Number(bps) >= minFee && eq(recipient, me)) return null;
+  return { kind: "skip", vault, reason: `pays ${Number(bps) / 100}% to ${recipient}; this service needs ${minFee / 100}% to ${me}` };
+}
+
+/** A repeating failure (say, an approval that ran out) is reported once a day per vault, not on every tick. */
+const reported = new WeakMap<FleetConfig, Map<string, number>>();
+function onceADay(cfg: FleetConfig, vault: Address, error: string, now = Date.now()): FleetEvent | null {
+  if (!reported.has(cfg)) reported.set(cfg, new Map());
+  const seen = reported.get(cfg)!;
+  const key = `${vault.toLowerCase()} ${error}`;
+  if (now - (seen.get(key) ?? -Infinity) < 86_400_000) return null;
+  seen.set(key, now);
+  return { kind: "error", vault, error };
+}
+
+async function flyOne(cfg: FleetConfig, vault: Address, _me: Address): Promise<FleetEvent> {
+  const { client, vaultAbi } = cfg;
   const state = await readVault(client, vaultAbi, vault);
   const p = plan(state, cfg.planner ?? DEFAULT_PLANNER);
   if (p.action === "hold") return { kind: "hold", vault, reason: p.reason };

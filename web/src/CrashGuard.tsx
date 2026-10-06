@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import type { Address, Chain, Hash, PublicClient, WalletClient } from "viem";
 import type { VaultState } from "../../agent/model";
+import { safeTargetChoices } from "../../agent/backtest";
 import { pilotVaultAbi } from "./abi";
 import { Card, totalUsd, usd } from "./ui";
 
@@ -35,7 +36,7 @@ export function CrashGuardCard(props: {
   const stable = state.assets.find((a) => /USD/.test(a.symbol)) ?? state.assets[0];
   const [safe, setSafe] = useState<Address>(stable.token);
   const [drawdown, setDrawdown] = useState(20);
-  const [safeTarget, setSafeTarget] = useState(Math.min(90, Math.max(stable.targetBps / 100 + 10, 70)));
+  const [safeTarget, setSafeTarget] = useState<number | null>(safeTargetChoices(stable.targetBps / 100).fallback);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -69,6 +70,9 @@ export function CrashGuardCard(props: {
   const fall = guard.peakUsd > 0n && total < guard.peakUsd ? Number(((guard.peakUsd - total) * 10_000n) / guard.peakUsd) / 100 : 0;
   const trigger = guard.drawdownBps / 100;
   const safeAsset = state.assets.find((a) => a.token === safe) ?? stable;
+  const choices = safeTargetChoices(safeAsset.targetBps / 100);
+  // What the form submits is always one of the options it shows, and one the vault accepts.
+  const target = safeTarget !== null && choices.options.includes(safeTarget) ? safeTarget : choices.fallback;
 
   return (
     <Card
@@ -156,8 +160,8 @@ export function CrashGuardCard(props: {
           </label>
           <label className="field">
             At this weight (now {safeAsset.targetBps / 100}%)
-            <select value={safeTarget} onChange={(e) => setSafeTarget(Number(e.target.value))}>
-              {[50, 60, 70, 80, 90, 100].filter((t) => t > safeAsset.targetBps / 100).map((t) => (
+            <select value={target ?? ""} disabled={target === null} onChange={(e) => setSafeTarget(Number(e.target.value))}>
+              {choices.options.map((t) => (
                 <option key={t} value={t}>
                   {t}%
                 </option>
@@ -165,7 +169,7 @@ export function CrashGuardCard(props: {
             </select>
           </label>
           <div className="row">
-            <button className="btn primary" onClick={write("Arm crash guard", "setCrashGuard", [safe, safeTarget * 100, drawdown * 100])}>
+            <button className="btn primary" disabled={target === null} onClick={write("Arm crash guard", "setCrashGuard", [safe, (target ?? 0) * 100, drawdown * 100])}>
               Save
             </button>
             <button className="btn" onClick={() => setEditing(false)}>

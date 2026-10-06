@@ -382,7 +382,8 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     }
 
     /// @dev Every change of owner (creation, a two-step transfer, an inheritance) restarts the clock and clears the
-    /// heir: the previous owner's choice of heir is not the new owner's.
+    /// heir and the recurring investment: the previous owner's choices are not the new owner's, and pulls must never
+    /// come from a wallet whose owner did not set them up.
     function _transferOwnership(address newOwner) internal override {
         super._transferOwnership(newOwner);
         lastOwnerActivity = uint64(block.timestamp);
@@ -391,6 +392,15 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
             inactivityPeriod = 0;
             emit HeirSet(address(0), 0);
         }
+        if (recurringAmount != 0) _stopRecurring();
+    }
+
+    function _stopRecurring() internal {
+        delete recurringToken;
+        delete recurringAmount;
+        delete recurringInterval;
+        delete recurringNextAt;
+        emit RecurringDepositSet(address(0), 0, 0);
     }
 
     // ------------------------------------------------------------------------------------------------------------
@@ -478,11 +488,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     /// The first pull is due now. `amount == 0` turns it off.
     function setRecurringDeposit(address token, uint128 amount, uint32 interval) external ownerAction {
         if (amount == 0) {
-            delete recurringToken;
-            delete recurringAmount;
-            delete recurringInterval;
-            delete recurringNextAt;
-            emit RecurringDepositSet(address(0), 0, 0);
+            _stopRecurring();
             return;
         }
         if (!assets[token].listed) revert AssetNotInMandate(token);
@@ -656,16 +662,12 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
         budgetUpdatedAt = uint64(block.timestamp);
         limits = lim;
         emit MandateSet(++mandateVersion, cfg, lim);
-        // The guard needs its safe asset listed, below its defensive target.
+        // The guard needs its safe asset listed, below its defensive target. And dropping an asset leaves it unpriced,
+        // which lowers the measured value without any crash: re-arm from the next recorded value.
         if (drawdownBps != 0 && (!assets[safeAsset].listed || assets[safeAsset].targetBps >= safeTargetBps)) _disarm();
+        else if (!defensive) peakValueUsd = 0;
         // A recurring investment into an asset no longer in the mandate stops.
-        if (recurringAmount != 0 && !assets[recurringToken].listed) {
-            delete recurringToken;
-            delete recurringAmount;
-            delete recurringInterval;
-            delete recurringNextAt;
-            emit RecurringDepositSet(address(0), 0, 0);
-        }
+        if (recurringAmount != 0 && !assets[recurringToken].listed) _stopRecurring();
     }
 
     function _disarm() internal {

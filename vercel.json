@@ -1,5 +1,10 @@
 {
   "buildCommand": "npm run web:build",
   "outputDirectory": "web/dist",
-  "installCommand": "npm ci"
+  "installCommand": "npm ci",
+  "functions": {
+    "api/relay.ts": {
+      "includeFiles": "deployments/**"
+    }
+  }
 }
