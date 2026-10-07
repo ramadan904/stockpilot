@@ -44,3 +44,14 @@ After it runs:
 
 The script is safe to re-run: finished steps are skipped. It was rehearsed end to end against a local chain
 (`NETWORKS=localhost`), and CI's browser tests seed and open a demo vault the same way.
+
+## Publishing the app again
+
+After code changes, with the contracts already deployed:
+
+```bash
+bash scripts/publish.sh
+```
+
+It asks for a Vercel token, hidden (an empty line is asked again, so a pasted command's own Enter does no harm), and
+deploys to production. Delete the token afterwards.
