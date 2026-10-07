@@ -64,6 +64,8 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `calls-loop` | Loops over listed tokens call `balanceOf`, feeds and transfers | Bounded at 8 assets chosen by the owner; fee collection tolerates a failing token. |
 | `timestamp` | Cooldown, budget, fee, staleness, the inheritance deadline and the glide path (and so every target the vault judges trades by) use `block.timestamp` | Intended; validator timestamp drift is seconds against windows of minutes to days (30 days at least for inheritance). A glide path moves targets over days to years, so a few seconds of drift moves a target by a negligible fraction of a basis point. |
 | `missing-zero-check` | `setPilot(0)`, `setAdapter(0)`, and the same two in `initialize` | Zero is the documented way to revoke the pilot or stop trading, from creation onwards. |
+| `calls-loop` (credential) | `MandateCredential.mandateHash` reads each asset of the vault in a loop | View-only reads from a genuine StockPilot vault (its clone code hash is checked), bounded at 8 assets. |
+| `timestamp` (credential) | `MandateCredential.issue` compares `block.timestamp` with the enrollment time plus `minAge` | That is the point: how long a mandate stood. Drift of seconds against a minimum of a day or more is immaterial. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |
 

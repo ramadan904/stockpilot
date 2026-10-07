@@ -459,6 +459,40 @@ test("crash guard: arm it, the market falls 40%, and the vault turns defensive s
   expect(errors).toEqual([]);
 });
 
+/** Move the local chain's clock forward, as days passing would. */
+async function travel(seconds: number) {
+  for (const [method, params] of [["evm_increaseTime", [seconds]], ["evm_mine", []]] as const) {
+    await fetch("http://127.0.0.1:8545", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  }
+}
+
+test("Verified Mandate: start the clock, wait a day, mint a soulbound credential the page can show and anyone can check", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) });
+  await card.getByRole("button", { name: "Start the clock" }).click();
+  await expect(card).toContainText(/The clock is running on mandate version 1 since/, { timeout: 30_000 });
+  await expect(card.getByRole("button", { name: "Mint the Verified Mandate" })).toBeDisabled();
+
+  // A day passes; any owner action re-reads the vault at the new time.
+  await travel(86_400 + 60);
+  await page.getByRole("button", { name: "Pause pilot" }).click();
+  await expect(card.getByRole("button", { name: "Mint the Verified Mandate" })).toBeEnabled({ timeout: 30_000 });
+  await card.getByRole("button", { name: "Mint the Verified Mandate" }).click();
+  await expect(card.getByRole("img")).toHaveAttribute("alt", /^Verified Mandate #\d+: .*Days under the mandate 1.*Status Current/, { timeout: 30_000 });
+  await expect(card.locator(".pill")).toHaveText("Still in force");
+  await expect(card).toContainText(/isCurrent\(\d+\)/);
+  expect(errors).toEqual([]);
+});
+
 test("glide path: set the vault to de-risk on a schedule, see where it stands, and stop it", async ({ page }) => {
   const errors = await pageErrors(page);
   await page.goto("/");
@@ -630,6 +664,8 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Pilot's next move")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  // The Verified Mandate card is there for visitors too, read-only.
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) })).toContainText(/soulbound/);
   // Attack Theater: nine attacks on the live contract from the pilot's own address, judged by the contract itself.
   await page.getByRole("button", { name: "Simulate a compromised pilot" }).click();
   await expect(page.getByTestId("theater-summary")).toContainText(/^9 of 9 blocked by the vault contract at block \d+/, { timeout: 30_000 });

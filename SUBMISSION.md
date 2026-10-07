@@ -103,6 +103,9 @@ Everything; the repository started empty.
   (for a vault) its mood, saved as PNG for social posts or SVG.
   **Copy-trading by mandate:** any live vault's targets, bands and limits (as shares of the vault, so they fit any
   size) become a visitor's draft in one click. The rules are copied; the funds, owner and pilot never are.
+  **Verified Mandate:** a soulbound credential (ERC-721, ERC-5192 locked) a vault's owner can mint once the vault has flown one
+  mandate, unchanged, for a day; fully onchain metadata and image, only for genuine StockPilot vaults, and `isCurrent`
+  tells any protocol or agent whether the vault still flies those exact rules.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
