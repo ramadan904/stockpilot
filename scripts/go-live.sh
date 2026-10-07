@@ -13,18 +13,31 @@ cd "$(dirname "$0")/.."
 
 NETWORKS=${NETWORKS:-"robinhoodTestnet arbitrumSepolia"}
 # Secrets not in the environment are asked for here, hidden, so they never land on screen or in shell history.
-if [ -z "${PRIVATE_KEY:-}" ]; then
-  read -rs -p "Paste the deploy key (a throwaway testnet key; nothing shows), then press Enter: " PRIVATE_KEY && echo
-fi
-key=$(printf %s "$PRIVATE_KEY" | tr -d '[:space:]')
-key=${key#0x}
-if ! [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
-  echo "That is not a private key (${#key} characters; a key is 64 letters and digits). Copy it again from your wallet and re-run." >&2
-  exit 1
+clean_key() { local k; k=$(printf %s "$1" | tr -d '[:space:]'); k=${k#0x}; [[ "$k" =~ ^[0-9a-fA-F]{64}$ ]] && printf %s "$k"; }
+if [ -n "${PRIVATE_KEY:-}" ]; then
+  key=$(clean_key "$PRIVATE_KEY") || { echo "PRIVATE_KEY is not a private key (a key is 64 letters and digits)." >&2; exit 1; }
+else
+  # Asked again on an empty line (a pasted command often carries its own Enter) or anything that is not a key.
+  for _ in 1 2 3 4 5; do
+    read -rs -p "Paste the deploy key (a throwaway testnet key; nothing shows), then press Enter: " input && echo
+    [ -z "${input//[[:space:]]/}" ] && continue
+    key=$(clean_key "$input") && break
+    echo "That is not a private key (a key is 64 letters and digits). Copy it again from your wallet." >&2
+  done
+  [ -n "${key:-}" ] || { echo "No deploy key given." >&2; exit 1; }
+  unset input
 fi
 export PRIVATE_KEY="0x$key"
 if [ -z "${VERCEL_TOKEN:-}" ] && [ -t 0 ]; then
-  read -rs -p "Paste your Vercel token to publish the app (nothing shows), or just press Enter to skip: " VERCEL_TOKEN && echo
+  while :; do
+    read -rs -p "Paste your Vercel token to publish the app (nothing shows), or type skip: " VERCEL_TOKEN || { VERCEL_TOKEN=""; break; }
+    echo
+    VERCEL_TOKEN=$(printf %s "$VERCEL_TOKEN" | tr -d '[:space:]')
+    [ -z "$VERCEL_TOKEN" ] && continue
+    [ "$VERCEL_TOKEN" = skip ] && { VERCEL_TOKEN=""; break; }
+    clean_key "$VERCEL_TOKEN" >/dev/null && { echo "That is the deploy key, not a Vercel token. Copy the token from vercel.com/account/settings/tokens." >&2; continue; }
+    break
+  done
   export VERCEL_TOKEN
 fi
 field() { node -e "const d=require('./deployments/$1.json'); process.stdout.write(String(d['$2'] ?? ''))"; }
