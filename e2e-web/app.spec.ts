@@ -546,6 +546,18 @@ async function movePrice(symbol: string, factor: number) {
   }
 }
 
+test("judges can open the demo vault from the Live tab, read-only, without a wallet", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("link", { name: "Open the demo vault" }).click();
+  await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Pilot's next move")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("a shared link opens a vault read-only, without a wallet", async ({ page, context }) => {
   const errors = await pageErrors(page);
   // Create a vault as the owner, then copy its share link.

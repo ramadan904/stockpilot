@@ -310,6 +310,15 @@ Full table for every action: [docs/GAS.md](docs/GAS.md) (`npm run gas`).
 
 ## Deploying to a testnet
 
+Everything at once, both testnets and the web app on Vercel, with a funded demo vault judges can open read-only
+([docs/DEPLOY.md](docs/DEPLOY.md)):
+
+```bash
+PRIVATE_KEY=<throwaway testnet key> VERCEL_TOKEN=<token> ./scripts/go-live.sh
+```
+
+Or step by step:
+
 ```bash
 PRIVATE_KEY=<deployer> npm run deploy:robinhood-testnet      # or deploy:arbitrum-sepolia
 PRIVATE_KEY=<owner> PILOT=<pilot address> GOAL="..." USD=10000 \

@@ -185,6 +185,12 @@ export function Live({ draft }: { draft: Draft | null }) {
                   Use local dev account
                 </button>
               )}
+              {deployment?.demoVault && (
+                // No wallet needed: the same read-only view a shared link opens.
+                <a className="btn" style={{ alignSelf: "end" }} href={`?chain=${chain.id}&vault=${deployment.demoVault}`}>
+                  Open the demo vault
+                </a>
+              )}
             </>
           )}
           {wallet?.kind === "dev" && (

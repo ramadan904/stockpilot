@@ -2,9 +2,11 @@
 // tokens, bought at the mandate's target weights.
 //
 //   PRIVATE_KEY=<owner key> PILOT=0x... GOAL="..." USD=10000 npx hardhat run scripts/create-vault.ts --network robinhoodTestnet
+//
+// With DEMO=1 the vault is recorded as the deployment's demo vault, which the web app offers as a read-only view.
 
 import hre from "hardhat";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { parseUnits, zeroAddress, type Address } from "viem";
 import { fmtUsd } from "../agent/planner";
 import { propose } from "../agent/strategist";
@@ -40,6 +42,11 @@ async function main() {
   }
   const [, total] = await vault.read.portfolio();
   console.log(`Vault ${vault.address} funded with ${fmtUsd(total)}; pilot ${pilot}`);
+  if (process.env.DEMO) {
+    const file = `deployments/${hre.network.name}.json`;
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), demoVault: vault.address }, null, 2));
+    console.log(`Recorded as the demo vault in ${file}`);
+  }
 }
 
 main().catch((e) => {
