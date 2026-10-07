@@ -3,6 +3,7 @@ import { diffProposals, presetFor, refineOffline, toMandate, type Mandate, type 
 import { decodeStrategy } from "../../agent/share";
 import { LISTINGS } from "../../agent/listings";
 import { Backtest } from "./Backtest";
+import { Aura, AuraKey } from "./Glow";
 import { Live } from "./Live";
 import { Simulator } from "./Simulator";
 import { simUniverse } from "./sim";
@@ -87,6 +88,7 @@ export function App() {
   }
 
   const mandate = useMemo(() => draft?.mandate, [draft]);
+  const weights = useMemo(() => (draft?.proposal.allocations ?? []).map((a) => ({ symbol: a.symbol, percent: a.weight_percent })), [draft]);
 
   return (
     <>
@@ -116,6 +118,7 @@ export function App() {
 
       <div className="wrap">
         <div className="hero">
+          <Aura weights={weights} />
           <h1>An AI autopilot for your tokenized stocks that can only trade inside the rules you sign.</h1>
           <p>
             Describe what you want in plain words. Claude drafts a mandate: target weights, how far they may drift, how much can trade. You sign it into
@@ -136,6 +139,7 @@ export function App() {
           >
             Take the 60-second tour
           </button>
+          <AuraKey weights={weights} />
         </div>
 
         <main>

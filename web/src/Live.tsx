@@ -26,6 +26,8 @@ import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
+import { MoodLamp } from "./Glow";
+import { vaultMood } from "../../agent/mood";
 import { ActivityFeed } from "./Activity";
 import { AlertsCard } from "./Alerts";
 import { MandateDiffCard } from "./MandateDiff";
@@ -414,6 +416,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   if (!state || !roles) return <Card title="Vault"><p className="muted">Loading…</p></Card>;
 
   const d = drift(state);
+  const mood = vaultMood(d, { paused: state.paused });
   const isOwner = wallet.kind !== "watch" && roles.owner.toLowerCase() === wallet.address.toLowerCase();
   const isPilot = wallet.kind !== "watch" && roles.pilot.toLowerCase() === wallet.address.toLowerCase();
   const p = plan(state);
@@ -424,7 +427,8 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
   return (
     <>
       <Card
-        title={<>Vault <span className="mono" title={vault} data-address={vault}>{shortAddr(vault)}</span></>}
+        className={`mood-host mood-${mood.mood}`}
+        title={<>Vault <span className="mono" title={vault} data-address={vault}>{shortAddr(vault)}</span> <MoodLamp reading={mood} /></>}
         aside={
           <span className="row" style={{ gap: 6 }}>
             <ShareButton chainId={ctx.chain.id} vault={vault} />

@@ -1143,3 +1143,272 @@ tr.muted td {
     padding-bottom: 2px;
   }
 }
+
+/* Light and colour. The aurora is the draft's allocation (series colours by asset, area by weight), the lamp is the
+   vault's worst drift against its band, and the flash is the contract's verdict. All of it stills for reduced motion. */
+.hero {
+  position: relative;
+  isolation: isolate;
+}
+.aura {
+  position: absolute;
+  inset: -24px -16px -8px;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 50% 62% at 50% 40%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 50% 62% at 50% 40%, #000 35%, transparent 100%);
+}
+.aura-light {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--size);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--c) 0%, transparent 62%);
+  opacity: 0.36;
+  filter: blur(28px);
+  animation: aura-float calc(14s + var(--i) * 3s) ease-in-out calc(var(--i) * -2.5s) infinite alternate;
+  transition: width 0.8s ease;
+}
+@media (max-width: 560px) {
+  .aura-light {
+    width: calc(var(--size) * 1.7);
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .aura-light {
+    opacity: 0.6;
+    mix-blend-mode: screen;
+  }
+}
+@keyframes aura-float {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(4%, -6%) scale(1.08);
+  }
+  100% {
+    transform: translate(-5%, 4%) scale(0.95);
+  }
+}
+.aura-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 16px 0 0;
+}
+.aura-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(6px);
+  font-variant-numeric: tabular-nums;
+}
+.aura-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c);
+}
+
+/* The vault's mood: one colour for the card's edge, its glow and its lamp. */
+.mood-calm {
+  --mood: var(--accent);
+}
+.mood-drifting,
+.mood-defensive {
+  --mood: var(--warn);
+}
+.mood-outside {
+  --mood: var(--bad);
+}
+.mood-paused {
+  --mood: var(--muted);
+}
+.mood-host {
+  position: relative;
+  border-color: color-mix(in srgb, var(--mood) 35%, var(--border));
+  box-shadow: var(--shadow), 0 12px 40px -20px var(--mood);
+  transition: border-color 0.6s ease, box-shadow 0.6s ease;
+}
+.mood-host::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--mood), transparent);
+}
+.mood-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding: 1px 9px 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--mood) 40%, transparent);
+  background: color-mix(in srgb, var(--mood) 14%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.mood-bulb {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mood);
+  box-shadow: 0 0 calc(4px + var(--glow, 0) * 10px) calc(var(--glow, 0) * 2px) var(--mood);
+  animation: bulb 2.4s ease-in-out infinite;
+}
+.mood-outside .mood-bulb,
+.mood-defensive .mood-bulb {
+  animation-duration: 1.1s;
+}
+.mood-paused .mood-bulb {
+  animation: none;
+  box-shadow: none;
+}
+@keyframes bulb {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* The contract's verdict, as light: a red shield ripple and stamp when it refuses, a green sweep when a trade lands. */
+.fx-host {
+  position: relative;
+}
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.flash-blocked {
+  overflow: hidden;
+  animation: flash-edge 1.4s ease-out forwards;
+}
+.flash-blocked::before,
+.flash-blocked::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px;
+  border-radius: 50%;
+  border: 2px solid var(--bad);
+  opacity: 0;
+  animation: ring 1.1s ease-out forwards;
+}
+.flash-blocked::after {
+  animation-delay: 0.18s;
+}
+.flash-stamp {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  padding: 6px 14px;
+  border: 2px solid var(--bad);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--bad);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--bad) 40%, transparent);
+  animation: stamp 1.4s ease-out forwards;
+}
+.flash-trade {
+  overflow: hidden;
+}
+.flash-trade::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--ok) 22%, transparent) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: sweep 0.9s ease-out forwards;
+}
+@keyframes flash-edge {
+  0% {
+    box-shadow: inset 0 0 0 2px var(--bad), 0 0 0 0 transparent;
+  }
+  30% {
+    box-shadow: inset 0 0 0 2px var(--bad), 0 0 36px 4px color-mix(in srgb, var(--bad) 45%, transparent);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 transparent, 0 0 0 0 transparent;
+  }
+}
+@keyframes ring {
+  0% {
+    width: 8px;
+    height: 8px;
+    margin: -4px;
+    opacity: 0.9;
+  }
+  100% {
+    width: 640px;
+    height: 640px;
+    margin: -320px;
+    opacity: 0;
+  }
+}
+@keyframes stamp {
+  0% {
+    transform: scale(1.6) rotate(-8deg);
+    opacity: 0;
+  }
+  15% {
+    transform: scale(1) rotate(-4deg);
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(-4deg);
+    opacity: 0;
+  }
+}
+@keyframes sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aura-light,
+  .mood-bulb,
+  .flash-blocked,
+  .flash-stamp {
+    animation: none;
+  }
+  .flash-blocked::before,
+  .flash-blocked::after,
+  .flash-trade::before {
+    display: none;
+  }
+  .flash-blocked {
+    box-shadow: inset 0 0 0 2px var(--bad);
+  }
+}

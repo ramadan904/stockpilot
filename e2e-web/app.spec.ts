@@ -77,6 +77,40 @@ test("in the simulator, a hacked pilot is blocked every time and the vault says 
   await expect(log.filter({ hasText: /^Allowed/ })).toHaveCount(0);
 });
 
+test("the page's light follows the vault: the aura is the draft, the lamp the drift, the flash the verdict", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  // One light per asset in the draft, and a key saying so.
+  const chips = page.locator(".aura-key .aura-chip");
+  await expect(chips).toHaveText(["USDG 30%", "TSLA 18%", "AAPL 18%", "NVDA 18%", "SPY 18%"]);
+  await expect(page.locator(".aura .aura-light")).toHaveCount(5);
+
+  const vault = page.locator('[data-tour="vault"]');
+  const lamp = vault.locator(".mood-lamp");
+  await expect(lamp).toHaveText("On target");
+  for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "NVDA up 15%" }).click();
+  await expect(lamp).toHaveText("Outside a band");
+  await expect(vault).toHaveClass(/mood-outside/);
+
+  // The pilot's trade sweeps the vault green; a refused attack stamps both cards red, then clears.
+  await page.getByRole("button", { name: "Run pilot", exact: true }).click();
+  await expect(vault.locator(".flash-trade")).toHaveCount(1);
+  await page.getByRole("button", { name: "Attempt" }).first().click();
+  await expect(page.locator(".flash-stamp")).toHaveText(["Blocked by the vault", "Blocked by the vault"]);
+  await expect(page.locator(".flash")).toHaveCount(0, { timeout: 3_000 });
+
+  await page.getByRole("button", { name: "Pause vault" }).click();
+  await expect(lamp).toHaveText("Paused");
+
+  // With reduced motion nothing moves, and the stamp still comes and goes.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await page.locator(".aura-light").first().evaluate((e) => getComputedStyle(e).animationName)).toBe("none");
+  await page.getByRole("button", { name: "Attempt" }).first().click();
+  await expect(page.locator(".flash-stamp").first()).toBeVisible();
+  await expect(page.locator(".flash")).toHaveCount(0, { timeout: 3_000 });
+  expect(errors).toEqual([]);
+});
+
 test("the backtest never proposes a trade the vault would reject", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Backtest" }).click();

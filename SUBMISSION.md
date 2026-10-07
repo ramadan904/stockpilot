@@ -94,6 +94,9 @@ Everything; the repository started empty.
   live pilot loop, and a JSONL logbook of the rationale behind each hash.
 - **Web app** (React, viem): a no-wallet simulator with market controls, autopilot and eight attack buttons; and a live
   mode to create, fund, pilot, pause, re-mandate and withdraw from a vault, with the onchain trade history.
+  Its light carries meaning: the aurora behind the page is the draft's own allocation (one light per asset, sized by
+  weight), each vault's lamp glows with its worst drift against its band, and every attack the contract refuses lands
+  as a red shield flash. All of it stills for readers who ask for reduced motion.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports

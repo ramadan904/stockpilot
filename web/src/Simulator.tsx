@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { vaultMood } from "../../agent/mood";
+import { FlashLayer, MoodLamp, type Flash } from "./Glow";
 import { TradeExplainer } from "./BandGauge";
 import { explainTrade } from "../../agent/explain";
 import type { Mandate } from "../../agent/mandate";
@@ -44,6 +46,8 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
   const startTime = useRef(sim.now);
   const [log, setLog] = useState<LogEntry[]>([]);
   const [auto, setAuto] = useState(false);
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const lit = (kind: Flash["kind"]) => setFlash({ kind, id: nextId.current++ });
   const start = useRef(totalUsd(sim.assets));
   const startPrices = useRef<Record<string, bigint>>(Object.fromEntries(sim.assets.map((a) => [a.symbol, a.price])));
   const nextId = useRef(0);
@@ -102,6 +106,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
       return s;
     }
     const sym = (t: string) => s.assets.find((a) => a.token === t)!.symbol;
+    lit("trade");
     push("trade", p.trade.rationale, hashOf(p.trade.rationale), {
       trade: { sold: sym(p.trade.tokenIn), bought: sym(p.trade.tokenOut), valueUsd: Number(p.trade.valueUsd / 10n ** 16n) / 100, reason: p.trade.rationale },
     });
@@ -127,6 +132,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
   const stableIndex = Math.max(0, sim.assets.findIndex((a) => isStable(a.symbol)));
   // A defensive target the vault would accept: above the stablecoin's own target (none when it is already 100%).
   const guardTarget = safeTargetChoices(sim.normalTargets[stableIndex] / 100).fallback;
+  const mood = vaultMood(d, { paused: sim.paused, defensive: sim.defensive });
   const peakFall = sim.peakUsd > 0n && total < sim.peakUsd ? Number(((sim.peakUsd - total) * 10_000n) / sim.peakUsd) / 100 : 0;
 
   // ---- Guided tour: drives this simulator through the whole story, one captioned step at a time. ----
@@ -242,7 +248,8 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
       <div className="stack">
         <Card
           tour="vault"
-          title={<><span className="step">3</span>Your vault (simulated)</>}
+          className={`fx-host mood-host mood-${mood.mood}`}
+          title={<><span className="step">3</span>Your vault (simulated) <MoodLamp reading={mood} /></>}
           aside={
             <span className="row" style={{ gap: 6 }}>
               <button className="btn small" onClick={() => reset()}>
@@ -254,6 +261,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
             </span>
           }
         >
+          <FlashLayer flash={flash} />
           <div className="stats">
             <Stat label="Portfolio value" value={usd(total)} />
             <Stat label="Since start" value={`${change >= 0 ? "+" : ""}${change.toFixed(2)}%`} tone={change >= 0 ? "up" : "down"} />
@@ -463,7 +471,8 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
           </div>
         </Card>
 
-        <Card title="Try to break it" aside={<span className="muted small">a rogue or hacked pilot</span>}>
+        <Card className="fx-host" title="Try to break it" aside={<span className="muted small">a rogue or hacked pilot</span>}>
+          <FlashLayer flash={flash?.kind === "blocked" ? flash : null} />
           {attacks.map((a) => (
             <div className="attack" key={a.name}>
               <strong className="small">{a.name}</strong>
@@ -472,6 +481,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
                 onClick={() => {
                   const r = a.run(sim);
                   push(r.ok ? "allowed" : "blocked", `${a.name}: ${r.text}`, undefined, r.ok ? {} : { blocked: { attempt: a.name, reason: r.text } });
+                  if (!r.ok) lit("blocked");
                 }}
               >
                 Attempt
