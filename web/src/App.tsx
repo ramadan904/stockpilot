@@ -144,6 +144,7 @@ export function App() {
             busy={busy}
             error={error}
             onDraft={onDraft}
+            onImport={(proposal, usd) => setDraft(makeDraft(proposal, "imported", usd))}
             onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
             onRefine={async (instruction) => {
               if (!draft) return;

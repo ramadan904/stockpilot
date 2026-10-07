@@ -931,7 +931,7 @@ tr.row-selected td {
 
 /* Household: combined allocation as one 100% bar. Slots 1-5 in the listing's fixed order (validated adjacent pairs in
    both modes); slots 3-5 are under 3:1 on the light surface, so a legend table with values always accompanies the bar. */
-.alloc {
+.household-alloc {
   margin: 12px 0;
 }
 .alloc-bar {
@@ -996,4 +996,19 @@ tr.muted td {
   text-decoration: underline dotted;
   cursor: pointer;
   text-align: left;
+}
+
+/* Import from a statement. */
+.import-box {
+  width: 100%;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+.import-review {
+  margin-top: 10px;
+}
+.import-review td {
+  vertical-align: top;
 }

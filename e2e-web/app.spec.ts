@@ -103,6 +103,32 @@ test("stress test: the draft mandate through five shaped crashes, with and witho
   await expect(card.locator("tbody tr").filter({ hasText: "Tech wreck" })).not.toHaveText(before!);
 });
 
+test("start from what you own: pasted holdings map line by line into a draft; a screenshot needs Claude", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start from what I own" }).click();
+  // Without an API key (as in CI) a screenshot cannot be read, and the app says what to do instead.
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  await page.getByLabel("Statement screenshot").setInputFiles({ name: "statement.png", mimeType: "image/png", buffer: png });
+  await expect(page.locator(".import-box .notice.bad")).toContainText("Paste your holdings as text", { timeout: 30_000 });
+
+  await page.getByLabel("Paste your holdings").fill("AAPL  $11,500\nVOO   $11,000\nMSFT  $4,500\nCash  $3,000\nIBIT  $500");
+  await page.getByRole("button", { name: "Read pasted holdings" }).click();
+  const review = page.getByRole("table", { name: "How your holdings map" });
+  await expect(review.locator("tr")).toHaveCount(5, { timeout: 30_000 });
+  await expect(review.locator("tr").filter({ hasText: "VOO" })).toContainText("→ SPY");
+  await expect(review.locator("tr").filter({ hasText: "IBIT" })).toContainText("left out");
+  await expect(page.locator(".import-box")).toContainText("$30,000 mapped, $500 left out.");
+  await page.locator(".import-box").screenshot({ path: "test-results/import.png" });
+  await page.getByRole("button", { name: "Use as my draft" }).click();
+
+  await expect(page.getByTestId("draft-source")).toHaveText("From your holdings");
+  await expect(page.getByLabel("AAPL target weight")).toHaveValue("38.5");
+  await expect(page.getByLabel("SPY target weight")).toHaveValue("51.5");
+  await expect(page.getByLabel("USDG target weight")).toHaveValue("10");
+  expect(errors).toEqual([]);
+});
+
 test("refining the draft in plain words lists exactly what changed", async ({ page }) => {
   await page.goto("/");
   const box = page.getByLabel("Adjust the mandate in your own words");

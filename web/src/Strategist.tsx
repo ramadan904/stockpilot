@@ -4,6 +4,7 @@ import type { Proposal } from "../../agent/mandate";
 import { LISTINGS } from "../../agent/listings";
 import { Card, pct, usd } from "./ui";
 import type { Draft } from "./App";
+import { ImportPortfolio, SpeakButton } from "./Import";
 
 const EXAMPLES = [
   "I'm 30 and believe in AI and big tech for the long run. I can handle swings but want some cash on hand.",
@@ -17,6 +18,7 @@ export function Strategist(props: {
   onDraft: (goal: string, usd: number) => Promise<void>;
   onEdit: (p: Proposal) => void;
   onRefine: (instruction: string) => Promise<void>;
+  onImport: (proposal: Proposal, usd: number) => void;
   busy: boolean;
   error: string | null;
 }) {
@@ -28,6 +30,10 @@ export function Strategist(props: {
     <div className="grid-2">
       <Card title={<><span className="step">1</span>Describe your goal</>}>
         <textarea value={goal} onChange={(e) => setGoal(e.target.value)} maxLength={1000} aria-label="Your investing goal" />
+        <div className="row" style={{ margin: "6px 0" }}>
+          <SpeakButton onText={(t) => setGoal(t.slice(0, 1000))} />
+          <ImportPortfolio onUse={props.onImport} />
+        </div>
         <div className="chips">
           {EXAMPLES.map((ex) => (
             <button key={ex} className="chip" onClick={() => setGoal(ex)}>
@@ -57,8 +63,8 @@ export function Strategist(props: {
           draft && (
             <span className="row" style={{ gap: 6 }}>
               <ShareStrategy draft={draft} />
-              <span className={`pill ${draft.source === "preset" ? "warn" : "info"}`}>
-                {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : "Offline preset"}
+              <span className={`pill ${draft.source === "preset" ? "warn" : "info"}`} data-testid="draft-source">
+                {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : draft.source === "imported" ? "From your holdings" : "Offline preset"}
               </span>
             </span>
           )

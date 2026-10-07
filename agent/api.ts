@@ -17,7 +17,8 @@ import { verifySubscription } from "./alerts";
 import { verifyTaxPreferences } from "./taxaware";
 import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
-import { Proposal, draft, refine } from "./strategist";
+import { Proposal, defaultClient, draft, refine } from "./strategist";
+import { IMAGE_TYPES, MAX_IMAGE_BASE64, parseHoldingsText, readStatementImage } from "./importer";
 
 const MAX_GOAL_CHARS = 1_000;
 
@@ -30,6 +31,33 @@ export async function handlePropose(body: unknown): Promise<{ status: number; js
     return { status: 200, json: await draft(goal.trim(), [...LISTINGS], portfolioUsd) };
   } catch (e) {
     return { status: 502, json: { error: (e as Error).message } };
+  }
+}
+
+const MAX_PASTED_CHARS = 20_000;
+
+/**
+ * POST /api/import { image: { media_type, data } } or { text } -> { holdings, source }. A screenshot is read by Claude;
+ * pasted text is parsed in plain code and works without credentials. Mapping onto the vault's assets happens in the
+ * browser (agent/holdings.ts), where the owner sees how every line mapped.
+ */
+export async function handleImport(body: unknown, client = defaultClient()): Promise<{ status: number; json: unknown }> {
+  const { image, text } = (body ?? {}) as { image?: { media_type?: unknown; data?: unknown }; text?: unknown };
+  if (typeof text === "string") {
+    if (text.length > MAX_PASTED_CHARS) return { status: 400, json: { error: `Paste at most ${MAX_PASTED_CHARS.toLocaleString("en-US")} characters.` } };
+    return { status: 200, json: { holdings: parseHoldingsText(text), source: "text" } };
+  }
+  if (!image || typeof image.data !== "string" || !IMAGE_TYPES.includes(image.media_type as never)) {
+    return { status: 400, json: { error: "Send a PNG, JPEG, WebP or GIF screenshot, or paste your holdings as text." } };
+  }
+  if (image.data.length > MAX_IMAGE_BASE64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data)) {
+    return { status: 400, json: { error: "That image is too large (about 3 MB at most) or not valid base64." } };
+  }
+  try {
+    const holdings = await readStatementImage({ media_type: image.media_type as (typeof IMAGE_TYPES)[number], data: image.data }, client);
+    return { status: 200, json: { holdings, source: "claude" } };
+  } catch (e) {
+    return { status: client ? 502 : 400, json: { error: (e as Error).message } };
   }
 }
 

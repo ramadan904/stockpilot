@@ -74,7 +74,7 @@ export function HouseholdCard(props: { client: PublicClient; abi: Abi; chainId: 
       </div>
 
       {segments.length > 0 && (
-        <figure className="alloc" aria-label="Combined allocation">
+        <figure className="household-alloc" aria-label="Combined allocation">
           <figcaption className="small muted">Combined allocation</figcaption>
           <div className="alloc-bar" role="img" aria-label={segments.map((s) => `${s.symbol} ${pct(s.bps)}`).join(", ")} onMouseLeave={() => setHover(null)}>
             {segments.map((s) => (
