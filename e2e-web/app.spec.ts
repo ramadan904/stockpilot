@@ -132,6 +132,26 @@ test("a strategy becomes a card to post: previewed, then saved as a PNG", async 
   expect(errors).toEqual([]);
 });
 
+test("the backtest runs in the background: the page keeps responding and shows its progress", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Backtest" }).click();
+  await expect(page.locator(".card").filter({ hasText: "What the pilot did" })).toContainText("Trades the vault would reject", { timeout: 30_000 });
+  // Five years of 200 markets: seconds of work, none of it on the page's thread.
+  await page.getByLabel("Horizon").selectOption("5");
+  await expect(page.getByText(/^Running: \d+ of 200 paths$/)).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Backtest progress" })).toBeVisible();
+  // Timed from outside the page: a busy main thread would hold this round trip until the work was done.
+  const t = Date.now();
+  await page.evaluate(() => document.title);
+  expect(Date.now() - t).toBeLessThan(250);
+  // A new setting cancels the run in flight; the latest one finishes.
+  await page.getByLabel("Horizon").selectOption("1");
+  await expect(page.getByText(/^Running:/)).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.locator(".card").filter({ hasText: "What the pilot did" }).locator(".stat").filter({ hasText: "would reject" }).locator(".value")).toHaveText("0");
+  expect(errors).toEqual([]);
+});
+
 test("the backtest never proposes a trade the vault would reject", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Backtest" }).click();

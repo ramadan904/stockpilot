@@ -49,6 +49,8 @@ import { explainTrade } from "../../agent/explain";
 import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
+import { historyStart, rpcTransport } from "./rpc";
+import { logsInRange } from "../../agent/history";
 
 declare global {
   interface Window {
@@ -76,7 +78,7 @@ function sharedVault(): { chainId: number; vault: Address } | null {
 
 /** Read-only: no account, so nothing can be signed; every card shows its viewer state. */
 function watchWallet(chain: Chain): Wallet {
-  return { client: createWalletClient({ chain, transport: http() }), address: zeroAddress, kind: "watch" };
+  return { client: createWalletClient({ chain, transport: rpcTransport() }), address: zeroAddress, kind: "watch" };
 }
 
 export function shareLink(chainId: number, vault: Address) {
@@ -92,7 +94,7 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
   const [selected, setSelected] = useState<Address | null>(shared?.vault ?? null);
   const [refresh, setRefresh] = useState(0);
   const deployment = deploymentFor(chain.id);
-  const client = useMemo(() => createPublicClient({ chain, transport: http() }), [chain]);
+  const client = useMemo(() => createPublicClient({ chain, transport: rpcTransport() }), [chain]);
   const market = useMarket(client as never, deployment, refresh);
 
   const loadVaults = useCallback(async () => {
@@ -400,13 +402,13 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
       ]);
       setState(s);
       setRoles({ owner, pilot, feeBps: Number(feeBps), feeRecipient });
-      const head = await client.getBlockNumber();
-      const logs = await client.getContractEvents({
-        address: vault,
-        abi: pilotVaultAbi,
-        eventName: "Rebalanced",
-        fromBlock: head > 50_000n ? head - 50_000n : 0n,
-      });
+      // The vault's whole trading history, from the deployment's first block.
+      const [head, start] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), historyStart(client)]);
+      const logs = await logsInRange(
+        (fromBlock, toBlock) => client.getContractEvents({ address: vault, abi: pilotVaultAbi, eventName: "Rebalanced", fromBlock, toBlock }),
+        start,
+        head,
+      );
       setEvents(
         logs
           .map((l) => ({ tx: l.transactionHash!, ...(l.args as Omit<TradeEvent, "tx">) }))

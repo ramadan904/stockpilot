@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
-import { DEFAULT_MODELS, backtest, modelsFor, taxBacktest, type BacktestResult, type Percentiles, type TaxBacktestResult } from "../../agent/backtest";
+import { DEFAULT_MODELS, modelsFor, type BacktestResult, type Percentiles, type TaxBacktestResult } from "../../agent/backtest";
 import { LineChart, compactUsd } from "./LineChart";
 import { glideEndTargets } from "../../agent/glide";
 import { Card } from "./ui";
 import { StressTest } from "./StressTest";
+import { progressLabel, useComputeJob } from "./compute";
 
 const money = (v: number) => v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const pctf = (v: number) => `${v.toFixed(1)}%`;
@@ -15,29 +16,26 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
   const [feePct, setFeePct] = useState(0.5);
   const [seed, setSeed] = useState(1);
   const [glidePct, setGlidePct] = useState(0);
-  const [result, setResult] = useState<BacktestResult | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Off the main thread: the page keeps responding while 200 markets fly, and a new setting cancels the old run.
+  const job = useComputeJob<BacktestResult>();
+  const { result, busy } = job;
 
   useEffect(() => {
-    setBusy(true);
-    // Let the "Running" state paint before the (roughly one second) computation.
-    const t = setTimeout(() => {
-      const safe = LISTINGS.findIndex((l) => "stable" in l);
-      const targets = mandate.assets.map((a) => a.targetBps);
-      const glideTo = glidePct > 0 && safe >= 0 && glidePct * 100 > targets[safe] ? glideEndTargets(targets, safe, glidePct * 100) : undefined;
-      setResult(backtest({ assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, days: 252 * years, paths: 200, seed, venueFeeBps: 10, feeBps: Math.round(feePct * 100), glideTo }));
-      setBusy(false);
-    }, 30);
-    return () => clearTimeout(t);
+    const safe = LISTINGS.findIndex((l) => "stable" in l);
+    const targets = mandate.assets.map((a) => a.targetBps);
+    const glideTo = glidePct > 0 && safe >= 0 && glidePct * 100 > targets[safe] ? glideEndTargets(targets, safe, glidePct * 100) : undefined;
+    job.run({ kind: "backtest", options: { assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, days: 252 * years, paths: 200, seed, venueFeeBps: 10, feeBps: Math.round(feePct * 100), glideTo } });
   }, [mandate, usdSize, years, feePct, seed, glidePct]);
 
   return (
     <div className="stack">
-      <Card title={<><span className="step">3</span>Backtest the mandate</>} aside={busy ? <span className="pill info">Running 200 paths…</span> : null}>
+      <Card title={<><span className="step">3</span>Backtest the mandate</>} aside={busy ? <span className="pill info">Running: {progressLabel(job.done, job.total)}</span> : null}>
         <p className="small" style={{ marginTop: 0 }}>
           The pilot's real planner and the vault's real rules, flown over 200 simulated markets and compared with buying the same portfolio and
           never touching it.
         </p>
+        {busy && <progress className="run-progress" max={job.total || 1} value={job.done} aria-label="Backtest progress" />}
+        {job.error && <p className="notice bad">The backtest stopped: {job.error}</p>}
         <div className="row">
           <label className="field" style={{ width: 140 }}>
             Horizon
@@ -71,7 +69,7 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
       </Card>
 
       {result && (
-        <div className="grid-2">
+        <div className={`grid-2 ${busy ? "stale" : ""}`} aria-busy={busy}>
           <Card title="StockPilot against buy and hold">
             <div className="table-scroll">
               <table className="holdings">
@@ -147,27 +145,22 @@ function AfterTax(props: { mandate: Mandate; usdSize: number; years: number; fee
   const [shortPct, setShortPct] = useState(35);
   const [longPct, setLongPct] = useState(15);
   const [budget, setBudget] = useState("0");
-  const [result, setResult] = useState<TaxBacktestResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setResult(null), [props.mandate, props.usdSize, props.years, props.feePct, props.seed]);
+  const job = useComputeJob<TaxBacktestResult>();
+  const { result, busy } = job;
+  useEffect(() => job.reset(), [props.mandate, props.usdSize, props.years, props.feePct, props.seed]);
 
   function run() {
-    setBusy(true);
-    setTimeout(() => {
-      const gainBudgetUsd = budget.trim() === "" ? undefined : Math.max(0, Number(budget));
-      setResult(
-        taxBacktest(
-          { assets: modelsFor(LISTINGS), mandate: props.mandate, startUsd: props.usdSize, days: 252 * props.years, paths: 100, seed: props.seed, venueFeeBps: 10, feeBps: Math.round(props.feePct * 100) },
-          { shortTermRateBps: Math.round(shortPct * 100), longTermRateBps: Math.round(longPct * 100), deferDays: 0, gainBudgetUsd },
-        ),
-      );
-      setBusy(false);
-    }, 30);
+    const gainBudgetUsd = budget.trim() === "" ? undefined : Math.max(0, Number(budget));
+    job.run({
+      kind: "tax",
+      options: { assets: modelsFor(LISTINGS), mandate: props.mandate, startUsd: props.usdSize, days: 252 * props.years, paths: 100, seed: props.seed, venueFeeBps: 10, feeBps: Math.round(props.feePct * 100) },
+      rates: { shortTermRateBps: Math.round(shortPct * 100), longTermRateBps: Math.round(longPct * 100), deferDays: 0, gainBudgetUsd },
+    });
   }
 
   const bps = (v: number) => `${(v / 100).toFixed(1)} pts`;
   return (
-    <Card title="After tax" aside={busy ? <span className="pill info">Running 100 paths twice…</span> : <span className="muted small">estimates, not tax advice</span>}>
+    <Card title="After tax" aside={busy ? <span className="pill info">Running: {progressLabel(job.done, job.total, "paths, twice")}</span> : <span className="muted small">estimates, not tax advice</span>}>
       <p className="small" style={{ marginTop: 0 }}>
         Rebalancing sells winners, and selling is taxable. The tax-aware pilot flies the same mandate over the same markets, choosing among the trades that
         still rebalance the one that costs the least tax, and keeping within a yearly budget for net gains unless an asset leaves its band.

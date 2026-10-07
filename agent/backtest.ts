@@ -348,7 +348,7 @@ export interface TaxBacktestResult {
 }
 
 /** The plain pilot and the tax-aware pilot over the same price paths, before and after tax. */
-export function taxBacktest(o: BacktestOptions, rates: Omit<TaxSettings, "aware">): TaxBacktestResult {
+export function taxBacktest(o: BacktestOptions, rates: Omit<TaxSettings, "aware">, onProgress?: Progress): TaxBacktestResult {
   const u = rng(o.seed);
   const plainRuns: PathResult[] = [];
   const awareRuns: PathResult[] = [];
@@ -356,6 +356,7 @@ export function taxBacktest(o: BacktestOptions, rates: Omit<TaxSettings, "aware"
     const prices = simulatePrices(o.assets, o.days, u);
     plainRuns.push(runPath({ ...o, tax: { ...rates, aware: false } }, prices));
     awareRuns.push(runPath({ ...o, tax: { ...rates, aware: true } }, prices));
+    onProgress?.(i + 1, o.paths);
   }
   const saved = plainRuns.map((r, i) => r.tax!.alongTheWayUsd - awareRuns[i].tax!.alongTheWayUsd);
   const afterTax = (r: PathResult) => r.pilot[r.pilot.length - 1] - r.tax!.alongTheWayUsd - r.tax!.liquidationUsd;
@@ -379,7 +380,10 @@ export function taxBacktest(o: BacktestOptions, rates: Omit<TaxSettings, "aware"
   };
 }
 
-export function backtest(o: BacktestOptions): BacktestResult {
+/** Called after each simulated path: how many are done, out of how many. */
+export type Progress = (done: number, total: number) => void;
+
+export function backtest(o: BacktestOptions, onProgress?: Progress): BacktestResult {
   const u = rng(o.seed);
   const runs: PathResult[] = [];
   const concentration = { pilot: [] as number[], hold: [] as number[] };
@@ -390,6 +394,7 @@ export function backtest(o: BacktestOptions): BacktestResult {
     // Largest single-asset weight reached along the way, for each strategy.
     concentration.pilot.push(r.maxRiskyWeightPct);
     concentration.hold.push(holdMaxRiskyWeight(prices, r.hold, o));
+    onProgress?.(i + 1, o.paths);
   }
   const summarize = (key: "pilot" | "hold"): Summary => ({
     finalValue: percentiles(runs.map((r) => r[key][r[key].length - 1])),

@@ -11,6 +11,8 @@ import { readTaxEvents, taxReport, type AssetInfo } from "../../agent/tax";
 import { loadActivity } from "./Activity";
 import { explorerTx } from "./chains";
 import { Card, totalUsd, valueUsd } from "./ui";
+import { historyStart } from "./rpc";
+import { logsInRange } from "../../agent/history";
 
 const REASON_KEY = (hash: string) => `stockpilot:reason:${hash.toLowerCase()}`;
 
@@ -48,16 +50,16 @@ async function gatherFacts(p: {
   const { client, vault, abi, state } = p;
   const total = totalUsd(state.assets);
   const now = Number(state.now);
-  const head = await client.getBlockNumber();
+  const [head, start] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), historyStart(client)]);
   const readGuard = <T,>(functionName: string) => client.readContract({ address: vault, abi, functionName }) as Promise<T>;
   const guardP = Promise.all([readGuard<number>("drawdownBps"), readGuard<boolean>("defensive"), readGuard<Address>("safeAsset"), readGuard<number>("safeTargetBps"), readGuard<bigint>("peakValueUsd")]).catch(() => null);
   const [activity, tradeLogs, heir, period, claimableAt, taxEvents] = await Promise.all([
     loadActivity(client, vault, abi, state.assets, p.owner, p.pilot),
-    client.getContractEvents({ address: vault, abi, eventName: "Rebalanced", fromBlock: head > 50_000n ? head - 50_000n : 0n }),
+    logsInRange((fromBlock, toBlock) => client.getContractEvents({ address: vault, abi, eventName: "Rebalanced", fromBlock, toBlock }), start, head),
     client.readContract({ address: vault, abi, functionName: "heir" }) as Promise<Address>,
     client.readContract({ address: vault, abi, functionName: "inactivityPeriod" }) as Promise<number>,
     client.readContract({ address: vault, abi, functionName: "inheritanceClaimableAt" }) as Promise<bigint>,
-    readTaxEvents(client, abi, vault, head > 500_000n ? head - 500_000n : 0n).catch(() => null),
+    readTaxEvents(client, abi, vault, start).catch(() => null),
   ]);
   const sym = (t: unknown) => state.assets.find((a) => a.token.toLowerCase() === String(t).toLowerCase())?.symbol ?? String(t).slice(0, 8);
   const times = new Map(activity.entries.map((e) => [e.tx.toLowerCase(), e.time]));

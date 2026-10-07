@@ -21,6 +21,9 @@ export interface Deployment {
   /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */
   venue?: Address;
   marketMaker: Address;
+  /** When it was written (ISO time), and the block the deploy started at: where reading a vault's history begins. */
+  deployedAt?: string;
+  startBlock?: number;
   /** A funded vault anyone can open read-only (scripts/create-vault.ts with DEMO=1). */
   demoVault?: Address;
   tokens: Record<string, Address>;
