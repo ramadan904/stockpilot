@@ -274,6 +274,7 @@ main {
 textarea,
 input[type="text"],
 input[type="number"],
+input[type="date"],
 select {
   width: 100%;
   border: 1px solid var(--border);
@@ -484,6 +485,7 @@ table.holdings {
   align-items: end;
 }
 .notice {
+  overflow-wrap: anywhere;
   border-radius: 9px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1088,4 +1090,56 @@ tr.muted td {
 .bandviz-legend .dot.after {
   background: var(--series-1);
   margin-left: 6px;
+}
+
+/* Phones: tighter cards and tables, and only the columns that matter. */
+.stress-table td:first-child {
+  min-width: 7.5rem;
+}
+.legend-item {
+  white-space: nowrap;
+}
+.chip {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 560px) {
+  .card {
+    padding: 14px 14px;
+  }
+  .holdings th,
+  .holdings td {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+  .holdings td {
+    font-size: 14px;
+  }
+  .hide-narrow {
+    display: none;
+  }
+  .holdings-assets .target-of {
+    display: block;
+    font-size: 12px;
+  }
+  /* The stress test: each scenario's name on its own line, its three results side by side beneath it. */
+  .stress-table thead tr,
+  .stress-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .stress-table th:first-child {
+    display: none;
+  }
+  .stress-table th {
+    text-align: right;
+  }
+  .stress-table td:first-child {
+    grid-column: 1 / -1;
+    min-width: 0;
+    border-bottom: 0;
+    padding-bottom: 2px;
+  }
 }

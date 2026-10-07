@@ -41,8 +41,9 @@ export function LineChart(props: { series: Series[]; xLabel: (i: number) => stri
     if (hi - lo < 1e-9) [lo, hi] = [lo * 0.99, hi * 1.01 + 1e-9];
     const step = niceStep((hi - lo) / 4);
     const t0 = Math.floor(lo / step) * step;
+    // Ticks from at or below the lowest value to at or above the highest, so no line ever leaves the plot.
     const ticks: number[] = [];
-    for (let t = t0; t <= hi + step * 0.5; t += step) ticks.push(t);
+    for (let k = 0; ticks.length === 0 || ticks[ticks.length - 1] < hi - 1e-9; k++) ticks.push(t0 + k * step);
     const [ylo, yhi] = [ticks[0], ticks[ticks.length - 1]];
     const y = (v: number) => PAD.top + (1 - (v - ylo) / (yhi - ylo || 1)) * (h - PAD.top - PAD.bottom);
     const x = (i: number) => PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * (W - PAD.left - PAD.right));

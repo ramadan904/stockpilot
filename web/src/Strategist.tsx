@@ -108,7 +108,7 @@ function MandateEditor({ draft, onEdit, onRefine }: { draft: Draft; onEdit: (p: 
       <div className="row" style={{ marginBottom: 12, flexWrap: "nowrap" }}>
         <input
           type="text"
-          placeholder='Adjust in your own words, e.g. "less Tesla, more cash"'
+          placeholder='e.g. "less Tesla, more cash"'
           aria-label="Adjust the mandate in your own words"
           value={instruction}
           maxLength={300}

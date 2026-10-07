@@ -242,7 +242,7 @@ export function AskCard(props: {
         <input
           type="text"
           aria-label="Your question"
-          placeholder="Why did you sell NVDA? Am I within my limits?"
+          placeholder="Why did you sell NVDA?"
           value={question}
           maxLength={500}
           onChange={(e) => setQuestion(e.target.value)}

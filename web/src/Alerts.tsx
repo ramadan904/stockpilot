@@ -89,7 +89,7 @@ export function AlertsCard(props: { client: PublicClient; wallet: WalletClient; 
         </label>
         <label className="field">
           Webhook (Slack, Discord, any URL)
-          <input type="text" placeholder="https://hooks.slack.com/…" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
+          <input type="text" placeholder="https://…" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
         </label>
       </div>
       <label className="row small" style={{ margin: "10px 0" }}>

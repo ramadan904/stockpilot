@@ -510,7 +510,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           </div>
           {isOwner && (
             <div className="row" style={{ marginTop: 12 }}>
-              <input type="text" placeholder={`Pilot: ${roles.pilot}`} value={newPilot} onChange={(e) => setNewPilot(e.target.value.trim())} spellCheck={false} style={{ flex: 1, minWidth: 200 }} />
+              <input type="text" aria-label="New pilot address" placeholder="New pilot, 0x…" title={`Current pilot: ${roles.pilot}`} value={newPilot} onChange={(e) => setNewPilot(e.target.value.trim())} spellCheck={false} style={{ flex: "1 1 240px" }} />
               <button className="btn" disabled={!isAddress(newPilot)} onClick={run(() => call("Set pilot", "setPilot", [newPilot]))}>
                 Set pilot
               </button>

@@ -61,13 +61,13 @@ export function StressTest({ mandate, usdSize }: { mandate: Mandate; usdSize: nu
       </div>
 
       <div className="table-scroll">
-        <table className="holdings">
+        <table className="holdings stress-table">
           <thead>
             <tr>
               <th>Scenario</th>
               <th className="num">Left alone</th>
               <th className="num">Pilot</th>
-              <th className="num">Pilot + crash guard</th>
+              <th className="num">Pilot + guard</th>
             </tr>
           </thead>
           <tbody>

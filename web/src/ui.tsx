@@ -70,37 +70,39 @@ export function StatusPill({ d }: { d: Drift }) {
 export function HoldingsTable({ assets, drift }: { assets: AssetState[]; drift: Drift[] }) {
   const scale = Math.max(5000, ...drift.map((d) => Math.max(d.weightBps, d.targetBps + d.bandBps) + 500));
   return (
-    <table className="holdings">
+    <div className="table-scroll">
+    <table className="holdings holdings-assets">
       <thead>
         <tr>
           <th>Asset</th>
-          <th className="num">Price</th>
+          <th className="num hide-narrow">Price</th>
           <th className="num">Value</th>
           <th className="num">Weight</th>
           <th className="gauge-col">Target ± band</th>
-          <th />
+          <th className="hide-narrow" />
         </tr>
       </thead>
       <tbody>
         {assets.map((a, i) => (
           <tr key={a.token}>
             <td className="sym">{a.symbol}</td>
-            <td className="num">{price(a)}</td>
+            <td className="num hide-narrow">{price(a)}</td>
             <td className="num">{usd(valueUsd(a))}</td>
             <td className="num">
               {pct(drift[i].weightBps)}
-              <span className="muted"> / {pct(drift[i].targetBps)}</span>
+              <span className="muted target-of"> / {pct(drift[i].targetBps)}</span>
             </td>
             <td className="gauge-col">
               <BandGauge d={drift[i]} scaleBps={scale} />
             </td>
-            <td>
+            <td className="hide-narrow">
               <StatusPill d={drift[i]} />
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 
