@@ -68,6 +68,14 @@ test("the backtest never proposes a trade the vault would reject", async ({ page
   await expect(page.locator(".card").filter({ hasText: "A typical path" }).locator("figure.chart svg path.line")).toHaveCount(2);
 });
 
+test("the backtest with a glide path: targets move to cash over the horizon, still never a rejected trade", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Backtest" }).click();
+  await page.getByLabel("Glide path").selectOption({ label: "To 70% cash by the end" });
+  const tiles = page.locator(".card").filter({ hasText: "What the pilot did" });
+  await expect(tiles.locator(".stat").filter({ hasText: "would reject" }).locator(".value")).toHaveText("0", { timeout: 30_000 });
+});
+
 test("after tax: the tax-aware pilot over the same markets, inside the same mandate", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Backtest" }).click();
@@ -321,6 +329,39 @@ test("crash guard: arm it, the market falls 40%, and the vault turns defensive s
   await expect(activity).toContainText("Crash guard tripped");
   await guard.getByRole("button", { name: "Back to normal targets" }).click();
   await expect(guard.getByText("Armed")).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test("glide path: set the vault to de-risk on a schedule, see where it stands, and stop it", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Glide path" }) });
+  await card.getByLabel("Move").selectOption({ label: "USDG" });
+  await card.getByLabel("To (%)").fill("60");
+  await expect(card.getByTestId("glide-preview")).toContainText(/USDG 60%.*points a year move into USDG/);
+  await card.getByRole("button", { name: "Set the glide path" }).click();
+  const table = card.getByRole("table", { name: "Glide path" });
+  await expect(table).toBeVisible({ timeout: 30_000 });
+  await expect(table.locator("tr").filter({ hasText: "USDG" }).locator("td.num").last()).toHaveText("60%");
+  await expect(card.locator(".pill")).toHaveText(/\d+% of the way/);
+
+  // The crash guard form now only offers defensive targets above where the path ends.
+  const guard = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Crash guard" }) });
+  await guard.getByRole("button", { name: "Arm the crash guard" }).click();
+  const options = await guard.getByLabel(/At this weight/).locator("option").allInnerTexts();
+  expect(options.length).toBeGreaterThan(0);
+  for (const o of options) expect(Number.parseInt(o)).toBeGreaterThan(60);
+
+  await card.getByRole("button", { name: "Stop the glide path" }).click();
+  await expect(table).toHaveCount(0, { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 

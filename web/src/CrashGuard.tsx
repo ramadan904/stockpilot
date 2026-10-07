@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { Address, Chain, Hash, PublicClient, WalletClient } from "viem";
 import type { VaultState } from "../../agent/model";
 import { safeTargetChoices } from "../../agent/backtest";
+import { readGlide, type GlidePath } from "../../agent/glide";
 import { pilotVaultAbi } from "./abi";
 import { Card, totalUsd, usd } from "./ui";
 
@@ -38,6 +39,13 @@ export function CrashGuardCard(props: {
   const [drawdown, setDrawdown] = useState(20);
   const [safeTarget, setSafeTarget] = useState<number | null>(safeTargetChoices(stable.targetBps / 100).fallback);
   const [tick, setTick] = useState(0);
+  // A glide path moves targets: the defensive target must stay above the safe asset's target all the way.
+  const [glide, setGlide] = useState<GlidePath | null>(null);
+  useEffect(() => {
+    readGlide(client, pilotVaultAbi as never, vault, state.assets.map((a) => a.token))
+      .then(setGlide)
+      .catch(() => setGlide(null));
+  }, [client, vault, tick, state.assets.map((a) => a.token).join()]);
 
   useEffect(() => {
     (async () => {
@@ -70,7 +78,9 @@ export function CrashGuardCard(props: {
   const fall = guard.peakUsd > 0n && total < guard.peakUsd ? Number(((guard.peakUsd - total) * 10_000n) / guard.peakUsd) / 100 : 0;
   const trigger = guard.drawdownBps / 100;
   const safeAsset = state.assets.find((a) => a.token === safe) ?? stable;
-  const choices = safeTargetChoices(safeAsset.targetBps / 100);
+  const safeIndex = state.assets.indexOf(safeAsset);
+  const highest = Math.max(safeAsset.targetBps, glide ? glide.to[safeIndex] ?? 0 : 0);
+  const choices = safeTargetChoices(highest / 100);
   // What the form submits is always one of the options it shows, and one the vault accepts.
   const target = safeTarget !== null && choices.options.includes(safeTarget) ? safeTarget : choices.fallback;
 

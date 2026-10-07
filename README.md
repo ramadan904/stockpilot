@@ -28,6 +28,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 |---|---|---|
 | **Mandate vault** | Target weights and bands, per-trade and 24-hour caps, cooldown, slippage at oracle prices, fresh prices; the pilot can only `rebalance` | An exact TypeScript model and a Rust core that reach the same verdicts, proven on thousands of random trades |
 | **Crash guard** | Past a set fall from the peak, defensive targets; the pilot can only de-risk; only the owner lifts it | Fleet keeper, stress test of the trade-off before signing |
+| **Glide path** | Targets move on the owner's schedule toward an end mix by a date, like a target-date fund; bands, limits and the crash guard apply to the moving targets | Backtest with and without it, a card showing where the path stands, exact TypeScript mirror of the contract's arithmetic |
 | **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
 | **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a picker, MCP tools for agents to get hired |
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
@@ -42,7 +43,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 204 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 213 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -176,6 +177,14 @@ deposits priced by the vault's own oracles at that block, every trade, the fee p
 first out, lot by lot, split into short and long term, with exact integer arithmetic, and download as a CSV in the
 shape of Form 8949. Open lots under water are shown as loss-harvesting candidates, with the wash-sale caveat. Not tax
 advice; every assumption is listed next to the numbers.
+
+**Glide path.** Target-date funds hold trillions because people want to take less risk as a date nears. A StockPilot
+vault does it itself: `setGlidePath(endTargets, endDate)` moves every target in a straight line from where it stands to
+the owner's end mix, then holds it. The vault judges every trade against wherever the path has reached, so neither the
+pilot nor a forgetful owner can skip a step; the crash guard scales the glided targets in a crash and must stay above
+the path. A new path starts from where the old one reached, with no jump; a new mandate ends it. In the backtest, a
+growth mandate gliding to 70% cash over five years cut the typical worst fall from 44% to 34% and raised the bad-case
+ending value, at the cost of a lower typical one. Ethereum vault only for now; the Solana program has fixed targets.
 
 **The tax-aware pilot.** Rebalancing sells winners, and selling is taxable. Because the vault matches lots first in,
 first out, the pilot can know exactly what a sale realizes before it makes it ([`agent/taxaware.ts`](agent/taxaware.ts)).

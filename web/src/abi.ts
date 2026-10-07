@@ -145,6 +145,11 @@ export const pilotVaultAbi = [
   },
   {
     "inputs": [],
+    "name": "InvalidGlidePath",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "InvalidHeir",
     "type": "error"
   },
@@ -537,6 +542,31 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "FeeSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint16[]",
+        "name": "toBps",
+        "type": "uint16[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "start",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "end",
+        "type": "uint64"
+      }
+    ],
+    "name": "GlidePathSet",
     "type": "event"
   },
   {
@@ -1290,6 +1320,56 @@ export const pilotVaultAbi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "glide",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "fromBps",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "toBps",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "glideEnd",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "glideStart",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "heir",
     "outputs": [
@@ -1841,6 +1921,24 @@ export const pilotVaultAbi = [
       }
     ],
     "name": "setFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "toBps",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint64",
+        "name": "end",
+        "type": "uint64"
+      }
+    ],
+    "name": "setGlidePath",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

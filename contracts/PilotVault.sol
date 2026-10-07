@@ -171,6 +171,17 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     /// @notice Nonce for the owner's next signed action; each signature works once.
     uint256 public sigNonce;
 
+    /// @notice Glide path: each asset's target moves in a straight line from `fromBps` at `glideStart` to `toBps` at
+    /// `glideEnd`, then stays there, like a target-date fund. `glideEnd == 0` means off.
+    struct Glide {
+        uint16 fromBps;
+        uint16 toBps;
+    }
+
+    mapping(address token => Glide) public glide;
+    uint64 public glideStart;
+    uint64 public glideEnd;
+
     event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
     event PilotSet(address indexed pilot);
     event AdapterSet(address indexed adapter);
@@ -186,6 +197,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     event DefensiveModeExited();
     event RecurringDepositSet(address indexed token, uint256 amount, uint32 interval);
     event RecurringDepositPulled(address indexed token, uint256 amount, uint256 nextAt);
+    event GlidePathSet(uint16[] toBps, uint64 start, uint64 end);
     /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
     event Rebalanced(
         address indexed tokenIn,
@@ -234,6 +246,7 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     error RecurringOff();
     error RecurringNotDue(uint256 nextAt);
     error IntervalOutOfRange();
+    error InvalidGlidePath();
     error SignatureExpired();
     error InvalidSignature();
 
@@ -418,13 +431,45 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
         Asset memory a = assets[safeAsset_];
         if (!a.listed) revert AssetNotInMandate(safeAsset_);
         if (drawdownBps_ < MIN_DRAWDOWN_BPS || drawdownBps_ > MAX_DRAWDOWN_BPS) revert DrawdownOutOfRange();
-        if (safeTargetBps_ <= a.targetBps || safeTargetBps_ > BPS) revert InvalidSafeTarget();
+        if (safeTargetBps_ <= _highestBase(safeAsset_) || safeTargetBps_ > BPS) revert InvalidSafeTarget();
         safeAsset = safeAsset_;
         safeTargetBps = safeTargetBps_;
         drawdownBps = drawdownBps_;
         defensive = false;
         peakValueUsd = 0;
         emit CrashGuardSet(safeAsset_, safeTargetBps_, drawdownBps_);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Glide path
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice De-risk (or re-risk) on a schedule: from the targets in force now to `toBps` (mandate order, summing to
+    /// 100%) by `end`, in a straight line. Bands, limits and the crash guard apply to the moving targets as they do to
+    /// fixed ones. `end == 0` turns it off: the mandate's own targets apply again. A new mandate also ends it.
+    function setGlidePath(uint16[] calldata toBps, uint64 end) external ownerAction {
+        uint256 n = _tokens.length;
+        if (end == 0) {
+            glideEnd = 0;
+            emit GlidePathSet(toBps, 0, 0);
+            return;
+        }
+        if (end <= block.timestamp || toBps.length != n) revert InvalidGlidePath();
+        uint16[] memory from = new uint16[](n);
+        uint256 sum = 0;
+        for (uint256 i; i < n; ++i) {
+            from[i] = _base(_tokens[i]);
+            sum += toBps[i];
+        }
+        if (sum != BPS) revert TargetsMustSumTo100Percent(sum);
+        for (uint256 i; i < n; ++i) {
+            glide[_tokens[i]] = Glide(from[i], toBps[i]);
+        }
+        glideStart = uint64(block.timestamp);
+        glideEnd = end;
+        // An armed crash guard needs its safe asset below its defensive target all the way.
+        if (drawdownBps != 0 && _highestBase(safeAsset) >= safeTargetBps) revert InvalidSafeTarget();
+        emit GlidePathSet(toBps, uint64(block.timestamp), end);
     }
 
     /// @notice Back to the normal targets. The guard stays armed and starts again from the next recorded value.
@@ -668,6 +713,11 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
         else if (!defensive) peakValueUsd = 0;
         // A recurring investment into an asset no longer in the mandate stops.
         if (recurringAmount != 0 && !assets[recurringToken].listed) _stopRecurring();
+        // A new mandate brings its own targets: any glide path ends.
+        if (glideEnd != 0) {
+            glideEnd = 0;
+            emit GlidePathSet(new uint16[](0), 0, 0);
+        }
     }
 
     function _disarm() internal {
@@ -697,11 +747,33 @@ contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
     /// @dev The target in force: the mandate's, or in defensive mode the safe asset's raised target and everyone
     /// else's scaled down in proportion (rounded down, so the safe asset never ends below its defensive target).
     function _target(address token) internal view returns (uint16) {
-        uint16 t = assets[token].targetBps;
+        uint16 t = _base(token);
         if (!defensive) return t;
         address safe = safeAsset;
         if (token == safe) return safeTargetBps;
-        return uint16((uint256(t) * (BPS - safeTargetBps)) / (BPS - assets[safe].targetBps));
+        return uint16((uint256(t) * (BPS - safeTargetBps)) / (BPS - _base(safe)));
+    }
+
+    /// @dev The target before any crash guard: the mandate's, or where the glide path has reached (rounded toward
+    /// where it started).
+    function _base(address token) internal view returns (uint16) {
+        uint256 end = glideEnd;
+        if (end == 0) return assets[token].targetBps;
+        Glide memory g = glide[token];
+        if (block.timestamp >= end) return g.toBps;
+        uint256 done = block.timestamp - glideStart;
+        uint256 span = end - glideStart;
+        return g.toBps >= g.fromBps
+            ? uint16(g.fromBps + (uint256(g.toBps - g.fromBps) * done) / span)
+            : uint16(g.fromBps - (uint256(g.fromBps - g.toBps) * done) / span);
+    }
+
+    /// @dev The highest base target `token` will have from now on (a glide path moves in a straight line).
+    function _highestBase(address token) internal view returns (uint16) {
+        uint16 now_ = _base(token);
+        if (glideEnd == 0) return now_;
+        uint16 to = glide[token].toBps;
+        return to > now_ ? to : now_;
     }
 
     function _available(uint256 cap) internal view returns (uint256) {

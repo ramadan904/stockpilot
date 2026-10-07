@@ -11,6 +11,7 @@ import { BPS, WAD, afterSpend, amountFor, check, valueOf, type AssetState, type 
 import { DEFAULT_PLANNER, plan, type PlannerOptions } from "./planner";
 import { LotBook, yearOf, type AssetInfo, type Sale } from "./tax";
 import { taxDue, type TaxPolicy } from "./taxaware";
+import { glidedTargets, type GlidePath } from "./glide";
 
 export interface AssetModel {
   symbol: string;
@@ -45,6 +46,8 @@ export interface BacktestOptions {
   /** Management fee, bps a year. */
   feeBps: number;
   planner?: PlannerOptions;
+  /** A glide path to these targets (mandate order, summing to 100%) by the last day, as `setGlidePath` runs it. */
+  glideTo?: number[];
   /** Track tax lots (and, if `aware`, plan tax-aware). */
   tax?: TaxSettings;
 }
@@ -211,6 +214,8 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
     holdBook?.acquire(a.token, a.balance, valueOf(a.balance, a.price, a.decimals), Number(now), true);
   }
   const feeOwed = state.assets.map(() => 0n);
+  const mandateTargets = o.mandate.assets.map((a) => a.targetBps);
+  const glide: GlidePath | null = o.glideTo ? { start: Number(now), end: Number(now) + (prices[0].length - 1) * 86_400, from: mandateTargets, to: o.glideTo } : null;
   const cash = new Set(state.assets.filter((_, i) => o.assets[i].vol === 0).map((a) => a.token.toLowerCase()));
   const policy = (): TaxPolicy | undefined =>
     o.tax?.aware && book
@@ -241,6 +246,13 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
       }
       state = { ...state, assets: state.assets.map((a, i) => ({ ...a, balance: a.balance - fee[i] })) };
       out.feesUsd += before - total(state.assets);
+    }
+
+    // The glide path moves the targets every day; in defensive mode the guard's targets are taken from the glided ones.
+    if (glide) {
+      const base = glidedTargets(mandateTargets, glide, Number(now));
+      const next = guard && out.defensiveDay !== null ? defensiveTargets(base, guard) : base;
+      state = { ...state, assets: state.assets.map((a, i) => ({ ...a, targetBps: next[i] })) };
     }
 
     // The crash guard, as the vault runs it (poked daily by the fleet, and again by every trade).

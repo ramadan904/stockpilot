@@ -88,6 +88,8 @@ async function main() {
         message: { nonce: await vault.read.sigNonce(), deadline },
       });
       rows.push([`${n} assets`, "Check in by signature (relayed)", await gas(await asPilot.write.checkInWithSig([deadline, sig]))]);
+      const glideEnd = BigInt((await client.getBlock()).timestamp) + 3_650n * 86_400n;
+      rows.push([`${n} assets`, "Set a glide path", await gas(await vault.write.setGlidePath([[6_000, 1_334, 1_333, 1_333], glideEnd]))]);
       rows.push([`${n} assets`, "Arm the crash guard", await gas(await vault.write.setCrashGuard([tokens[0], 7_000, 2_000]))]);
       rows.push([`${n} assets`, "Poke: record a new peak", await gas(await asPilot.write.poke())]);
       for (const m of mandate.slice(1)) await (await hre.viem.getContractAt("MockPriceFeed", m.feed)).write.setPrice([px(60)]);

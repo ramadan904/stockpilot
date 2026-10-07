@@ -3,6 +3,7 @@ import { LISTINGS } from "../../agent/listings";
 import type { Mandate } from "../../agent/mandate";
 import { DEFAULT_MODELS, backtest, modelsFor, taxBacktest, type BacktestResult, type Percentiles, type TaxBacktestResult } from "../../agent/backtest";
 import { LineChart, compactUsd } from "./LineChart";
+import { glideEndTargets } from "../../agent/glide";
 import { Card } from "./ui";
 import { StressTest } from "./StressTest";
 
@@ -13,6 +14,7 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
   const [years, setYears] = useState(1);
   const [feePct, setFeePct] = useState(0.5);
   const [seed, setSeed] = useState(1);
+  const [glidePct, setGlidePct] = useState(0);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -20,11 +22,14 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
     setBusy(true);
     // Let the "Running" state paint before the (roughly one second) computation.
     const t = setTimeout(() => {
-      setResult(backtest({ assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, days: 252 * years, paths: 200, seed, venueFeeBps: 10, feeBps: Math.round(feePct * 100) }));
+      const safe = LISTINGS.findIndex((l) => "stable" in l);
+      const targets = mandate.assets.map((a) => a.targetBps);
+      const glideTo = glidePct > 0 && safe >= 0 && glidePct * 100 > targets[safe] ? glideEndTargets(targets, safe, glidePct * 100) : undefined;
+      setResult(backtest({ assets: modelsFor(LISTINGS), mandate, startUsd: usdSize, days: 252 * years, paths: 200, seed, venueFeeBps: 10, feeBps: Math.round(feePct * 100), glideTo }));
       setBusy(false);
     }, 30);
     return () => clearTimeout(t);
-  }, [mandate, usdSize, years, feePct, seed]);
+  }, [mandate, usdSize, years, feePct, seed, glidePct]);
 
   return (
     <div className="stack">
@@ -45,6 +50,19 @@ export function Backtest({ mandate, usdSize }: { mandate: Mandate; usdSize: numb
           <label className="field" style={{ width: 160 }}>
             Pilot fee (% a year)
             <input type="number" min={0} max={2} step={0.25} value={feePct} onChange={(e) => setFeePct(Math.min(2, Math.max(0, Number(e.target.value))))} />
+          </label>
+          <label className="field" style={{ width: 220 }}>
+            Glide path
+            <select value={glidePct} onChange={(e) => setGlidePct(Number(e.target.value))}>
+              <option value={0}>None: fixed targets</option>
+              {[50, 70, 90]
+                .filter((p) => p * 100 > (mandate.assets[LISTINGS.findIndex((l) => "stable" in l)]?.targetBps ?? 10_000))
+                .map((p) => (
+                  <option key={p} value={p}>
+                    To {p}% cash by the end
+                  </option>
+                ))}
+            </select>
           </label>
           <button className="btn" style={{ alignSelf: "end" }} onClick={() => setSeed((s) => s + 1)} disabled={busy}>
             New random markets
