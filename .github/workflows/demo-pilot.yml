@@ -37,6 +37,12 @@ jobs:
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping prices."; exit 0; fi
           npx hardhat run agent/relayer-run.ts --network "$NETWORK"
+      - name: The demo vault's Verified Mandate (starts the clock, then mints when due)
+        env:
+          PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping."; exit 0; fi
+          npx hardhat run scripts/demo-credential.ts --network "$NETWORK" || echo "Verified Mandate step failed; the pilot still flies."
       - name: One check by the demo vault's pilot
         env:
           PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}

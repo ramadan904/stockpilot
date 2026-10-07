@@ -63,6 +63,8 @@ for net in $NETWORKS; do
   npx hardhat run scripts/deploy-credential.ts --network "$net"
   # The demo vault flies with a pilot of its own, never its owner (a no-op once it has one).
   npx hardhat run scripts/demo-pilot.ts --network "$net"
+  # Start the demo vault's Verified Mandate clock; the hourly demo pilot mints it a day later.
+  npx hardhat run scripts/demo-credential.ts --network "$net"
 done
 
 npm run web:build
