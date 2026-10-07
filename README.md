@@ -12,7 +12,7 @@ the rules, and cannot concentrate your portfolio, because the contract won't let
 Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), targeting the Ethereum ecosystem tracks
 (Robinhood Chain, Arbitrum). Judges: open the **[live app](https://stockpilot-six-virid.vercel.app)** (no wallet needed),
 the [live demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783),
-then [SUBMISSION.md](SUBMISSION.md) and the 53-second [demo video](media/simulator-demo.mp4).
+then [SUBMISSION.md](SUBMISSION.md) and the 80-second [demo video](media/live-demo.mp4) (recorded by `npm run video`).
 
 ```
 "I'm 30, I believe in AI and big tech, I can handle swings but want some cash."
