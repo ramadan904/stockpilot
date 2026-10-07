@@ -1,6 +1,11 @@
 # StockPilot
 
 **An AI autopilot for tokenized stock portfolios that can only trade inside the rules you sign.**
+The AI does the work; the contract keeps it honest.
+
+**[Live app](https://stockpilot-six-virid.vercel.app)** ·
+**[Live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** (Robinhood Chain testnet, no wallet) ·
+**[80-second demo](media/live-demo.mp4)** · **[Submission](SUBMISSION.md)** · `npm test` · `npm run demo`
 
 Tokenized stocks trade around the clock and settle onchain, but managing a portfolio still means watching it.
 AI agents could do that, but today you either hand an agent your keys or let it make suggestions only.
