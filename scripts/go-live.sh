@@ -5,7 +5,7 @@
 #   ./scripts/go-live.sh   (asks for the deploy key and Vercel token, hidden, unless PRIVATE_KEY / VERCEL_TOKEN are set)
 #
 # Optional: NETWORKS (default "robinhoodTestnet arbitrumSepolia"), REDEPLOY=1 (deploy again even if
-# deployments/<network>.json exists), REDEMO=1 (seed a new demo vault), ANTHROPIC_API_KEY (Claude drafts the demo
+# deployments/<network>.json exists), REDEMO=1 (seed a new demo vault; DEMO_CASH=1 funds it in cash for the pilot to invest), ANTHROPIC_API_KEY (Claude drafts the demo
 # vault's mandate; without it, the offline preset does). Safe to re-run: finished steps are skipped.
 # Never use a key that holds real funds: this is a testnet deploy of unaudited contracts.
 set -euo pipefail
@@ -56,7 +56,7 @@ for net in $NETWORKS; do
   if [ -n "$(field "$net" demoVault)" ] && [ -z "${REDEMO:-}" ]; then
     echo "Demo vault already seeded: $(field "$net" demoVault); REDEMO=1 for a new one."
   else
-    DEMO=1 GOAL="${DEMO_GOAL:-Mostly the S&P 500, some big tech, and cash on hand.}" USD="${DEMO_USD:-10000}" \
+    DEMO=1 CASH="${DEMO_CASH:-}" GOAL="${DEMO_GOAL:-Mostly the S&P 500, some big tech, and cash on hand.}" USD="${DEMO_USD:-10000}" \
       npx hardhat run scripts/create-vault.ts --network "$net"
   fi
   # The demo vault flies with a pilot of its own, never its owner (a no-op once it has one).

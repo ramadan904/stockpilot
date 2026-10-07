@@ -1,0 +1,48 @@
+# Keeps the public demo vault alive without a server: every hour, push real stock prices onto the testnet feeds,
+# then let the demo vault's own pilot make the one trade (if any) its planner and the contract allow. The keys are
+# repository secrets (Settings > Secrets and variables > Actions): RELAYER_KEY, the key that deployed the feeds, and
+# DEMO_PILOT_KEY, the demo vault's pilot (.secrets/demo-pilot-<network>.key). Without them the job does nothing.
+name: Demo pilot
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: demo-pilot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETWORK: robinhoodTestnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx hardhat compile --quiet
+      - name: Real stock prices onto the feeds
+        env:
+          PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+          ONCE: "1"
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping prices."; exit 0; fi
+          npx hardhat run agent/relayer-run.ts --network "$NETWORK"
+      - name: One check by the demo vault's pilot
+        env:
+          PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}
+          ONCE: "1"
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then echo "No DEMO_PILOT_KEY secret: skipping the pilot."; exit 0; fi
+          VAULT=$(node -p "require('./deployments/$NETWORK.json').demoVault || ''")
+          if [ -z "$VAULT" ]; then echo "No demo vault in deployments/$NETWORK.json."; exit 0; fi
+          VAULT="$VAULT" npx hardhat run agent/run.ts --network "$NETWORK"

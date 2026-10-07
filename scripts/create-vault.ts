@@ -4,6 +4,7 @@
 //   PRIVATE_KEY=<owner key> PILOT=0x... GOAL="..." USD=10000 npx hardhat run scripts/create-vault.ts --network robinhoodTestnet
 //
 // With DEMO=1 the vault is recorded as the deployment's demo vault, which the web app offers as a read-only view.
+// With CASH=1 the whole amount arrives as the stablecoin, and the pilot invests it within the mandate's limits.
 
 import hre from "hardhat";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -11,7 +12,7 @@ import { parseUnits, zeroAddress, type Address } from "viem";
 import { fmtUsd } from "../agent/planner";
 import { propose } from "../agent/strategist";
 import { LISTINGS, universeOf, type Stack } from "./lib/stack";
-import { demoPilot } from "./lib/demo-pilot";
+import { demoPilot, topUpPilot } from "./lib/demo-pilot";
 
 async function main() {
   const stack: Stack = JSON.parse(readFileSync(`deployments/${hre.network.name}.json`, "utf8"));
@@ -33,8 +34,9 @@ async function main() {
   const vaults = await factory.read.vaultsOf([owner.account.address]);
   const vault = await hre.viem.getContractAt("PilotVault", vaults[vaults.length - 1]);
 
+  const cash = Boolean(process.env.CASH);
   for (const [i, l] of LISTINGS.entries()) {
-    const share = (usd * strategy.mandate.assets[i].targetBps) / 10_000;
+    const share = cash ? ("stable" in l ? usd : 0) : (usd * strategy.mandate.assets[i].targetBps) / 10_000;
     if (share === 0) continue;
     const token = await hre.viem.getContractAt("MockERC20", stack.tokens[l.symbol] as Address);
     const amount = parseUnits((share / l.price).toFixed(Math.min(l.decimals, 8)), l.decimals);
@@ -48,6 +50,7 @@ async function main() {
     const file = `deployments/${hre.network.name}.json`;
     writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), demoVault: vault.address }, null, 2));
     console.log(`Recorded as the demo vault in ${file}`);
+    if (pilot.toLowerCase() !== owner.account.address.toLowerCase()) await topUpPilot(hre, pilot);
   }
 }
 

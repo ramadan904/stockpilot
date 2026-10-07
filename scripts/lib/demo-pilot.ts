@@ -4,7 +4,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import type { Address, Hex } from "viem";
+import { formatEther, parseEther, type Address, type Hex } from "viem";
+import type { HardhatRuntimeEnvironment } from "hardhat/types";
 
 export function demoPilot(network: string): Address {
   const dir = ".secrets";
@@ -19,3 +20,14 @@ export function demoPilot(network: string): Address {
   }
   return privateKeyToAccount(key).address;
 }
+
+/** Keep the demo pilot able to pay for its trades: top it up from the caller when it runs low. */
+export async function topUpPilot(hre: HardhatRuntimeEnvironment, pilot: Address, min = parseEther("0.002"), amount = parseEther("0.005")) {
+  const client = await hre.viem.getPublicClient();
+  const balance = await client.getBalance({ address: pilot });
+  if (balance >= min) return;
+  const [from] = await hre.viem.getWalletClients();
+  await client.waitForTransactionReceipt({ hash: await from.sendTransaction({ to: pilot, value: amount }) });
+  console.log(`Sent ${formatEther(amount)} ETH to the demo pilot ${pilot} for gas (it had ${formatEther(balance)}).`);
+}
+
