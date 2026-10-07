@@ -1527,3 +1527,26 @@ tr.muted td {
   border-radius: 14px;
   box-shadow: 0 10px 40px -18px var(--accent);
 }
+
+/* A live vault's heartbeat: the pilot traded recently. */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
+  animation: pulse 2s ease-out infinite;
+  vertical-align: 1px;
+}
+@keyframes pulse {
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}

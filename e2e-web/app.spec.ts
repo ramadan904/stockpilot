@@ -245,6 +245,7 @@ test("live: create a cash vault, let the pilot invest, pause, and withdraw every
   await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
   const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
   await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
+  await expect(page.getByTestId("last-rebalance")).toContainText(/Last rebalance \d+ (s|min) ago, \d+ trades? in all/);
 
   await page.getByRole("button", { name: "Pause pilot" }).click();
   await expect(page.getByRole("button", { name: "Unpause" })).toBeVisible({ timeout: 30_000 });
@@ -664,6 +665,9 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Pilot's next move")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  // A visitor sees whether the pilot is flying, and the pilot is listed in the marketplace under its own name.
+  await expect(page.getByTestId("last-rebalance")).toContainText(/No trades yet|Last rebalance/);
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot marketplace" }) })).toContainText("StockPilot House Pilot", { timeout: 30_000 });
   // The Verified Mandate card is there for visitors too, read-only.
   await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) })).toContainText(/soulbound/);
   // Attack Theater: nine attacks on the live contract from the pilot's own address, judged by the contract itself.
