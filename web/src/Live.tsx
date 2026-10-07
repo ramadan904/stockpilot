@@ -50,6 +50,7 @@ import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
 import { historyStart, rpcTransport } from "./rpc";
+import { AttackTheater } from "./Theater";
 import { logsInRange } from "../../agent/history";
 
 declare global {
@@ -501,6 +502,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
           </div>
         )}
       </Card>
+
+      <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 

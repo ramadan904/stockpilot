@@ -17,6 +17,8 @@
 1. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**: no wallet, no install.
 2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
    read straight from the chain. Press **Copy this mandate** to make its rules your own draft and simulate them.
+   Press **Simulate a compromised pilot**: the Attack Theater sends nine attacks to the live contract from the pilot's own
+   address and shows the contract's own refusals. Nothing is signed or spent.
 3. In the simulator, press the **attack** buttons: a rogue pilot tries to break the rules and the contract stops it.
 
 ## TL;DR for judges

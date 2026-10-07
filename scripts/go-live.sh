@@ -59,6 +59,8 @@ for net in $NETWORKS; do
     DEMO=1 GOAL="${DEMO_GOAL:-Mostly the S&P 500, some big tech, and cash on hand.}" USD="${DEMO_USD:-10000}" \
       npx hardhat run scripts/create-vault.ts --network "$net"
   fi
+  # The demo vault flies with a pilot of its own, never its owner (a no-op once it has one).
+  npx hardhat run scripts/demo-pilot.ts --network "$net"
 done
 
 npm run web:build

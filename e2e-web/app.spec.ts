@@ -630,6 +630,14 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Pilot's next move")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  // Attack Theater: nine attacks on the live contract from the pilot's own address, judged by the contract itself.
+  await page.getByRole("button", { name: "Simulate a compromised pilot" }).click();
+  await expect(page.getByTestId("theater-summary")).toContainText(/^9 of 9 blocked by the vault contract at block \d+/, { timeout: 30_000 });
+  const rows = page.getByRole("list", { name: "Attack results" }).locator("li");
+  await expect(rows).toHaveCount(9);
+  await expect(rows.filter({ hasText: "Withdraw to its own wallet" })).toContainText("OwnableUnauthorizedAccount");
+  await expect(rows.filter({ hasText: "A stranger trades" })).toContainText("NotPilot");
+  await expect(rows.filter({ hasText: "A stranger claims the vault" })).toContainText("NotHeir");
   expect(errors).toEqual([]);
 });
 

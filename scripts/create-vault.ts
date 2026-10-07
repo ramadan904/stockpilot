@@ -11,12 +11,14 @@ import { parseUnits, zeroAddress, type Address } from "viem";
 import { fmtUsd } from "../agent/planner";
 import { propose } from "../agent/strategist";
 import { LISTINGS, universeOf, type Stack } from "./lib/stack";
+import { demoPilot } from "./lib/demo-pilot";
 
 async function main() {
   const stack: Stack = JSON.parse(readFileSync(`deployments/${hre.network.name}.json`, "utf8"));
   const [owner] = await hre.viem.getWalletClients();
   const client = await hre.viem.getPublicClient();
-  const pilot = (process.env.PILOT ?? owner.account.address) as Address;
+  // A demo vault gets a pilot of its own, so it shows what a pilot can't do; otherwise the owner flies it.
+  const pilot = (process.env.PILOT ?? (process.env.DEMO ? demoPilot(hre.network.name) : owner.account.address)) as Address;
   const goal = process.env.GOAL ?? "A balanced portfolio of big US tech with some cash.";
   const usd = Number(process.env.USD ?? 10_000);
 

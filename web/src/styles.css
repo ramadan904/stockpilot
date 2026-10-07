@@ -1479,3 +1479,41 @@ tr.muted td {
   opacity: 0.55;
   transition: opacity 0.2s ease;
 }
+
+/* Attack Theater: each attempt against the live contract, and its answer. */
+.theater-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.theater-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--bad);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 5%, var(--surface));
+  animation: theater-in 0.35s ease-out;
+}
+.theater-list li.allowed {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+.theater-list code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--bad);
+  overflow-wrap: anywhere;
+}
+@keyframes theater-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theater-list li {
+    animation: none;
+  }
+}
