@@ -5,6 +5,7 @@ import { LISTINGS } from "../../agent/listings";
 import { Card, pct, usd } from "./ui";
 import type { Draft } from "./App";
 import { ImportPortfolio, SpeakButton } from "./Import";
+import { ShareCardButton } from "./ShareCard";
 
 const EXAMPLES = [
   "I'm 30 and believe in AI and big tech for the long run. I can handle swings but want some cash on hand.",
@@ -63,6 +64,23 @@ export function Strategist(props: {
           draft && (
             <span className="row" style={{ gap: 6 }}>
               <ShareStrategy draft={draft} />
+              <ShareCardButton
+                fileName="stockpilot-strategy"
+                label="Strategy card"
+                input={() => ({
+                  kicker: `Strategy · ${draft.proposal.risk_level}`,
+                  title: `A ${draft.proposal.risk_level} mandate`,
+                  summary: draft.proposal.summary,
+                  allocations: draft.proposal.allocations.map((a) => ({ symbol: a.symbol, percent: a.weight_percent })),
+                  rules: [
+                    `Drift band ±${draft.proposal.band_percent} pts`,
+                    `Max trade ${draft.proposal.max_trade_percent}% of the portfolio`,
+                    `Daily turnover ${draft.proposal.daily_turnover_percent}%`,
+                    "Every trade checked onchain by the vault",
+                  ],
+                  site: window.location.host,
+                })}
+              />
               <span className={`pill ${draft.source === "preset" ? "warn" : "info"}`} data-testid="draft-source">
                 {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : draft.source === "imported" ? "From your holdings" : "Offline preset"}
               </span>

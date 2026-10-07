@@ -27,6 +27,7 @@ import type { Draft } from "./App";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
 import { MoodLamp } from "./Glow";
+import { ShareCardButton } from "./ShareCard";
 import { vaultMood } from "../../agent/mood";
 import { ActivityFeed } from "./Activity";
 import { AlertsCard } from "./Alerts";
@@ -432,6 +433,29 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         aside={
           <span className="row" style={{ gap: 6 }}>
             <ShareButton chainId={ctx.chain.id} vault={vault} />
+            <ShareCardButton
+              fileName={`stockpilot-vault-${vault.slice(2, 8).toLowerCase()}`}
+              label="Vault card"
+              input={() => {
+                const total = totalUsd(state.assets);
+                const share = (usdWad: bigint) => (total > 0n ? Number((usdWad * 1000n) / total) / 10 : 0);
+                const widest = Math.max(...state.assets.map((a) => a.bandBps)) / 100;
+                return {
+                  kicker: `Live vault · ${ctx.chain.name}`,
+                  title: `Vault ${shortAddr(vault)}`,
+                  summary: "A vault its owner controls. The pilot rebalances it, and the contract checks every trade against this mandate.",
+                  allocations: state.assets.map((a) => ({ symbol: a.symbol, percent: a.targetBps / 100 })),
+                  rules: [
+                    `Drift band up to ±${widest} pts`,
+                    `Max trade ${share(state.limits.maxTradeUsd)}% of the vault`,
+                    `Daily turnover ${share(state.limits.dailyLimitUsd)}%`,
+                    `Slippage at most ${state.limits.maxSlippageBps / 100}% from oracle prices`,
+                  ],
+                  status: { label: mood.label, mood: mood.mood },
+                  site: window.location.host,
+                };
+              }}
+            />
             <span className={`pill ${state.paused ? "bad" : "ok"}`}>{state.paused ? "Paused" : "Active"}</span>
           </span>
         }

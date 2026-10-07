@@ -111,6 +111,27 @@ test("the page's light follows the vault: the aura is the draft, the lamp the dr
   expect(errors).toEqual([]);
 });
 
+test("a strategy becomes a card to post: previewed, then saved as a PNG", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Strategy card" }).click();
+  const dialog = page.getByRole("dialog", { name: "Share card" });
+  await expect(dialog.getByRole("img")).toHaveAttribute("alt", /^A balanced mandate: USDG 30%, TSLA 17.5%.*Drift band ±\d+ pts/);
+  const [download] = await Promise.all([page.waitForEvent("download"), dialog.getByRole("button", { name: "Download PNG" }).click()]);
+  expect(download.suggestedFilename()).toBe("stockpilot-strategy.png");
+  const png = await download.createReadStream().then(async (s) => {
+    const chunks: Buffer[] = [];
+    for await (const c of s) chunks.push(c as Buffer);
+    return Buffer.concat(chunks);
+  });
+  // A real PNG, drawn at twice the card's 1200x630.
+  expect(png.subarray(1, 4).toString()).toBe("PNG");
+  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2400, 1260]);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test("the backtest never proposes a trade the vault would reject", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Backtest" }).click();
@@ -615,6 +636,10 @@ test("a shared link opens a vault read-only, without a wallet", async ({ page, c
   await expect(visitor.locator(".stat").filter({ hasText: "Your role" })).toContainText("Viewer");
   await expect(visitor.locator(".stat").filter({ hasText: "Value" }).first()).toContainText("$");
   await expect(visitor.getByRole("heading", { name: "Activity" })).toBeVisible();
+  // The vault as a card: its targets, its mood and its rules, read from the chain.
+  await visitor.getByRole("button", { name: "Vault card" }).click();
+  await expect(visitor.getByRole("dialog", { name: "Share card" }).getByRole("img")).toHaveAttribute("alt", /^Vault 0x.*USDG \d+(\.\d)?%.*Slippage at most/);
+  await visitor.keyboard.press("Escape");
   // Nothing that needs a signature is offered.
   await expect(visitor.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
   await expect(visitor.getByRole("button", { name: "Run pilot (send planned trade)" })).toHaveCount(0);
