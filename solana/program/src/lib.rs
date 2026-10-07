@@ -38,15 +38,19 @@ pub const MAX_ASSETS: usize = 8;
 pub const VAULT_TAG: [u8; 8] = *b"SPVAULT1";
 pub const FEED_TAG: [u8; 8] = *b"SPPRICE1";
 /// Enough for a vault with the maximum number of assets.
-pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + INHERITANCE_SPACE + GUARD_SPACE + 64;
+pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + INHERITANCE_SPACE + GUARD_SPACE + RECURRING_SPACE + 64;
 const INHERITANCE_SPACE: usize = 32 + 4 + 8;
 const GUARD_SPACE: usize = 32 + 2 + 2 + 1 + 16;
+const RECURRING_SPACE: usize = 32 + 32 + 8 + 4 + 8;
 /// Inheritance periods, as on the EVM vault: 30 days to 10 years.
 pub const MIN_INACTIVITY: u32 = 30 * 86_400;
 pub const MAX_INACTIVITY: u32 = 3_650 * 86_400;
 /// Crash guard trigger, as on the EVM vault: a 5% to 50% fall from the peak.
 pub const MIN_DRAWDOWN_BPS: u16 = 500;
 pub const MAX_DRAWDOWN_BPS: u16 = 5_000;
+/// Recurring investment interval, as on the EVM vault: daily to yearly.
+pub const MIN_RECURRING_INTERVAL: u32 = 86_400;
+pub const MAX_RECURRING_INTERVAL: u32 = 365 * 86_400;
 pub const FEED_SPACE: usize = 8 + 32 + 8 + 8;
 const PRICE_TO_WAD: u128 = 10_000_000_000; // 8-decimal feed price to 18 decimals
 
@@ -104,6 +108,14 @@ pub struct Vault {
     pub drawdown_bps: u16,
     pub defensive: bool,
     pub peak_usd: u128,
+    /// Recurring investment: `recurring_amount` of `recurring_mint` from the owner's token account `recurring_source`
+    /// (which the owner approves the vault authority PDA as delegate of), at most once per `recurring_interval`, next
+    /// due at `recurring_next_at`. Zero amount means off.
+    pub recurring_mint: [u8; 32],
+    pub recurring_source: [u8; 32],
+    pub recurring_amount: u64,
+    pub recurring_interval: u32,
+    pub recurring_next_at: i64,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +162,13 @@ pub enum StockPilotInstruction {
     Poke,
     /// Accounts: [vault (w), owner (signer)]
     ExitDefensive,
+    /// Accounts: [vault (w), owner (signer), source (the owner's token account of `mint`)]. `amount == 0` turns it off.
+    /// The owner then approves the vault authority PDA as the source's delegate (SPL Token `Approve`), which caps
+    /// what can ever be pulled. The first pull is due now.
+    SetRecurringDeposit { mint: [u8; 32], amount: u64, interval: u32 },
+    /// Accounts: [vault (w), vault authority, source (w), the mint's vault token account (w), token program]. Anyone,
+    /// when due; missed periods are not caught up.
+    PullRecurringDeposit,
 }
 
 /// Program errors. Codes 0 to 11 are the mandate reasons, in the same names the EVM contract uses.
@@ -174,6 +193,9 @@ pub enum StockPilotError {
     DrawdownOutOfRange,
     InvalidSafeTarget,
     CrashGuardOff,
+    IntervalOutOfRange,
+    RecurringOff,
+    RecurringNotDue,
 }
 
 impl StockPilotError {
@@ -198,6 +220,9 @@ impl StockPilotError {
             StockPilotError::DrawdownOutOfRange => 115,
             StockPilotError::InvalidSafeTarget => 116,
             StockPilotError::CrashGuardOff => 117,
+            StockPilotError::IntervalOutOfRange => 118,
+            StockPilotError::RecurringOff => 119,
+            StockPilotError::RecurringNotDue => 120,
         }
     }
 }
@@ -235,6 +260,8 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
             v.defensive = false;
             v.peak_usd = 0;
         }),
+        StockPilotInstruction::SetRecurringDeposit { mint, amount, interval } => set_recurring(program_id, accounts, mint, amount, interval),
+        StockPilotInstruction::PullRecurringDeposit => pull_recurring(program_id, accounts),
     }
 }
 
@@ -467,6 +494,11 @@ fn init_vault(program_id: &Pubkey, accounts: &[AccountInfo], pilot: [u8; 32], ve
         drawdown_bps: 0,
         defensive: false,
         peak_usd: 0,
+        recurring_mint: [0; 32],
+        recurring_source: [0; 32],
+        recurring_amount: 0,
+        recurring_interval: 0,
+        recurring_next_at: 0,
     };
     save(vault_info, &vault)
 }
@@ -493,6 +525,10 @@ fn set_mandate(program_id: &Pubkey, accounts: &[AccountInfo], assets: Vec<AssetC
     } else if !vault.defensive {
         // Dropped assets are unpriced, which lowers the measured value without any crash: re-arm.
         vault.peak_usd = 0;
+    }
+    // A recurring investment into an asset no longer in the mandate stops.
+    if vault.recurring_amount != 0 && !vault.assets.iter().any(|a| a.mint == vault.recurring_mint) {
+        stop_recurring(&mut vault);
     }
     save(vault_info, &vault)
 }
@@ -546,6 +582,8 @@ fn claim_inheritance(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramRe
     vault.heir = [0; 32];
     vault.inactivity_period = 0;
     vault.last_owner_activity = now;
+    // Pulls must never come from a wallet whose owner did not set them up.
+    stop_recurring(&mut vault);
     save(vault_info, &vault)
 }
 
@@ -766,4 +804,99 @@ fn withdraw(program_id: &Pubkey, accounts: &[AccountInfo], amount: u64) -> Progr
         data,
     };
     invoke_signed(&ix, &[source.clone(), destination.clone(), authority.clone(), token_program.clone()], &[&[b"authority", vault_info.key.as_ref(), &[bump]]])
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Recurring investment
+// ---------------------------------------------------------------------------------------------------------------------
+
+fn stop_recurring(v: &mut Vault) {
+    v.recurring_mint = [0; 32];
+    v.recurring_source = [0; 32];
+    v.recurring_amount = 0;
+    v.recurring_interval = 0;
+    v.recurring_next_at = 0;
+}
+
+fn set_recurring(program_id: &Pubkey, accounts: &[AccountInfo], mint: [u8; 32], amount: u64, interval: u32) -> ProgramResult {
+    // Turning it off needs no source account.
+    let source = if amount == 0 { None } else { Some(accounts.get(2).ok_or(ProgramError::NotEnoughAccountKeys)?) };
+    let source_key = source.map(|a| a.key.to_bytes()).unwrap_or_default();
+    let source_account = source.map(token_account).transpose()?;
+    let mut err = None;
+    owner_update(program_id, accounts, |v| {
+        let Some((source_mint, source_owner, _)) = source_account else {
+            stop_recurring(v);
+            return;
+        };
+        if !v.assets.iter().any(|a| a.mint == mint) {
+            err = Some(StockPilotError::Mandate(core::Reason::AssetNotInMandate));
+        } else if !(MIN_RECURRING_INTERVAL..=MAX_RECURRING_INTERVAL).contains(&interval) {
+            err = Some(StockPilotError::IntervalOutOfRange);
+        } else if source_mint != mint || source_owner != v.owner {
+            // Only the owner's own account of that mint: never someone else's wallet, never another token.
+            err = Some(StockPilotError::WrongAccount);
+        } else {
+            v.recurring_mint = mint;
+            v.recurring_source = source_key;
+            v.recurring_amount = amount;
+            v.recurring_interval = interval;
+            v.recurring_next_at = 0; // due now
+        }
+    })?;
+    match err {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
+
+/// Moves the owner's recurring investment into the vault with the vault authority's delegated signature.
+fn pull_recurring(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
+    let it = &mut accounts.iter();
+    let vault_info = next_account_info(it)?;
+    let authority = next_account_info(it)?;
+    let source = next_account_info(it)?;
+    let destination = next_account_info(it)?;
+    let token_program = next_account_info(it)?;
+    let mut vault = load_vault(program_id, vault_info)?;
+    if vault.paused {
+        return Err(StockPilotError::Mandate(core::Reason::EnforcedPause).into());
+    }
+    if vault.recurring_amount == 0 {
+        return Err(StockPilotError::RecurringOff.into());
+    }
+    let now = now()?;
+    if now < vault.recurring_next_at {
+        return Err(StockPilotError::RecurringNotDue.into());
+    }
+    let (authority_key, bump) = vault_authority(vault_info.key, program_id);
+    let asset = vault.assets.iter().find(|a| a.mint == vault.recurring_mint).ok_or(StockPilotError::Mandate(core::Reason::AssetNotInMandate))?;
+    // Still the owner's account the owner chose, and the mandate's own vault account for that mint.
+    let (source_mint, source_owner, _) = token_account(source)?;
+    let (dest_mint, dest_owner, _) = token_account(destination)?;
+    if *authority.key != authority_key
+        || *token_program.key != TOKEN_PROGRAM_ID
+        || source.key.to_bytes() != vault.recurring_source
+        || source_mint != vault.recurring_mint
+        || source_owner != vault.owner
+        || destination.key.to_bytes() != asset.vault_token
+        || dest_mint != vault.recurring_mint
+        || dest_owner != authority_key.to_bytes()
+    {
+        return Err(StockPilotError::WrongAccount.into());
+    }
+    let amount = vault.recurring_amount;
+    vault.recurring_next_at = now + vault.recurring_interval as i64;
+    save(vault_info, &vault)?;
+    // SPL Token `Transfer` (instruction 3) as the source's delegate: source, destination, authority.
+    let mut data = vec![3u8];
+    data.extend_from_slice(&amount.to_le_bytes());
+    let ix = Instruction {
+        program_id: TOKEN_PROGRAM_ID,
+        accounts: vec![AccountMeta::new(*source.key, false), AccountMeta::new(*destination.key, false), AccountMeta::new_readonly(authority_key, true)],
+        data,
+    };
+    invoke_signed(&ix, &[source.clone(), destination.clone(), authority.clone(), token_program.clone()], &[&[b"authority", vault_info.key.as_ref(), &[bump]]])?;
+    msg!("Recurring deposit: {} into {}, next due at {}", amount, destination.key, vault.recurring_next_at);
+    Ok(())
 }

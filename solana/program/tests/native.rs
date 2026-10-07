@@ -52,10 +52,22 @@ fn set_amount(info: &AccountInfo, amount: u64) {
     info.data.borrow_mut()[64..72].copy_from_slice(&amount.to_le_bytes());
 }
 
-/// SPL Token `Transfer`: the authority must own the source and must be a signer of this invocation.
+/// SPL Token `Transfer`: the authority must be the source's owner, or its delegate within the delegated amount (which
+/// the transfer uses up, clearing the delegate at zero, as SPL Token does), and must sign this invocation.
 fn token_transfer(src: &AccountInfo, dst: &AccountInfo, authority: &Pubkey, amount: u64) -> ProgramResult {
     if src.data.borrow()[32..64] != authority.to_bytes() {
-        return Err(ProgramError::IllegalOwner);
+        let mut data = src.data.borrow_mut();
+        let delegated = u64::from_le_bytes(data[121..129].try_into().unwrap());
+        if data[72..76] != [1, 0, 0, 0] || data[76..108] != authority.to_bytes() {
+            return Err(ProgramError::IllegalOwner);
+        }
+        if delegated < amount {
+            return Err(ProgramError::InsufficientFunds);
+        }
+        data[121..129].copy_from_slice(&(delegated - amount).to_le_bytes());
+        if delegated == amount {
+            data[72..108].fill(0);
+        }
     }
     let have = amount_of(src);
     if have < amount {
@@ -345,6 +357,10 @@ const INACTIVITY_RANGE: u32 = 114;
 const DRAWDOWN_RANGE: u32 = 115;
 const INVALID_SAFE_TARGET: u32 = 116;
 const CRASH_GUARD_OFF: u32 = 117;
+const NOT_IN_MANDATE: u32 = 5;
+const INTERVAL_RANGE: u32 = 118;
+const RECURRING_OFF: u32 = 119;
+const RECURRING_NOT_DUE: u32 = 120;
 const DAY: i64 = 86_400;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -782,4 +798,130 @@ fn dropping_an_asset_re_arms_the_guard_instead_of_tripping_it() {
     let data = &world.accounts[&world.vault].data;
     let used = borsh::to_vec(&world.vault_state()).unwrap().len();
     assert!(data[used..].iter().all(|b| *b == 0));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Recurring investment, as on the EVM vault
+// ---------------------------------------------------------------------------------------------------------------------
+
+impl World {
+    /// A token account of `mint` owned by `owner`, holding `amount`.
+    fn wallet(&mut self, k: Pubkey, mint: Pubkey, owner: Pubkey, amount: u64) -> Pubkey {
+        self.accounts.insert(k, Acc { owner: TOKEN_PROGRAM_ID, lamports: 1, data: token_data(&mint, &owner, amount), executable: false });
+        k
+    }
+
+    /// SPL Token `Approve`, as the owner signs it in their wallet: `delegate` may move up to `amount` from `account`.
+    fn approve(&mut self, account: Pubkey, delegate: Pubkey, amount: u64) {
+        let d = &mut self.accounts.get_mut(&account).unwrap().data;
+        d[72..76].copy_from_slice(&[1, 0, 0, 0]);
+        d[76..108].copy_from_slice(delegate.as_ref());
+        d[121..129].copy_from_slice(&amount.to_le_bytes());
+    }
+
+    fn set_recurring(&mut self, mint: Pubkey, source: Pubkey, amount: u64, interval: u32) -> ProgramResult {
+        let (vault, owner) = (self.vault, self.owner);
+        self.call(StockPilotInstruction::SetRecurringDeposit { mint: mint.to_bytes(), amount, interval }, &[w(vault), s(owner), r(source)])
+    }
+
+    /// Anyone can pull: no signer at all.
+    fn pull(&mut self, source: Pubkey, destination: Pubkey) -> ProgramResult {
+        let metas = [w(self.vault), r(self.authority), w(source), w(destination), r(TOKEN_PROGRAM_ID)];
+        self.call(StockPilotInstruction::PullRecurringDeposit, &metas)
+    }
+}
+
+const USDG: u64 = 1_000_000; // 6 decimals
+
+#[test]
+fn recurring_investment_pulls_on_schedule_within_the_owners_approval() {
+    let mut world = World::new();
+    let (usdg, nvda, owner, pilot) = (world.mints[0], world.mints[1], world.owner, world.pilot);
+    let wallet = world.wallet(key(70), usdg, owner, 1_000 * USDG);
+    let week = 7 * DAY as u32;
+
+    assert_eq!(code(world.set_recurring(usdg, wallet, 100 * USDG, DAY as u32 - 1)), INTERVAL_RANGE);
+    assert_eq!(code(world.set_recurring(usdg, wallet, 100 * USDG, 366 * DAY as u32)), INTERVAL_RANGE);
+    assert_eq!(code(world.set_recurring(key(99), wallet, 100 * USDG, week)), NOT_IN_MANDATE);
+    // Only the owner's own account of that very mint.
+    let theirs = world.wallet(key(71), usdg, pilot, 1_000 * USDG);
+    assert_eq!(code(world.set_recurring(usdg, theirs, 100 * USDG, week)), WRONG_ACCOUNT);
+    let other_mint = world.wallet(key(72), nvda, owner, 1_000 * USDG);
+    assert_eq!(code(world.set_recurring(usdg, other_mint, 100 * USDG, week)), WRONG_ACCOUNT);
+    assert_eq!(code(world.pull(wallet, world.tokens[0])), RECURRING_OFF);
+
+    world.set_recurring(usdg, wallet, 100 * USDG, week).unwrap();
+    // Without the owner's approval the token program refuses the vault authority.
+    assert!(world.pull(wallet, world.tokens[0]).is_err());
+    // (That failure would revert on a cluster; here, set it again rather than rely on state after an error.)
+    world.set_recurring(usdg, wallet, 100 * USDG, week).unwrap();
+
+    let vault_usdg = world.tokens[0];
+    let before = world.balance(&vault_usdg);
+    world.approve(wallet, world.authority, 250 * USDG);
+    world.pull(wallet, vault_usdg).unwrap();
+    assert_eq!(world.balance(&vault_usdg), before + 100 * USDG);
+    assert_eq!(world.balance(&wallet), 900 * USDG);
+    assert_eq!(world.vault_state().recurring_next_at, NOW.load(Ordering::SeqCst) + week as i64);
+    assert_eq!(code(world.pull(wallet, vault_usdg)), RECURRING_NOT_DUE);
+
+    // Into the mandate's own account for that mint, from the account the owner chose, and nowhere else.
+    NOW.fetch_add(week as i64, Ordering::SeqCst);
+    let elsewhere = world.wallet(key(73), usdg, pilot, 0);
+    assert_eq!(code(world.pull(wallet, elsewhere)), WRONG_ACCOUNT);
+    assert_eq!(code(world.pull(wallet, world.tokens[1])), WRONG_ACCOUNT);
+    let second = world.wallet(key(74), usdg, owner, 1_000 * USDG);
+    world.approve(second, world.authority, 1_000 * USDG);
+    assert_eq!(code(world.pull(second, vault_usdg)), WRONG_ACCOUNT);
+
+    // Paused, nothing moves; resumed, it does. Missed periods are not caught up.
+    world.owner_call(StockPilotInstruction::Pause).unwrap();
+    assert_eq!(code(world.pull(wallet, vault_usdg)), ENFORCED_PAUSE);
+    world.owner_call(StockPilotInstruction::Unpause).unwrap();
+    NOW.fetch_add(3 * week as i64, Ordering::SeqCst);
+    world.pull(wallet, vault_usdg).unwrap();
+    assert_eq!(code(world.pull(wallet, vault_usdg)), RECURRING_NOT_DUE);
+
+    // The approval caps it: 50 left of 250, so the next pull of 100 is refused by the token program.
+    NOW.fetch_add(week as i64, Ordering::SeqCst);
+    assert!(world.pull(wallet, vault_usdg).is_err());
+    assert_eq!(world.balance(&wallet), 800 * USDG);
+}
+
+#[test]
+fn recurring_investment_stops_when_turned_off_the_asset_leaves_or_the_owner_changes() {
+    let mut world = World::new();
+    let (owner, heir) = (world.owner, key(4));
+    let week = 7 * DAY as u32;
+
+    // Off: no source account needed.
+    let usdg = world.mints[0];
+    let wallet = world.wallet(key(70), usdg, owner, 1_000 * USDG);
+    world.approve(wallet, world.authority, 1_000 * USDG);
+    world.set_recurring(usdg, wallet, 100 * USDG, week).unwrap();
+    let (vault, vault_usdg) = (world.vault, world.tokens[0]);
+    world.call(StockPilotInstruction::SetRecurringDeposit { mint: usdg.to_bytes(), amount: 0, interval: 0 }, &[w(vault), s(owner)]).unwrap();
+    assert_eq!(code(world.pull(wallet, vault_usdg)), RECURRING_OFF);
+
+    // Dropping the asset from the mandate stops it.
+    let stock = world.mints[3];
+    let stock_wallet = world.wallet(key(75), stock, owner, 1_000);
+    world.approve(stock_wallet, world.authority, 1_000);
+    world.set_recurring(stock, stock_wallet, 10, week).unwrap();
+    let mut assets = world.mandate(3_334, 500);
+    assets.truncate(3);
+    assets[1].target_bps = 3_333;
+    assets[2].target_bps = 3_333;
+    let mut metas = vec![w(vault), s(owner)];
+    metas.extend(world.tokens[..3].iter().map(|t| r(*t)));
+    world.call(StockPilotInstruction::SetMandate { assets, limits: LIMITS }, &metas).unwrap();
+    assert_eq!(world.vault_state().recurring_amount, 0);
+
+    // A new owner never inherits the old owner's pulls, even with the approval still standing.
+    world.set_recurring(usdg, wallet, 100 * USDG, week).unwrap();
+    world.owner_call(StockPilotInstruction::SetHeir { heir: heir.to_bytes(), period: 30 * DAY as u32 }).unwrap();
+    NOW.fetch_add(30 * DAY, Ordering::SeqCst);
+    world.call(StockPilotInstruction::ClaimInheritance, &[w(vault), s(heir)]).unwrap();
+    assert_eq!(code(world.pull(wallet, vault_usdg)), RECURRING_OFF);
+    assert_eq!(world.balance(&wallet), 1_000 * USDG);
 }

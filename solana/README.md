@@ -38,6 +38,7 @@ It is proven equal to the other two implementations by a chain of tests:
 | `Withdraw` | Owner | Any amount of any vault token account, paused or not, signed by the vault authority PDA. Re-arms the crash guard |
 | `SetHeir`, `CheckIn`, `ClaimInheritance` | Owner; heir | Inheritance as on the EVM vault: after 30 days to 10 years with no owner action (every owner instruction counts, the pilot's never do), the heir becomes the owner |
 | `SetCrashGuard`, `Poke`, `ExitDefensive` | Owner; anyone; owner | The crash guard as on the EVM vault: past the set fall from the recorded peak, defensive targets; `Rebalance` runs the same check first, so a pilot that never pokes is judged on them anyway |
+| `SetRecurringDeposit`, `PullRecurringDeposit` | Owner; anyone | Recurring investment as on the EVM vault: a set amount of one mandate asset from the owner's own token account, daily to yearly. The owner approves the vault authority PDA as that account's SPL Token delegate, so the approval caps what can ever be pulled; the pull goes only into the mandate's vault account for that mint, never while paused, and missed periods are not caught up. Stops when the asset leaves the mandate or the vault changes owner |
 | `InitPriceFeed`, `SetPrice` | Feed authority | A demo USD price with 8 decimals and its update time, for local testing |
 
 **Prices.** Each asset names its price account. A Pyth `PriceUpdateV2` account (owned by Pyth's receiver program
@@ -46,8 +47,8 @@ must be fully verified, it must carry the asset's configured Pyth feed id (so a 
 price), the price must be positive with a confidence interval within 1%, and its publish time must be within the
 mandate's `max_price_age`. Demo feed accounts owned by this program are accepted for local testing.
 
-**Account layout.** The vault account holds one borsh-serialized `Vault`; inheritance and the crash guard are
-appended after the trading state (layout v2, `VAULT_SPACE` sized for it). No v1 vault was ever deployed, so there is
+**Account layout.** The vault account holds one borsh-serialized `Vault`; inheritance, the crash guard and the
+recurring investment are appended after the trading state (`VAULT_SPACE` sized for all of it). No v1 vault was ever deployed, so there is
 nothing to migrate; a deployed program would add a version tag and a `realloc` path before changing the layout again.
 
 The vault authority is the PDA `["authority", vault]`: it owns the vault's token accounts and only this program can
@@ -57,14 +58,17 @@ sign for it, so no key, not even the pilot's, can move the vault's tokens outsid
 
 The Solana build toolchain (`cargo build-sbf`) downloads from GitHub, which the environment this was built in could not
 reach, so the program runs **natively on the host** in `program/tests/native.rs`. The runtime is simulated with the
-SDK's `program_stubs`: the SPL Token program's `Transfer`, a stand-in DEX venue, and the runtime's signer rule (every
+SDK's `program_stubs`: the SPL Token program's `Transfer` (by owner or delegate), a stand-in DEX venue, and the runtime's signer rule (every
 signer of a cross-program call must have signed the transaction or be a PDA the caller proves with its seeds). The
 tests cover: creating a vault, a rebalance after a rally, refusing to concentrate the portfolio, judging fills against
 the oracle, a venue that takes too much, pilot-only trading through the owner's venue, a pilot substituting its own
 price feed, feed authority, stale prices refused before any swap, cooldown and trade size, pause and resume, owner
 withdrawal through the PDA even when paused, unsigned PDA transfers rejected, re-mandating without resetting the
 budget, and Pyth accounts: a trade priced by Pyth, and partial verification, another feed's account, a wide confidence
-interval and a stale publish time each refused.
+interval and a stale publish time each refused; inheritance and the crash guard; and recurring investments pulled on
+schedule as the SPL Token delegate (the stub enforces the delegate and its remaining allowance, as SPL Token does), into
+the right account only, never from anyone else's wallet, and stopped by pausing, turning off, a mandate without the
+asset, or a change of owner.
 
 Not yet shown, because it needs a real validator: compute-unit cost, rollback of the venue's transfers on failure
 (the runtime guarantees it; the native tests never rely on state after an error), integration with a real DEX

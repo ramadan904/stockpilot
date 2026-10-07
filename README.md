@@ -35,7 +35,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
 | **Owner tools** | | Monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
-| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance and the crash guard | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
+| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance, the crash guard and recurring investments | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
 
 ## Try it in ten seconds
 
@@ -251,7 +251,8 @@ you like: any agent with the pilot key gets the same onchain limits.
 [`solana/`](solana) has the same mandate rules as a `no_std` Rust crate, proven to reach the same verdicts as the
 TypeScript model (and so the EVM contract) on 3,000 random scenarios, and a Solana program built on it: vault PDAs that
 own the token accounts, pilot-only `Rebalance` through an owner-chosen venue judged on what actually arrived, owner-only
-`Withdraw`, pause. Tested natively with a simulated runtime; see [solana/README.md](solana/README.md) for what that does
+`Withdraw`, pause, Pyth prices, inheritance, the crash guard and recurring investments (pulled as the owner's SPL Token
+delegate, capped by the approval). Tested natively with a simulated runtime; see [solana/README.md](solana/README.md) for what that does
 and does not prove.
 
 ## Gas
