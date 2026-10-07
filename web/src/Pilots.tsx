@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Abi, Address, Hash, PublicClient, WalletClient, Chain } from "viem";
-import { emptyRecord, listPilots, trackRecords, type PilotEntry, type TrackRecord } from "../../agent/pilots";
+import { emptyRecord, listPilots, pilotScores, trackRecords, type PilotEntry, type PilotScore, type TrackRecord } from "../../agent/pilots";
 import { pilotRegistryAbi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import type { Deployment } from "./chains";
 import { Card, usd } from "./ui";
@@ -10,12 +10,14 @@ import { Card, usd } from "./ui";
 export interface Market {
   pilots: PilotEntry[];
   records: Map<string, TrackRecord>;
+  /** Value added after fees against holding, per pilot (lower-cased address); empty until read or if the RPC refuses. */
+  scores: Map<string, PilotScore>;
   /** Registry entry by lower-cased address. */
   byAddress: Map<string, PilotEntry>;
   error?: string;
 }
 
-const EMPTY: Market = { pilots: [], records: new Map(), byAddress: new Map() };
+const EMPTY: Market = { pilots: [], records: new Map(), scores: new Map(), byAddress: new Map() };
 
 /** The registry and every listed pilot's track record. Re-reads when `refresh` changes. */
 export function useMarket(client: PublicClient, deployment: Deployment | undefined, refresh: number): Market {
@@ -31,7 +33,12 @@ export function useMarket(client: PublicClient, deployment: Deployment | undefin
       const records = await trackRecords(client, { factory: pilotVaultFactoryAbi as Abi, vault: pilotVaultAbi as Abi }, deployment.factory, pilots.map((p) => p.address)).catch(
         () => new Map<string, TrackRecord>(),
       );
-      if (live) setMarket({ pilots, records, byAddress });
+      if (live) setMarket({ pilots, records, scores: new Map(), byAddress });
+      // Scores read each vault's history at sampled blocks: slower, so they fill in after the directory shows.
+      const scores = await pilotScores(client, { factory: pilotVaultFactoryAbi as Abi, vault: pilotVaultAbi as Abi }, deployment.factory, pilots.map((p) => p.address)).catch(
+        () => new Map<string, PilotScore>(),
+      );
+      if (live) setMarket({ pilots, records, scores, byAddress });
     })().catch((e) => live && setMarket({ ...EMPTY, error: (e as Error).message.split("\n")[0] }));
     return () => {
       live = false;
@@ -50,6 +57,17 @@ function recordLine(r: TrackRecord | undefined) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+const signedPct = (bps: number) => `${bps > 0 ? "+" : bps < 0 ? "−" : ""}${(Math.abs(bps) / 100).toFixed(2)}%`;
+
+/** Active pilots first, then by value added (unscored last), then by registration. */
+function ranked(market: Market) {
+  const added = (p: PilotEntry) => market.scores.get(p.address.toLowerCase())?.addedBps ?? -Infinity;
+  return market.pilots
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => Number(b.p.active) - Number(a.p.active) || added(b.p) - added(a.p) || a.i - b.i)
+    .map((x) => x.p);
 }
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -141,30 +159,46 @@ export function MarketplaceCard(props: {
               <tr>
                 <th>Pilot</th>
                 <th className="num">Asks</th>
-                <th className="num">Vaults</th>
-                <th className="num">Value</th>
-                <th className="num">Trades</th>
+                <th className="num" title="What the pilot's vaults are worth against holding what it took over, after fees">Added vs holding</th>
               </tr>
             </thead>
             <tbody>
-              {market.pilots.map((p) => {
+              {ranked(market).map((p) => {
                 const r = market.records.get(p.address.toLowerCase()) ?? emptyRecord();
+                const sc = market.scores.get(p.address.toLowerCase());
                 return (
                   <tr key={p.address} style={p.active ? undefined : { opacity: 0.55 }}>
                     <td>
                       <div>{p.name}{p.address.toLowerCase() === me.toLowerCase() ? " (you)" : ""}{p.active ? "" : " (retired)"}</div>
                       <div className="mono muted small">{short(p.address)}</div>
+                      <div className="muted small">
+                        {r.vaults} vault{r.vaults === 1 ? "" : "s"}{r.paused ? ` (${r.paused} paused)` : ""} · {usd(r.aumUsd, false)} · {r.trades} trade{r.trades === 1 ? "" : "s"}
+                      </div>
                     </td>
                     <td className="num">{(p.feeBps / 100).toFixed(2)}%</td>
-                    <td className="num">{r.vaults}{r.paused ? ` (${r.paused} paused)` : ""}</td>
-                    <td className="num">{usd(r.aumUsd, false)}</td>
-                    <td className="num">{r.trades}</td>
+                    <td className="num" data-testid="added">
+                      {sc?.addedBps == null ? "–" : <strong className={sc.addedBps > 0 ? "up" : sc.addedBps < 0 ? "down" : ""}>{signedPct(sc.addedBps)}</strong>}
+                      {sc?.addedBps != null && (
+                        <div className="small muted" data-testid="falls">
+                          worst fall {sc.worstFallPct.toFixed(1)}% vs {sc.untradedWorstFallPct.toFixed(1)}%
+                          <br />
+                          {sc.vaultDays < 10 ? sc.vaultDays.toFixed(1) : Math.round(sc.vaultDays)} vault-days
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+      )}
+      {market.scores.size > 0 && (
+        <p className="muted small" style={{ marginBottom: 0 }}>
+          Ranked by value added after fees: each vault against holding what the pilot took over (plus later deposits, minus withdrawals), at
+          the vaults' own oracle prices, all read from the chain. Worst fall is per dollar invested, the pilot's vaults then holding. Few vault-days
+          mean little evidence either way.
+        </p>
       )}
       {!canList ? null : !open ? (
         <button className="btn small" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>

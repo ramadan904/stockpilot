@@ -9,7 +9,7 @@ import { z } from "zod/v4";
 import { rationaleHash, readVault, revertReason } from "./chain";
 import { BPS, WAD, amountFor, available, check, eq, valueOf, type AssetState, type VaultState } from "./model";
 import { drift, fmtUsd, pct, plan } from "./planner";
-import { listPilots, trackRecords } from "./pilots";
+import { listPilots, pilotScores, trackRecords } from "./pilots";
 
 export interface McpConfig {
   client: PublicClient;
@@ -258,18 +258,25 @@ export function createStockPilotServer(cfg: McpConfig) {
         if (!pilots.length) return text("No pilots are listed yet. Use register_as_pilot to be the first.");
         // Track records need event logs; an RPC that limits log ranges should not hide the directory itself.
         const records = await trackRecords(client, { factory: market.factoryAbi, vault: vaultAbi }, market.factory, pilots.map((p) => p.address)).catch(() => null);
+        const scores = await pilotScores(client, { factory: market.factoryAbi, vault: vaultAbi }, market.factory, pilots.map((p) => p.address)).catch(() => null);
         const me = cfg.wallet?.account?.address;
         return text(
           pilots
             .map((p) => {
               const r = records?.get(p.address.toLowerCase());
+              const sc = scores?.get(p.address.toLowerCase());
               return [
                 `${p.name} (${p.address})${me && eq(me, p.address) ? " (this server)" : ""}${p.active ? "" : " RETIRED"}`,
                 `  asks ${(p.feeBps / 100).toFixed(2)}% a year${p.uri ? `; ${p.uri}` : ""}`,
                 r
                   ? `  flies ${r.vaults} vault(s) worth ${fmtUsd(r.aumUsd)}, ${r.paused} paused; ${r.trades} trade(s) worth ${fmtUsd(r.tradedUsd)}`
                   : "  track record unavailable from this RPC",
-              ].join("\n");
+                sc?.addedBps != null
+                  ? `  added ${(sc.addedBps / 100).toFixed(2)}% after fees vs holding what it took over, over ${sc.vaultDays.toFixed(1)} vault-days; worst fall ${sc.worstFallPct.toFixed(1)}% (holding: ${sc.untradedWorstFallPct.toFixed(1)}%)`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join("\n");
             })
             .join("\n"),
         );

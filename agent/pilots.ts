@@ -2,7 +2,10 @@
 // (computed from the chain, never self-reported). Shared by the web app, the MCP server and scripts.
 
 import { parseAbiItem, type Abi, type PublicClient } from "viem";
+import { maxDrawdown } from "./backtest";
+import { readVault } from "./chain";
 import { eq, type Address } from "./model";
+import { vaultPerformance } from "./performance";
 
 export interface PilotEntry {
   address: Address;
@@ -129,4 +132,73 @@ export async function trackRecords(
 export function registrationNeeded(entry: Pick<PilotEntry, "name" | "uri" | "feeBps" | "active"> | null, want: { name: string; uri: string; feeBps: number }) {
   if (!entry || !entry.active) return true;
   return entry.name !== want.name || entry.uri !== want.uri || entry.feeBps !== want.feeBps;
+}
+
+export interface PilotScore {
+  /** Vaults scored: those whose current pilot this is and that hold anything. */
+  vaults: number;
+  /** Their value now, and the value of what each held when this pilot took over (plus later deposits, minus
+   * withdrawals) had it never been traded. Both at today's oracle prices, 18 decimals; the vault's value is after fees. */
+  valueUsd: bigint;
+  untradedUsd: bigint;
+  /** What the pilot added (or cost), after fees, as bps of the untraded value; null with nothing to score. */
+  addedBps: number | null;
+  /** Worst fall from a peak, in percent, of value per dollar invested: the pilot's vaults, and the same untraded. */
+  worstFallPct: number;
+  untradedWorstFallPct: number;
+  /** Vault-days flown, summed over the vaults scored: how much evidence there is. */
+  vaultDays: number;
+}
+
+/**
+ * How much each pilot has added since it took over each vault it flies, after fees, against leaving what it inherited
+ * untraded; and how deep the falls were on each side. Read from the chain: the vault's own value, its oracle prices,
+ * and its deposits and withdrawals. A vault-days figure says how much evidence each score rests on.
+ */
+export async function pilotScores(
+  client: Reader & Pick<PublicClient, "getBlock">,
+  abis: { factory: Abi; vault: Abi },
+  factory: Address,
+  pilots: Address[],
+  samples = 20,
+): Promise<Map<string, PilotScore>> {
+  const scores = new Map<string, PilotScore>(
+    pilots.map((p) => [p.toLowerCase(), { vaults: 0, valueUsd: 0n, untradedUsd: 0n, addedBps: null, worstFallPct: 0, untradedWorstFallPct: 0, vaultDays: 0 }]),
+  );
+  const count = (await client.readContract({ address: factory, abi: abis.factory, functionName: "vaultCount" })) as bigint;
+  const vaults = await Promise.all(
+    Array.from({ length: Number(count) }, (_, i) => client.readContract({ address: factory, abi: abis.factory, functionName: "vaultAt", args: [BigInt(i)] }) as Promise<Address>),
+  );
+  const current = await Promise.all(vaults.map((v) => client.readContract({ address: v, abi: abis.vault, functionName: "pilot" }) as Promise<Address>));
+  const served = vaults.map((v, i) => ({ vault: v, pilot: current[i] })).filter((x) => scores.has(x.pilot.toLowerCase()));
+  if (served.length === 0) return scores;
+
+  const sets = await client.getLogs({ address: served.map((s) => s.vault), event: pilotSet, fromBlock: 0n });
+  const since = new Map<string, bigint>();
+  for (const l of sets) {
+    const k = l.address.toLowerCase();
+    if (l.blockNumber! > (since.get(k) ?? -1n)) since.set(k, l.blockNumber!);
+  }
+
+  await Promise.all(
+    served.map(async ({ vault, pilot }) => {
+      const state = await readVault(client as never, abis.vault, vault).catch(() => null);
+      if (!state) return;
+      const decimals = new Map(state.assets.map((a) => [a.token.toLowerCase(), a.decimals]));
+      const points = await vaultPerformance(client as never, abis.vault, vault, decimals, samples, since.get(vault.toLowerCase()) ?? 0n, true).catch(() => []);
+      const last = points.at(-1);
+      if (!last || last.netDepositedUsd <= 0n) return;
+      const s = scores.get(pilot.toLowerCase())!;
+      s.vaults++;
+      s.valueUsd += last.valueUsd;
+      s.untradedUsd += last.untradedUsd;
+      // Per dollar invested, so money moving in or out is never mistaken for a rise or a fall.
+      const perDollar = (v: bigint, net: bigint) => (net > 0n ? Number((v * 1_000_000n) / net) / 1_000_000 : 1);
+      s.worstFallPct = Math.max(s.worstFallPct, maxDrawdown(points.map((p) => perDollar(p.valueUsd, p.netDepositedUsd))) * 100);
+      s.untradedWorstFallPct = Math.max(s.untradedWorstFallPct, maxDrawdown(points.map((p) => perDollar(p.untradedUsd, p.netDepositedUsd))) * 100);
+      s.vaultDays += (points[points.length - 1].time - points[0].time) / 86_400;
+    }),
+  );
+  for (const s of scores.values()) if (s.untradedUsd > 0n) s.addedBps = Number(((s.valueUsd - s.untradedUsd) * 10_000n) / s.untradedUsd);
+  return scores;
 }

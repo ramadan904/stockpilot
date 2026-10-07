@@ -18,7 +18,7 @@ export interface PerformancePoint {
 }
 
 type Reader = Pick<PublicClient, "getLogs" | "getBlock" | "getBlockNumber" | "readContract">;
-type Holding = { token: Address; priceUsd: bigint; valueUsd: bigint };
+type Holding = { token: Address; balance: bigint; priceUsd: bigint; valueUsd: bigint };
 
 const deposited = parseAbiItem("event Deposited(address indexed from, address indexed token, uint256 amount)");
 const withdrawn = parseAbiItem("event Withdrawn(address indexed to, address indexed token, uint256 amount)");
@@ -32,11 +32,24 @@ export function sampleBlocks(from: bigint, to: bigint, n: number): bigint[] {
   return [...out];
 }
 
-/** Points for a chart, oldest first. `decimals` maps lower-case token addresses to their decimals. */
-export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Address, decimals: Map<string, number>, samples = 30, fromBlock = 0n): Promise<PerformancePoint[]> {
+/**
+ * Points for a chart, oldest first. `decimals` maps lower-case token addresses to their decimals. With `inherit`, the
+ * comparison starts at `fromBlock` from the holdings the vault had then (what a new pilot took over), left untraded;
+ * otherwise it starts from the first deposit.
+ */
+export async function vaultPerformance(
+  client: Reader,
+  vaultAbi: Abi,
+  vault: Address,
+  decimals: Map<string, number>,
+  samples = 30,
+  fromBlock = 0n,
+  inherit = false,
+): Promise<PerformancePoint[]> {
+  const logsFrom = inherit ? fromBlock + 1n : fromBlock;
   const [deps, wds, head] = await Promise.all([
-    client.getLogs({ address: vault, event: deposited, fromBlock }),
-    client.getLogs({ address: vault, event: withdrawn, fromBlock }),
+    client.getLogs({ address: vault, event: deposited, fromBlock: logsFrom }),
+    client.getLogs({ address: vault, event: withdrawn, fromBlock: logsFrom }),
     // The latest block itself: getBlockNumber() is cached for a few seconds in the browser and could miss the newest.
     client.getBlock({ blockTag: "latest" }).then((b) => b.number),
   ]);
@@ -45,15 +58,13 @@ export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Add
     ...deps.map((l) => ({ block: l.blockNumber!, index: l.logIndex!, token: l.args.token!.toLowerCase(), signed: l.args.amount! })),
     ...wds.map((l) => ({ block: l.blockNumber!, index: l.logIndex!, token: l.args.token!.toLowerCase(), signed: -l.args.amount! })),
   ].sort((a, b) => (a.block === b.block ? a.index - b.index : a.block < b.block ? -1 : 1));
-  if (flows.length === 0) return [];
-
-  const prices = new Map<bigint, Promise<{ byToken: Map<string, bigint>; total: bigint } | null>>();
+  const prices = new Map<bigint, Promise<{ byToken: Map<string, bigint>; balances: Map<string, bigint>; total: bigint } | null>>();
   const at = (block: bigint) => {
     if (!prices.has(block))
       prices.set(
         block,
         (client.readContract({ address: vault, abi: vaultAbi, functionName: "portfolio", blockNumber: block }) as Promise<readonly [Holding[], bigint]>)
-          .then(([h, total]) => ({ byToken: new Map(h.map((x) => [x.token.toLowerCase(), x.priceUsd])), total }))
+          .then(([h, total]) => ({ byToken: new Map(h.map((x) => [x.token.toLowerCase(), x.priceUsd])), balances: new Map(h.map((x) => [x.token.toLowerCase(), x.balance])), total }))
           .catch(() => null),
       );
     return prices.get(block)!;
@@ -68,6 +79,16 @@ export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Add
   const snapshots: { block: bigint; units: Map<string, bigint>; net: bigint }[] = [];
   let units = new Map<string, bigint>();
   let net = 0n;
+  if (inherit) {
+    // What the vault held at the start: the baseline begins as exactly that, untraded.
+    const start = await at(fromBlock);
+    if (start && start.total > 0n) {
+      units = new Map([...start.balances].filter(([, b]) => b > 0n));
+      net = start.total;
+      snapshots.push({ block: fromBlock, units: new Map(units), net });
+    }
+  }
+  if (flows.length === 0 && snapshots.length === 0) return [];
   for (const [k, f] of flows.entries()) {
     if (f.signed > 0n) {
       units.set(f.token, (units.get(f.token) ?? 0n) + f.signed);
@@ -81,7 +102,7 @@ export async function vaultPerformance(client: Reader, vaultAbi: Abi, vault: Add
     snapshots.push({ block: f.block, units: new Map(units), net });
   }
 
-  const blocks = sampleBlocks(flows[0].block, head, samples);
+  const blocks = sampleBlocks(snapshots[0]?.block ?? flows[0].block, head, samples);
   const points: PerformancePoint[] = [];
   for (let i = 0; i < blocks.length; i += 8) {
     const chunk = await Promise.all(

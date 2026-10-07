@@ -30,7 +30,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Crash guard** | Past a set fall from the peak, defensive targets; the pilot can only de-risk; only the owner lifts it | Fleet keeper, stress test of the trade-off before signing |
 | **Glide path** | Targets move on the owner's schedule toward an end mix by a date, like a target-date fund; bands, limits and the crash guard apply to the moving targets | Backtest with and without it, a card showing where the path stands, exact TypeScript mirror of the contract's arithmetic |
 | **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
-| **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a picker, MCP tools for agents to get hired |
+| **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a leaderboard ranked by value added after fees against holding what each pilot took over (with worst falls and vault-days of evidence), a picker, MCP tools for agents to get hired |
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
 | **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
@@ -45,7 +45,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 227 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 230 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -191,8 +191,8 @@ ending value, at the cost of a lower typical one. Ethereum vault only for now; t
 **Every trade, explained before it runs.** The pilot's next move is drawn with the numbers the vault will judge it by
 ([`agent/explain.ts`](agent/explain.ts)): for each side, the target, the band the vault enforces, the trigger where the
 pilot starts trading, the weight now and the weight after the trade at the expected fill, in a sentence such as
-"Selling $1,190 of NVDA: it is 29.9%, 4.9 points over its 25.0% target, past the pilot's trigger, inside its ±5.0-point
-band. After the trade: 25.1%". The prediction is checked against the vault's own weights after the trade goes through.
+"Selling … of NVDA: it is 21.9%, 4.4 points over its 17.5% target, past the pilot's trigger, inside its ±5.0-point
+band. After the trade: 20.3%, 2.8 points from target." The prediction is checked against the vault's own weights after the trade goes through.
 
 **Start from what you own.** Nobody starts investing from zero. Drop a screenshot of a brokerage statement and Claude
 reads the positions as structured data ([`agent/importer.ts`](agent/importer.ts)), or paste the holdings as text, which

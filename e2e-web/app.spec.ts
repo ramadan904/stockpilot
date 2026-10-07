@@ -204,6 +204,14 @@ test("marketplace: list yourself as a pilot, then hire a listed pilot for a new 
   await expect(pilotStat).toContainText("Patient rebalancer", { timeout: 60_000 });
   await expect(pilotStat).toContainText("0.75% a year");
   await expect(page.getByRole("radio", { name: /Patient rebalancer/ })).toContainText(/Flies [1-9]\d* vaults? worth/);
+
+  // The leaderboard: value added after fees against holding, and the worst falls, read from the chain.
+  await expect(market.locator("thead")).toContainText("Added vs holding");
+  const row = market.locator("tbody tr").filter({ hasText: "Patient rebalancer" });
+  await expect(row.getByTestId("added")).toContainText(/^[+−]?\d+\.\d\d%/, { timeout: 60_000 });
+  await expect(row.getByTestId("falls")).toContainText(/worst fall \d+\.\d% vs \d+\.\d%/);
+  await expect(market).toContainText("Ranked by value added after fees");
+  await market.screenshot({ path: "test-results/leaderboard.png" });
   expect(errors).toEqual([]);
 });
 
@@ -426,10 +434,10 @@ test("household: every vault side by side, added up, each named for its goal", a
   await expect.poll(() => rows.count(), { timeout: 30_000 }).toBeGreaterThan(1); // earlier tests created vaults with this account too
   await expect(card.locator(".stat").first()).toContainText(/Total, \d+ vaults\$[\d,.]+/);
   await expect(card.getByRole("img")).toHaveAttribute("aria-label", /USDG [\d.]+%/);
-  await expect(card.getByRole("button", { name: "Viewing" })).toHaveCount(1);
+  await expect(card.getByRole("button", { name: /^Viewing / })).toHaveCount(1);
 
   // Name the open vault's goal; the name stays in this browser.
-  const current = rows.filter({ has: page.getByRole("button", { name: "Viewing" }) });
+  const current = rows.filter({ has: page.getByRole("button", { name: /^Viewing / }) });
   await current.getByTitle("Name this goal").click();
   await current.getByLabel("Goal name").fill("Retirement 2050");
   await current.getByLabel("Goal name").press("Enter");
@@ -440,10 +448,10 @@ test("household: every vault side by side, added up, each named for its goal", a
   await expect(card.getByRole("table", { name: "Your vaults" })).toContainText("Retirement 2050", { timeout: 30_000 });
 
   // Open another vault from the list.
-  const label = (await rows.filter({ has: page.getByRole("button", { name: "Open", exact: true }) }).first().getByTitle("Name this goal").innerText()).trim();
+  const label = (await rows.filter({ has: page.getByRole("button", { name: /^Open / }) }).first().getByTitle("Name this goal").innerText()).trim();
   const other = rows.filter({ has: page.getByTitle("Name this goal").getByText(label, { exact: true }) });
-  await other.getByRole("button", { name: "Open", exact: true }).click();
-  await expect(other.getByRole("button", { name: "Viewing" })).toBeVisible({ timeout: 30_000 });
+  await other.getByRole("button", { name: /^Open / }).click();
+  await expect(other.getByRole("button", { name: /^Viewing / })).toBeVisible({ timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 

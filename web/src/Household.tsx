@@ -152,7 +152,12 @@ export function HouseholdCard(props: { client: PublicClient; abi: Abi; chainId: 
                   <div className="small muted">{pct(v.stocksBps)} stocks</div>
                 </td>
                 <td className="num">
-                  <button className={`btn small ${v.vault === selected ? "primary" : ""}`} onClick={() => onOpen(v.vault)} disabled={v.vault === selected}>
+                  <button
+                    className={`btn small ${v.vault === selected ? "primary" : ""}`}
+                    aria-label={`${v.vault === selected ? "Viewing" : "Open"} ${name}`}
+                    onClick={() => onOpen(v.vault)}
+                    disabled={v.vault === selected}
+                  >
                     {v.vault === selected ? "Viewing" : "Open"}
                   </button>
                 </td>
