@@ -7,15 +7,15 @@
 | **Track** | Ethereum ecosystem: Robinhood Chain (primary), Arbitrum |
 | **Repository** | https://github.com/ramadan904/stockpilot |
 | **Live app** | https://stockpilot-six-virid.vercel.app (simulator, backtest, stress test and tour need no wallet) |
-| **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFFEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
-| **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), demo vault [`0xfFFEBea2C701CA2cfD406D89580aE984adb0a783`](https://explorer.testnet.chain.robinhood.com/address/0xfFFEBea2C701CA2cfD406D89580aE984adb0a783) |
+| **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
+| **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), demo vault [`0xfFfEBea2C701CA2cfD406D89580aE984adb0a783`](https://explorer.testnet.chain.robinhood.com/address/0xfFfEBea2C701CA2cfD406D89580aE984adb0a783) |
 | **Demo** | [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s, captioned), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
 ## Judges: start here
 
 1. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**: no wallet, no install.
-2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFFEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
+2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
    read straight from the chain.
 3. In the simulator, press the **attack** buttons: a rogue pilot tries to break the rules and the contract stops it.
 
