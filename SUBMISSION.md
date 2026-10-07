@@ -1,6 +1,9 @@
 # StockPilot: Crypto World's Fair submission
 
 > **An AI autopilot for tokenized stock portfolios that can only trade inside the rules you sign.**
+>
+> The AI does the work. The contract keeps it honest. Proven live by the Attack Theater, and by 600 randomized
+> trades on which an exact model of the rules and the deployed contract agree.
 
 | | |
 |---|---|
@@ -9,15 +12,22 @@
 | **Live app** | https://stockpilot-six-virid.vercel.app (simulator, backtest, stress test and tour need no wallet) |
 | **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
 | **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), demo vault [`0xfFfEBea2C701CA2cfD406D89580aE984adb0a783`](https://explorer.testnet.chain.robinhood.com/address/0xfFfEBea2C701CA2cfD406D89580aE984adb0a783) |
-| **Demo** | [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s, captioned), or run `npm run demo` |
+| **Demo** | [`media/live-demo.mp4`](media/live-demo.mp4) (80 s, captioned): the live vault, the Attack Theater, a Verified Mandate, copying the rules into the simulator, a backtest. Recorded by `npm run video` against a local chain running the same contracts. Also [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
-## Judges: start here
+## Judges: start here (no wallet, under two minutes)
 
-1. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**: no wallet, no install.
-2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
-   read straight from the chain. Press **Copy this mandate** to make its rules your own draft and simulate them.
-3. In the simulator, press the **attack** buttons: a rogue pilot tries to break the rules and the contract stops it.
+1. **Watch the [80-second demo](media/live-demo.mp4)**, captioned, recorded straight from the running app.
+2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**.
+3. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet, read
+   straight from the chain: its mood lamp, its last rebalance, its activity.
+4. On that page press **Simulate a compromised pilot**: the **Attack Theater** sends nine attacks to the live contract
+   from the pilot's own address and shows the contract's own refusals. Nothing is signed or spent.
+5. Below it, the vault's **Verified Mandate**: a soulbound credential, fully onchain, that it kept its rules.
+6. Press **Copy this mandate**: its rules become your draft in the simulator. Move the market, run the pilot, try the
+   attacks yourself, then open **Backtest**.
+
+Testnet software, unaudited: do not use real money.
 
 ## TL;DR for judges
 
@@ -27,14 +37,25 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 230 tests, including 600 random trades on which an exact TypeScript model of the rules and
-  the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
-  stops all eight.
-- **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; an onchain pilot
+- **Proof, not promises:** 260 unit and contract tests, including 600 random trades on which an exact TypeScript model
+  of the rules and the deployed contract must agree to the second; 28 browser tests against a real local chain; 40
+  Rust tests for the Solana port; Slither in CI and stateful invariant fuzzing. On the live vault, the Attack Theater
+  lets anyone watch the contract refuse nine attacks from the pilot's own address.
+- **A business, not just a contract:** a management fee of up to 2% a year, taken onchain, paused with the vault and
+  cancellable by the owner, pays a hosted pilot fleet; an onchain pilot
   marketplace where any AI agent lists itself and owners hire by a track record read from the chain; any agent can fly
   a vault through our MCP server; Claude writes the owner's reports; a backtest shows what the mandate does to risk.
 - **Try it in one click:** the web app's simulator needs no wallet. Live mode creates, funds, pilots, pauses and
   withdraws from a real vault on Robinhood Chain testnet.
+
+## For the submission form
+
+- **One line:** An AI autopilot for tokenized stocks that cannot drain you, because the contract won't let it.
+- **What's different:** other AI trading agents either hold your keys or only make suggestions. StockPilot's pilot can
+  only rebalance, inside a mandate the owner signed, and anyone can watch the live contract refuse a stolen pilot key.
+- **Why Robinhood Chain:** tokenized stocks trade around the clock, so they need a manager that never sleeps and never
+  needs your keys; every trade is checked against oracle prices and freshness onchain.
+- **Live:** https://stockpilot-six-virid.vercel.app · demo video `media/live-demo.mp4` · contracts linked above.
 
 ## The problem
 
@@ -101,6 +122,9 @@ Everything; the repository started empty.
   (for a vault) its mood, saved as PNG for social posts or SVG.
   **Copy-trading by mandate:** any live vault's targets, bands and limits (as shares of the vault, so they fit any
   size) become a visitor's draft in one click. The rules are copied; the funds, owner and pilot never are.
+  **Verified Mandate:** a soulbound credential (ERC-721, ERC-5192 locked) a vault's owner can mint once the vault has flown one
+  mandate, unchanged, for a day; fully onchain metadata and image, only for genuine StockPilot vaults, and `isCurrent`
+  tells any protocol or agent whether the vault still flies those exact rules.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports

@@ -44,3 +44,31 @@ After it runs:
 
 The script is safe to re-run: finished steps are skipped. It was rehearsed end to end against a local chain
 (`NETWORKS=localhost`), and CI's browser tests seed and open a demo vault the same way.
+
+## Publishing the app again
+
+After code changes, with the contracts already deployed:
+
+```bash
+bash scripts/publish.sh
+```
+
+It asks for a Vercel token, hidden (an empty line is asked again, so a pasted command's own Enter does no harm), and
+deploys to production. Delete the token afterwards.
+
+## Keeping the demo vault alive
+
+The demo vault is meant to be watched, so it should be flying. `.github/workflows/demo-pilot.yml` does that without a
+server: every hour it pushes real stock prices onto the testnet feeds, then runs one check by the demo vault's own
+pilot, which makes the one trade (if any) its planner and the contract allow.
+
+1. Start the demo in cash, so there is something to watch: `REDEMO=1 DEMO_CASH=1 NETWORKS=robinhoodTestnet ./scripts/go-live.sh`.
+   The pilot then invests it over the following days, a capped, explained trade at a time.
+2. Add two repository secrets (Settings > Secrets and variables > Actions):
+   - `RELAYER_KEY`: the key that deployed the contracts (it owns the price feeds).
+   - `DEMO_PILOT_KEY`: the demo vault's pilot, from `.secrets/demo-pilot-robinhoodTestnet.key` (created by go-live,
+     never committed). On Windows, `clip < .secrets/demo-pilot-robinhoodTestnet.key` copies it without showing it.
+3. Run the workflow once from the Actions tab (Demo pilot > Run workflow) to check it; after that it runs hourly
+   from the default branch.
+
+Both keys are testnet keys. Without the secrets the workflow skips its steps and succeeds.

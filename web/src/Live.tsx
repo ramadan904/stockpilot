@@ -49,6 +49,10 @@ import { explainTrade } from "../../agent/explain";
 import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
+import { historyStart, rpcTransport } from "./rpc";
+import { AttackTheater } from "./Theater";
+import { CredentialCard } from "./Credential";
+import { logsInRange } from "../../agent/history";
 
 declare global {
   interface Window {
@@ -76,7 +80,7 @@ function sharedVault(): { chainId: number; vault: Address } | null {
 
 /** Read-only: no account, so nothing can be signed; every card shows its viewer state. */
 function watchWallet(chain: Chain): Wallet {
-  return { client: createWalletClient({ chain, transport: http() }), address: zeroAddress, kind: "watch" };
+  return { client: createWalletClient({ chain, transport: rpcTransport() }), address: zeroAddress, kind: "watch" };
 }
 
 export function shareLink(chainId: number, vault: Address) {
@@ -92,7 +96,7 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
   const [selected, setSelected] = useState<Address | null>(shared?.vault ?? null);
   const [refresh, setRefresh] = useState(0);
   const deployment = deploymentFor(chain.id);
-  const client = useMemo(() => createPublicClient({ chain, transport: http() }), [chain]);
+  const client = useMemo(() => createPublicClient({ chain, transport: rpcTransport() }), [chain]);
   const market = useMarket(client as never, deployment, refresh);
 
   const loadVaults = useCallback(async () => {
@@ -245,7 +249,8 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
             <OpenVault onOpen={(v) => setSelected(v)} />
             {deployment?.registry && (
               <MarketplaceCard
-                key={`${wallet!.address}-${market.pilots.length}`}
+                // Re-mounted when your own listing appears (to show it), not when others' load, which would close an open form.
+                key={`${wallet!.address}-${market.byAddress.has(wallet!.address.toLowerCase())}`}
                 market={market}
                 me={wallet!.address}
                 canList={wallet!.kind !== "watch"}
@@ -383,6 +388,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
   const [state, setState] = useState<VaultState | null>(null);
   const [roles, setRoles] = useState<{ owner: Address; pilot: Address; feeBps: number; feeRecipient: Address } | null>(null);
   const [events, setEvents] = useState<TradeEvent[]>([]);
+  // The latest trade's time, so a visitor sees the pilot is flying.
+  const [lastTrade, setLastTrade] = useState<{ at: number; tx: Hash; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newPilot, setNewPilot] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -400,18 +407,23 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
       ]);
       setState(s);
       setRoles({ owner, pilot, feeBps: Number(feeBps), feeRecipient });
-      const head = await client.getBlockNumber();
-      const logs = await client.getContractEvents({
-        address: vault,
-        abi: pilotVaultAbi,
-        eventName: "Rebalanced",
-        fromBlock: head > 50_000n ? head - 50_000n : 0n,
-      });
+      // The vault's whole trading history, from the deployment's first block.
+      const [head, start] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), historyStart(client)]);
+      const logs = await logsInRange(
+        (fromBlock, toBlock) => client.getContractEvents({ address: vault, abi: pilotVaultAbi, eventName: "Rebalanced", fromBlock, toBlock }),
+        start,
+        head,
+      );
       setEvents(
         logs
           .map((l) => ({ tx: l.transactionHash!, ...(l.args as Omit<TradeEvent, "tx">) }))
           .reverse(),
       );
+      const latest = logs[logs.length - 1];
+      if (latest?.blockNumber !== undefined && latest.blockNumber !== null) {
+        const block = await client.getBlock({ blockNumber: latest.blockNumber });
+        setLastTrade({ at: Number(block.timestamp), tx: latest.transactionHash!, count: logs.length });
+      }
     })().catch((e) => setError(short(e)));
   }, [client, vault]);
 
@@ -486,6 +498,22 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         <div className="table-scroll">
           <HoldingsTable assets={state.assets} drift={d} />
         </div>
+        <p className="small" style={{ marginBottom: 0 }} data-testid="last-rebalance">
+          {lastTrade ? (
+            <>
+              <span className="pulse-dot" aria-hidden /> Last rebalance {ago(Number(state.now) - lastTrade.at)} ago
+              {explorerTx(ctx.chain.id, lastTrade.tx) && (
+                <>
+                  {" "}
+                  (<a href={explorerTx(ctx.chain.id, lastTrade.tx)} target="_blank" rel="noreferrer">view the transaction</a>)
+                </>
+              )}
+              , {lastTrade.count} trade{lastTrade.count === 1 ? "" : "s"} in all, each checked by the contract.
+            </>
+          ) : (
+            "No trades yet: the pilot trades when an asset drifts past its trigger."
+          )}
+        </p>
         <p className="small" style={{ marginBottom: 0 }}>
           Pilot's next move: {p.action === "trade" ? p.trade.rationale : p.reason}
         </p>
@@ -499,6 +527,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
           </div>
         )}
       </Card>
+
+      <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
@@ -626,6 +656,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         send={send}
         run={run}
       />
+      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <GlidePathCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
@@ -703,4 +734,13 @@ function ShareButton({ chainId, vault }: { chainId: number; vault: Address }) {
       {copied ? "Link copied" : "Share"}
     </button>
   );
+}
+
+/** "12 min", "3 h", "2 days": how long ago, in the largest sensible unit. */
+function ago(seconds: number) {
+  const s = Math.max(0, seconds);
+  if (s < 90) return `${Math.round(s)} s`;
+  if (s < 90 * 60) return `${Math.round(s / 60)} min`;
+  if (s < 36 * 3600) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86_400)} days`;
 }

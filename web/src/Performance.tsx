@@ -6,6 +6,7 @@ import type { AssetState } from "../../agent/model";
 import { vaultPerformance, type PerformancePoint } from "../../agent/performance";
 import { LineChart, compactUsd } from "./LineChart";
 import { Card, usd } from "./ui";
+import { historyStart } from "./rpc";
 
 const toNum = (wad: bigint) => Number(wad / 10n ** 12n) / 1e6;
 const signed = (wad: bigint) => (wad < 0n ? `−${usd(-wad)}` : `+${usd(wad)}`);
@@ -18,9 +19,9 @@ export function PerformanceCard({ client, vault, abi, assets }: { client: Public
   useEffect(() => {
     let live = true;
     (async () => {
-      const head = await client.getBlockNumber();
+      const start = await historyStart(client);
       const decimals = new Map(assets.map((a) => [a.token.toLowerCase(), a.decimals]));
-      const p = await vaultPerformance(client, abi, vault, decimals, 30, head > 500_000n ? head - 500_000n : 0n);
+      const p = await vaultPerformance(client, abi, vault, decimals, 30, start);
       if (live) setPoints(p);
     })().catch((e) => live && setError((e as Error).message.split("\n")[0]));
     return () => {

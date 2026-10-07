@@ -7,6 +7,7 @@ import { LISTINGS } from "../../agent/listings";
 import type { AssetState } from "../../agent/model";
 import { ASSUMPTIONS, harvestable, readTaxEvents, salesCsv, taxReport, type AssetInfo, type TaxReport } from "../../agent/tax";
 import { Card, usd } from "./ui";
+import { historyStart } from "./rpc";
 
 const day = (t: number) => new Date(t * 1000).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 const signed = (wad: bigint) => (wad < 0n ? `−${usd(-wad)}` : usd(wad));
@@ -30,8 +31,7 @@ export function TaxCard({ client, vault, abi, assets }: { client: PublicClient; 
     setLoading(true);
     setError(null);
     try {
-      const head = await client.getBlockNumber();
-      const events = await readTaxEvents(client, abi, vault, head > 500_000n ? head - 500_000n : 0n);
+      const events = await readTaxEvents(client, abi, vault, await historyStart(client));
       const r = taxReport(events, info);
       setReport(r);
       setYear(r.years.at(-1)?.year ?? new Date().getUTCFullYear());

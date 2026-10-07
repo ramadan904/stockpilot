@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { formatUnits, type Abi, type Address, type Hash, type PublicClient } from "viem";
 import type { AssetState } from "../../agent/model";
 import { explorerTx } from "./chains";
+import { historyStart } from "./rpc";
+import { logsInRange } from "../../agent/history";
 import { Card, usd } from "./ui";
 
 type Kind = "trade" | "money" | "control";
@@ -109,8 +111,8 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
 
 /** The vault's history as plain sentences, newest first; the most recent 40 carry their block time. */
 export async function loadActivity(client: PublicClient, vault: Address, abi: Abi, assets: AssetState[], owner: Address, pilot: Address) {
-  const head = await client.getBlockNumber();
-  const logs = await client.getContractEvents({ address: vault, abi, fromBlock: head > 50_000n ? head - 50_000n : 0n });
+  const [head, start] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), historyStart(client)]);
+  const logs = await logsInRange((fromBlock, toBlock) => client.getContractEvents({ address: vault, abi, fromBlock, toBlock }), start, head);
   const list = logs.map((l, i) => describe(l as unknown as RawLog, i, assets, owner, pilot)).filter((e): e is Entry => e !== null).reverse();
   // Timestamps for the most recent blocks only, to keep this to a handful of requests.
   const blocks = [...new Set(list.slice(0, 40).map((e) => e.block))];

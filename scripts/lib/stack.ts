@@ -6,6 +6,9 @@ import { parseUnits, type Address } from "viem";
 import type { UniverseAsset } from "../../agent/mandate";
 import { LISTINGS } from "../../agent/listings";
 
+/** How long a mandate must stand, unchanged, before it can be verified (seconds). */
+export const CREDENTIAL_MIN_AGE = 86_400n;
+
 export { LISTINGS };
 
 
@@ -30,7 +33,9 @@ export async function deployStack(hre: HardhatRuntimeEnvironment) {
 
   const factory = await v.deployContract("PilotVaultFactory");
   const registry = await v.deployContract("PilotRegistry");
-  return { tokens, feeds, marketMaker: mm.address, factory: factory.address, registry: registry.address };
+  // Verified Mandate: a mandate must stand a day, unchanged, on testnets.
+  const credential = await v.deployContract("MandateCredential", [factory.address, CREDENTIAL_MIN_AGE]);
+  return { tokens, feeds, marketMaker: mm.address, factory: factory.address, registry: registry.address, credential: credential.address };
 }
 
 export type Stack = Awaited<ReturnType<typeof deployStack>>;
