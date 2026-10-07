@@ -37,6 +37,7 @@ import { signAndRelay } from "./signed";
 import { TaxCard } from "./Tax";
 import { TaxPilotCard } from "./TaxPilot";
 import { GlidePathCard } from "./GlidePath";
+import { HouseholdCard } from "./Household";
 import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
@@ -223,14 +224,8 @@ export function Live({ draft }: { draft: Draft | null }) {
           </div>
           <div className="stack">
             {wallet!.kind !== "watch" && <CreateVault ctx={ctx} draft={draft} onCreated={(v) => { setSelected(v); setRefresh((r) => r + 1); }} />}
-            {vaults.length > 1 && (
-              <Card title="Your vaults">
-                {vaults.map((v) => (
-                  <button key={v} className={`btn small ${v === selected ? "primary" : ""}`} style={{ margin: 3 }} onClick={() => setSelected(v)}>
-                    {shortAddr(v)}
-                  </button>
-                ))}
-              </Card>
+            {vaults.length > 0 && (
+              <HouseholdCard client={client as never} abi={pilotVaultAbi as Abi} chainId={chain.id} vaults={vaults} me={wallet!.address} selected={selected} onOpen={setSelected} refresh={refresh} />
             )}
             <OpenVault onOpen={(v) => setSelected(v)} />
             {deployment?.registry && (

@@ -365,6 +365,47 @@ test("glide path: set the vault to de-risk on a schedule, see where it stands, a
   expect(errors).toEqual([]);
 });
 
+test("household: every vault side by side, added up, each named for its goal", async ({ page }) => {
+  const errors = await pageErrors(page);
+  const open = async () => {
+    await page.getByRole("tab", { name: "Live (testnet)" }).click();
+    await page.getByLabel("Network").selectOption("31337");
+    await page.getByRole("button", { name: "Use local dev account" }).click();
+  };
+  await page.goto("/");
+  await open();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Household" }) });
+  const rows = card.getByRole("table", { name: "Your vaults" }).locator("tbody tr");
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => rows.count(), { timeout: 30_000 }).toBeGreaterThan(1); // earlier tests created vaults with this account too
+  await expect(card.locator(".stat").first()).toContainText(/Total, \d+ vaults\$[\d,.]+/);
+  await expect(card.getByRole("img")).toHaveAttribute("aria-label", /USDG [\d.]+%/);
+  await expect(card.getByRole("button", { name: "Viewing" })).toHaveCount(1);
+
+  // Name the open vault's goal; the name stays in this browser.
+  const current = rows.filter({ has: page.getByRole("button", { name: "Viewing" }) });
+  await current.getByTitle("Name this goal").click();
+  await current.getByLabel("Goal name").fill("Retirement 2050");
+  await current.getByLabel("Goal name").press("Enter");
+  await expect(current).toContainText("Retirement 2050");
+  await card.screenshot({ path: "test-results/household.png" });
+  await page.reload();
+  await open();
+  await expect(card.getByRole("table", { name: "Your vaults" })).toContainText("Retirement 2050", { timeout: 30_000 });
+
+  // Open another vault from the list.
+  const label = (await rows.filter({ has: page.getByRole("button", { name: "Open", exact: true }) }).first().getByTitle("Name this goal").innerText()).trim();
+  const other = rows.filter({ has: page.getByTitle("Name this goal").getByText(label, { exact: true }) });
+  await other.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(other.getByRole("button", { name: "Viewing" })).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
 test("recurring investment and gasless safety: invest on a schedule, check in and pause without gas", async ({ page }) => {
   const errors = await pageErrors(page);
   await page.goto("/");

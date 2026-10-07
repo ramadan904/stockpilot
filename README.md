@@ -35,7 +35,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
 | **Tax-aware pilot** | Never overrides the mandate: a band always wins | Knows what each sale realizes (the vault sells FIFO), sells what costs the least tax, avoids wash sales, keeps within the owner's yearly gains budget; owner-signed preferences; backtested after tax |
-| **Owner tools** | | Monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
+| **Owner tools** | | Household view of every vault (one per goal, combined total and allocation), monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
 | **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance, the crash guard and recurring investments | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
 
@@ -43,7 +43,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 213 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 216 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -185,6 +185,12 @@ pilot nor a forgetful owner can skip a step; the crash guard scales the glided t
 the path. A new path starts from where the old one reached, with no jump; a new mandate ends it. In the backtest, a
 growth mandate gliding to 70% cash over five years cut the typical worst fall from 44% to 34% and raised the bad-case
 ending value, at the cost of a lower typical one. Ethereum vault only for now; the Solana program has fixed targets.
+
+**Household.** One vault per goal is the natural way to use StockPilot: retirement on a glide path, a child's fund
+with an heir, an emergency fund in cash. The Live tab adds them up like a broker's all-accounts view
+([`agent/household.ts`](agent/household.ts)): the household's total and share in stocks, the combined allocation, and
+each vault's goal (named in the browser), value and safeguards at a glance. Vaults since handed on are listed but not
+counted.
 
 **The tax-aware pilot.** Rebalancing sells winners, and selling is taxable. Because the vault matches lots first in,
 first out, the pilot can know exactly what a sale realizes before it makes it ([`agent/taxaware.ts`](agent/taxaware.ts)).

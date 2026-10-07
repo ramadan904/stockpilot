@@ -602,6 +602,8 @@ footer {
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
   --grid: #e8eaee;
 }
 @media (prefers-color-scheme: dark) {
@@ -609,6 +611,8 @@ footer {
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
     --grid: #223040;
   }
 }
@@ -923,4 +927,73 @@ tr.row-selected td {
   white-space: nowrap;
   font-weight: 600;
   width: 1%;
+}
+
+/* Household: combined allocation as one 100% bar. Slots 1-5 in the listing's fixed order (validated adjacent pairs in
+   both modes); slots 3-5 are under 3:1 on the light surface, so a legend table with values always accompanies the bar. */
+.alloc {
+  margin: 12px 0;
+}
+.alloc-bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  margin: 6px 0 4px;
+  background: var(--surface);
+}
+.alloc-seg {
+  min-width: 2px;
+  transition: opacity 0.15s;
+}
+.alloc-seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.alloc-seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.alloc-seg:only-child {
+  border-radius: 4px;
+}
+.alloc-seg.dim {
+  opacity: 0.35;
+}
+.alloc-tip {
+  min-height: 1.4em;
+}
+.alloc-table td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+.household-vaults td {
+  vertical-align: top;
+}
+.household-vaults .pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.household-vaults .linkish.mono {
+  white-space: nowrap;
+}
+tr.muted td {
+  color: var(--muted);
+}
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  cursor: pointer;
+  text-align: left;
 }
