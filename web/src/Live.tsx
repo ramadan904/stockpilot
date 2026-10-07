@@ -4,6 +4,7 @@ import {
   createWalletClient,
   custom,
   http,
+  getAddress,
   isAddress,
   parseUnits,
   type Abi,
@@ -64,7 +65,8 @@ function sharedVault(): { chainId: number; vault: Address } | null {
   const q = new URLSearchParams(window.location.search);
   const vault = q.get("vault");
   const chainId = Number(q.get("chain"));
-  return vault && isAddress(vault) && CHAINS.some((c) => c.id === chainId) ? { chainId, vault } : null;
+  // Any letter case: links get retyped, and explorers show addresses in lower case.
+  return vault && isAddress(vault, { strict: false }) && CHAINS.some((c) => c.id === chainId) ? { chainId, vault: getAddress(vault) } : null;
 }
 
 /** Read-only: no account, so nothing can be signed; every card shows its viewer state. */

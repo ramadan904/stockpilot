@@ -574,7 +574,8 @@ test("a shared link opens a vault read-only, without a wallet", async ({ page, c
   // A visitor with no wallet follows the link.
   const visitor = await context.newPage();
   const visitorErrors = await pageErrors(visitor);
-  await visitor.goto(`/?chain=31337&vault=${vault}`);
+  // Lower case, as explorers print it: the link still opens the same vault.
+  await visitor.goto(`/?chain=31337&vault=${vault!.toLowerCase()}`);
   await expect(visitor.getByText("Read-only view")).toBeVisible();
   await expect(visitor.locator("[data-address]")).toHaveAttribute("data-address", vault!);
   await expect(visitor.locator(".stat").filter({ hasText: "Your role" })).toContainText("Viewer");
