@@ -5,8 +5,11 @@ app on Vercel:
 
 ```bash
 npm ci
-PRIVATE_KEY=<throwaway testnet key> VERCEL_TOKEN=<token> ./scripts/go-live.sh
+./scripts/go-live.sh
 ```
+
+It asks for the deploy key (a throwaway testnet key) and a Vercel token, hidden, so neither lands on screen or
+in shell history; set `PRIVATE_KEY` and `VERCEL_TOKEN` beforehand to skip the questions (CI).
 
 For each network it:
 

@@ -314,7 +314,7 @@ Everything at once, both testnets and the web app on Vercel, with a funded demo 
 ([docs/DEPLOY.md](docs/DEPLOY.md)):
 
 ```bash
-PRIVATE_KEY=<throwaway testnet key> VERCEL_TOKEN=<token> ./scripts/go-live.sh
+./scripts/go-live.sh   # asks for a throwaway testnet deploy key and a Vercel token, hidden
 ```
 
 Or step by step:

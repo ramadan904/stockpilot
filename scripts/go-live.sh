@@ -2,7 +2,7 @@
 # From zero to live in one command: deploy StockPilot to the testnets, push real stock prices onto their feeds, seed a
 # funded demo vault on each, build the web app with those deployments baked in, and publish it on Vercel.
 #
-#   PRIVATE_KEY=<throwaway testnet key, funded on each network> VERCEL_TOKEN=<token> ./scripts/go-live.sh
+#   ./scripts/go-live.sh   (asks for the deploy key and Vercel token, hidden, unless PRIVATE_KEY / VERCEL_TOKEN are set)
 #
 # Optional: NETWORKS (default "robinhoodTestnet arbitrumSepolia"), REDEPLOY=1 (deploy again even if
 # deployments/<network>.json exists), REDEMO=1 (seed a new demo vault), ANTHROPIC_API_KEY (Claude drafts the demo
@@ -12,7 +12,21 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 NETWORKS=${NETWORKS:-"robinhoodTestnet arbitrumSepolia"}
-: "${PRIVATE_KEY:?Set PRIVATE_KEY to a throwaway testnet key with testnet ETH on each network}"
+# Secrets not in the environment are asked for here, hidden, so they never land on screen or in shell history.
+if [ -z "${PRIVATE_KEY:-}" ]; then
+  read -rs -p "Paste the deploy key (a throwaway testnet key; nothing shows), then press Enter: " PRIVATE_KEY && echo
+fi
+key=$(printf %s "$PRIVATE_KEY" | tr -d '[:space:]')
+key=${key#0x}
+if ! [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "That is not a private key (${#key} characters; a key is 64 letters and digits). Copy it again from your wallet and re-run." >&2
+  exit 1
+fi
+export PRIVATE_KEY="0x$key"
+if [ -z "${VERCEL_TOKEN:-}" ] && [ -t 0 ]; then
+  read -rs -p "Paste your Vercel token to publish the app (nothing shows), or just press Enter to skip: " VERCEL_TOKEN && echo
+  export VERCEL_TOKEN
+fi
 field() { node -e "const d=require('./deployments/$1.json'); process.stdout.write(String(d['$2'] ?? ''))"; }
 
 npx hardhat compile --quiet
