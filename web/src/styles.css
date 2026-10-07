@@ -1436,3 +1436,17 @@ tr.muted td {
 .share-card .row {
   flex-wrap: wrap;
 }
+
+/* Copy a live vault's mandate into your own draft. */
+.copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.copy-row .muted {
+  flex: 1 1 260px;
+}

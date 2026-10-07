@@ -647,6 +647,12 @@ test("a shared link opens a vault read-only, without a wallet", async ({ page, c
   await expect(visitor.getByRole("heading", { name: "Controls" })).toHaveCount(0);
   // The visitor can still connect a wallet on top of the shared vault.
   await expect(visitor.getByRole("button", { name: "Connect wallet" })).toBeVisible();
+  // Copy-trading by mandate: the vault's rules become the visitor's draft, in the simulator, ready to try.
+  await visitor.getByRole("button", { name: "Copy this mandate" }).click();
+  await expect(visitor.getByRole("tab", { name: "Simulator" })).toHaveAttribute("aria-selected", "true");
+  await expect(visitor.getByTestId("draft-source")).toHaveText("Copied from a vault");
+  await expect(visitor.getByText(/^Copied from vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} on /)).toBeVisible();
+  await expect(visitor.locator('[data-tour="vault"] .mood-lamp')).toHaveText("On target");
   expect(errors).toEqual([]);
   expect(visitorErrors).toEqual([]);
 });

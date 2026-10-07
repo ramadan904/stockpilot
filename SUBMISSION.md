@@ -16,7 +16,7 @@
 
 1. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**: no wallet, no install.
 2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
-   read straight from the chain.
+   read straight from the chain. Press **Copy this mandate** to make its rules your own draft and simulate them.
 3. In the simulator, press the **attack** buttons: a rogue pilot tries to break the rules and the contract stops it.
 
 ## TL;DR for judges
@@ -99,6 +99,8 @@ Everything; the repository started empty.
   as a red shield flash. All of it stills for readers who ask for reduced motion.
   Any strategy or live vault becomes a **share card**: a 1200x630 image of its allocation as light, its rules and
   (for a vault) its mood, saved as PNG for social posts or SVG.
+  **Copy-trading by mandate:** any live vault's targets, bands and limits (as shares of the vault, so they fit any
+  size) become a visitor's draft in one click. The rules are copied; the funds, owner and pilot never are.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports

@@ -158,7 +158,17 @@ export function App() {
           />
           {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} tourRequest={tourRequest} />}
           {tab === "backtest" && mandate && draft && <Backtest mandate={mandate} usdSize={draft.usd} />}
-          {tab === "live" && <Live draft={draft} />}
+          {tab === "live" && (
+            <Live
+              draft={draft}
+              onCopy={(proposal) => {
+                // Copy-trading by mandate: the vault's rules become this draft, ready to simulate, adjust and sign.
+                setDraft(makeDraft(proposal, "copied", draft?.usd ?? 10_000));
+                setTab("sim");
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            />
+          )}
         </main>
       </div>
 

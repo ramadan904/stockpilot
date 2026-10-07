@@ -82,7 +82,7 @@ export function Strategist(props: {
                 })}
               />
               <span className={`pill ${draft.source === "preset" ? "warn" : "info"}`} data-testid="draft-source">
-                {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : draft.source === "imported" ? "From your holdings" : "Offline preset"}
+                {draft.source === "claude" ? "Drafted by Claude" : draft.source === "shared" ? "Shared strategy" : draft.source === "imported" ? "From your holdings" : draft.source === "copied" ? "Copied from a vault" : "Offline preset"}
               </span>
             </span>
           )

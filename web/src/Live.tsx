@@ -28,6 +28,8 @@ import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { Card, HoldingsTable, totalUsd, usd } from "./ui";
 import { MoodLamp } from "./Glow";
 import { ShareCardButton } from "./ShareCard";
+import { proposalFromVault } from "../../agent/copy";
+import type { Proposal } from "../../agent/mandate";
 import { vaultMood } from "../../agent/mood";
 import { ActivityFeed } from "./Activity";
 import { AlertsCard } from "./Alerts";
@@ -81,7 +83,7 @@ export function shareLink(chainId: number, vault: Address) {
   return `${window.location.origin}${window.location.pathname}?chain=${chainId}&vault=${vault}`;
 }
 
-export function Live({ draft }: { draft: Draft | null }) {
+export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposal: Proposal) => void }) {
   const shared = useMemo(sharedVault, []);
   const [chain, setChain] = useState<Chain>(() => CHAINS.find((c) => c.id === shared?.chainId) ?? CHAINS[0]);
   const [wallet, setWallet] = useState<Wallet | null>(() => (shared ? watchWallet(CHAINS.find((c) => c.id === shared.chainId)!) : null));
@@ -226,7 +228,7 @@ export function Live({ draft }: { draft: Draft | null }) {
         <div className="grid-2">
           <div className="stack">
             {selected ? (
-              <VaultPanel key={`${selected}-${refresh}`} ctx={ctx} vault={selected} draft={draft} />
+              <VaultPanel key={`${selected}-${refresh}`} ctx={ctx} vault={selected} draft={draft} onCopy={onCopy} />
             ) : (
               <Card title="No vault yet">
                 <p className="muted" style={{ margin: 0 }}>
@@ -375,7 +377,7 @@ function CreateVault({ ctx, draft, onCreated }: { ctx: Ctx; draft: Draft | null;
 
 type TradeEvent = { tx: Hash; amountIn: bigint; tokenIn: Address; tokenOut: Address; valueInUsd: bigint; rationale: Hash };
 
-function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Draft | null }) {
+function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; draft: Draft | null; onCopy?: (proposal: Proposal) => void }) {
   const { wallet, client, send, run, deployment } = ctx;
   const w = wallet.client;
   const [state, setState] = useState<VaultState | null>(null);
@@ -488,6 +490,14 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
           Pilot's next move: {p.action === "trade" ? p.trade.rationale : p.reason}
         </p>
         {p.action === "trade" && <TradeExplainer explanation={explainTrade(state, p.trade)} />}
+        {onCopy && (
+          <div className="copy-row">
+            <button className="btn" onClick={() => onCopy(proposalFromVault(state, { vault, chain: ctx.chain.name }))}>
+              Copy this mandate
+            </button>
+            <span className="muted small">Its targets, bands and limits become your draft: simulate it, adjust it, sign it into your own vault. Funds, owner and pilot stay here.</span>
+          </div>
+        )}
       </Card>
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
