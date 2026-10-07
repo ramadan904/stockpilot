@@ -134,9 +134,9 @@ export function posterSvg(p: PosterInput, listing: readonly { symbol: string }[]
     `<text x="720" y="118" font-size="16" font-weight="700" letter-spacing="2" fill="${C.muted}">ALLOCATION</text>`,
     bars,
     rules,
-    `<g transform="translate(720 560)"><rect width="30" height="30" rx="7" fill="${C.accent}"/><path d="M6 21l6-6 4 4 8-9" stroke="${C.bg}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+    `<g transform="translate(720 536)"><rect width="30" height="30" rx="7" fill="${C.accent}"/><path d="M6 21l6-6 4 4 8-9" stroke="${C.bg}" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
     `<text x="42" y="22" font-size="22" font-weight="800" fill="${C.text}">StockPilot</text></g>`,
-    `<text x="1136" y="582" font-size="18" fill="${C.muted}" text-anchor="end">${t(p.site)}</text>`,
+    `<text x="762" y="592" font-size="17" fill="${C.muted}">${t(p.site)}</text>`,
     `</svg>`,
   ].join("");
 }
