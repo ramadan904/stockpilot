@@ -964,7 +964,7 @@ tr.row-selected td {
   padding-top: 3px;
   padding-bottom: 3px;
 }
-.swatch {
+.alloc-swatch {
   display: inline-block;
   width: 10px;
   height: 10px;
@@ -981,13 +981,13 @@ tr.row-selected td {
   gap: 4px;
   margin-top: 4px;
 }
-.household-vaults .linkish.mono {
+.goal-name.mono {
   white-space: nowrap;
 }
 tr.muted td {
   color: var(--muted);
 }
-.linkish {
+.goal-name {
   background: none;
   border: none;
   padding: 0;
@@ -1011,4 +1011,81 @@ tr.muted td {
 }
 .import-review td {
   vertical-align: top;
+}
+
+/* Trade explainer: the band math of a planned trade. Text in text tokens; the trade's own mark in series-1. */
+.explainer {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.bandviz {
+  margin: 0;
+}
+.bandviz-svg {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 320 / 58;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+.bandviz figcaption {
+  margin-bottom: 2px;
+  line-height: 1.35;
+}
+.bandviz-track {
+  stroke: var(--grid);
+  stroke-width: 2;
+}
+.bandviz-band {
+  fill: var(--surface-2);
+  stroke: var(--border);
+}
+.bandviz-trigger {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+.bandviz-target {
+  stroke: var(--text, currentColor);
+  stroke-width: 2;
+}
+.bandviz-label {
+  font-size: 10px;
+  fill: var(--text, currentColor);
+}
+.bandviz-label.muted {
+  fill: var(--muted);
+}
+.bandviz-move {
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+.bandviz-arrowhead {
+  fill: var(--series-1);
+}
+.bandviz-now {
+  fill: var(--surface);
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+.bandviz-after {
+  fill: var(--series-1);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.bandviz-legend .dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+.bandviz-legend .dot.now {
+  border: 2px solid var(--muted);
+}
+.bandviz-legend .dot.after {
+  background: var(--series-1);
+  margin-left: 6px;
 }

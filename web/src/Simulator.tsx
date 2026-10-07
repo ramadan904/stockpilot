@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { TradeExplainer } from "./BandGauge";
+import { explainTrade } from "../../agent/explain";
 import type { Mandate } from "../../agent/mandate";
 import { amountFor, available, type AssetState, type Trade } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
@@ -79,6 +81,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
 
   const d = useMemo(() => drift(vaultState(sim)), [sim]);
   const state = vaultState(sim);
+  const next = plan(state);
   const total = totalUsd(sim.assets);
   const change = Number(((total - start.current) * 10_000n) / (start.current || 1n)) / 100;
 
@@ -432,6 +435,11 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
               {auto ? "Stop autopilot" : "Autopilot (live market)"}
             </button>
           </div>
+          {next.action === "trade" ? (
+            <TradeExplainer explanation={explainTrade(state, next.trade)} />
+          ) : (
+            <p className="small" data-testid="next-move">Next move: {next.reason}</p>
+          )}
           <p className="muted small">
             Trades when an asset drifts halfway to its band edge, pairing the most overweight asset with the most underweight one. Checks every
             trade against the vault's rules before sending it.

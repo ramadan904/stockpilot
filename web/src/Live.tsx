@@ -38,6 +38,8 @@ import { TaxCard } from "./Tax";
 import { TaxPilotCard } from "./TaxPilot";
 import { GlidePathCard } from "./GlidePath";
 import { HouseholdCard } from "./Household";
+import { TradeExplainer } from "./BandGauge";
+import { explainTrade } from "../../agent/explain";
 import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
@@ -449,6 +451,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
         <p className="small" style={{ marginBottom: 0 }}>
           Pilot's next move: {p.action === "trade" ? p.trade.rationale : p.reason}
         </p>
+        {p.action === "trade" && <TradeExplainer explanation={explainTrade(state, p.trade)} />}
       </Card>
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />

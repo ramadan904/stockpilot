@@ -100,7 +100,7 @@ export function HouseholdCard(props: { client: PublicClient; abi: Abi; chainId: 
               {segments.map((s) => (
                 <tr key={s.symbol} onMouseEnter={() => setHover(s.symbol)} onMouseLeave={() => setHover(null)}>
                   <td>
-                    <span className="swatch" style={{ background: slotOf(s.symbol) }} /> {s.symbol}
+                    <span className="alloc-swatch" style={{ background: slotOf(s.symbol) }} /> {s.symbol}
                   </td>
                   <td className="num">{usd(s.valueUsd)}</td>
                   <td className="num">{pct(s.bps)}</td>
@@ -134,7 +134,7 @@ export function HouseholdCard(props: { client: PublicClient; abi: Abi; chainId: 
                       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                     />
                   ) : (
-                    <button className={`linkish ${goals[key] ? "" : "mono"}`} title="Name this goal" onClick={() => setEditing(v.vault)}>
+                    <button className={`goal-name ${goals[key] ? "" : "mono"}`} title="Name this goal" onClick={() => setEditing(v.vault)}>
                       {name}
                     </button>
                   )}

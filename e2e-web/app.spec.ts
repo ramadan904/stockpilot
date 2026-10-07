@@ -47,6 +47,21 @@ test("in the simulator, the crash guard trips on a crash and the pilot can only 
   await expect(guard.locator(".pill")).toHaveText("Armed");
 });
 
+test("in the simulator, the next trade is explained with its band math before it runs", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await expect(page.getByTestId("next-move")).toContainText("within its rebalancing trigger");
+  for (let i = 0; i < 2; i++) await page.getByRole("button", { name: "NVDA up 15%" }).click();
+  const why = page.getByLabel("Why this trade");
+  await expect(why.getByRole("img")).toHaveCount(2);
+  await expect(why.getByRole("img").first()).toHaveAttribute("aria-label", /^Selling \$[\d,.]+ of NVDA: it is [\d.]+%, [\d.]+ points over its [\d.]+% target, .*After the trade: [\d.]+%/);
+  await expect(why.getByRole("img").nth(1)).toHaveAttribute("aria-label", /^Buying \$[\d,.]+ of \w+: it is [\d.]+%, [\d.]+ points under/);
+  await page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot", exact: true }) }).screenshot({ path: "test-results/explainer.png" });
+  await page.getByRole("button", { name: "Run pilot", exact: true }).click();
+  await expect(page.locator('[data-tour="log"] .log li').filter({ hasText: /^Trade/ })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
 test("in the simulator, a hacked pilot is blocked every time and the vault says why", async ({ page }) => {
   await page.goto("/");
   for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "NVDA up 15%" }).click();
