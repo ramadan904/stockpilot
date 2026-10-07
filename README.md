@@ -10,8 +10,8 @@ how much can trade per trade and per day, and how much slippage is acceptable. T
 the rules, and cannot concentrate your portfolio, because the contract won't let it.
 
 Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), targeting the Ethereum ecosystem tracks
-(Robinhood Chain, Arbitrum). Judges: start with [SUBMISSION.md](SUBMISSION.md) and the 53-second
-[demo video](media/simulator-demo.mp4).
+(Robinhood Chain, Arbitrum). Judges: open the **[live app](https://stockpilot-six-virid.vercel.app)** (no wallet needed),
+then [SUBMISSION.md](SUBMISSION.md) and the 53-second [demo video](media/simulator-demo.mp4).
 
 ```
 "I'm 30, I believe in AI and big tech, I can handle swings but want some cash."

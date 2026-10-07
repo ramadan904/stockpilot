@@ -6,8 +6,8 @@
 |---|---|
 | **Track** | Ethereum ecosystem: Robinhood Chain (primary), Arbitrum |
 | **Repository** | https://github.com/ramadan904/stockpilot |
-| **Live app** | _add the Vercel URL after deploying_ |
-| **Contracts** | _add the Robinhood Chain testnet addresses from `deployments/robinhoodTestnet.json`_ |
+| **Live app** | https://stockpilot-six-virid.vercel.app (simulator, backtest, stress test and tour need no wallet) |
+| **Contracts** | Robinhood Chain testnet deploy pending testnet ETH; addresses will be in `deployments/robinhoodTestnet.json` |
 | **Demo** | [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s, captioned), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
