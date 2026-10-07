@@ -16,7 +16,9 @@ subtask(TASK_COMPILE_SOLIDITY_GET_SOLC_BUILD, async (args: { solcVersion: string
   };
 });
 
-const accounts = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
+// Accepted with or without the 0x prefix (MetaMask exports keys without it), and with stray spaces or line breaks.
+const rawKey = process.env.PRIVATE_KEY?.trim();
+const accounts = rawKey ? [rawKey.startsWith("0x") ? rawKey : `0x${rawKey}`] : [];
 
 const config: HardhatUserConfig = {
   solidity: {
