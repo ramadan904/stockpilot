@@ -9,6 +9,7 @@ import { writeFileSync } from "node:fs";
 import { BPS, WAD, amountFor, check, valueOf, type AssetState, type VaultState } from "../agent/model";
 import { largestRemainder } from "../agent/mandate";
 import { defensiveTargets, guardStep } from "../agent/backtest";
+import { glidedTargets } from "../agent/glide";
 
 let seed = 20261012;
 const rand = () => {
@@ -117,4 +118,21 @@ for (let v = 0; v < G; v++) {
 }
 writeFileSync("solana/mandate-core/tests/guard-vectors.json", JSON.stringify(guardVectors));
 console.log(`wrote ${G} guard vectors:`, outcomes);
+
+// Glide paths: targets at a moment along a path, from agent/glide.ts, which test/glidepath.test.ts checks second by
+// second against the contract. Generated after the others, so adding these left the earlier files unchanged.
+const glideVectors: unknown[] = [];
+const P = 1_000;
+for (let v = 0; v < P; v++) {
+  const n = int(2, 8);
+  const from = largestRemainder(Array.from({ length: n }, () => rand() * 10 + 0.2), 10_000);
+  const to = largestRemainder(Array.from({ length: n }, () => rand() * 10 + 0.2), 10_000);
+  const start = 1_700_000_000 + int(0, 50_000_000);
+  const end = start + int(1, 3_650 * 86_400);
+  const r = rand();
+  const now = r < 0.1 ? start : r < 0.2 ? end + int(0, 1_000_000) : start + int(0, end - start);
+  glideVectors.push({ from, to, start, end, now, expected: glidedTargets(from, { start, end, from, to }, now) });
+}
+writeFileSync("solana/mandate-core/tests/glide-vectors.json", JSON.stringify(glideVectors));
+console.log(`wrote ${P} glide vectors`);
 void WAD;

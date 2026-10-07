@@ -925,3 +925,89 @@ fn recurring_investment_stops_when_turned_off_the_asset_leaves_or_the_owner_chan
     assert_eq!(code(world.pull(wallet, vault_usdg)), RECURRING_OFF);
     assert_eq!(world.balance(&wallet), 1_000 * USDG);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Glide path, as on the EVM vault
+// ---------------------------------------------------------------------------------------------------------------------
+
+const INVALID_GLIDE: u32 = 121;
+
+impl World {
+    fn glide(&mut self, to: Vec<u16>, end: i64) -> ProgramResult {
+        self.owner_call(StockPilotInstruction::SetGlidePath { to, end })
+    }
+}
+
+#[test]
+fn a_glide_path_is_validated_and_only_the_owner_sets_it() {
+    let mut world = World::new();
+    let later = NOW.load(Ordering::SeqCst) + 100 * DAY;
+    assert_eq!(code(world.glide(vec![7_000, 1_000, 2_000], later)), INVALID_GLIDE); // one target per asset
+    assert_eq!(code(world.glide(vec![7_000, 1_000, 1_000, 900], later)), INVALID_MANDATE); // not 100%
+    assert_eq!(code(world.glide(vec![7_000, 1_000, 1_000, 1_000], NOW.load(Ordering::SeqCst))), INVALID_GLIDE); // not in the future
+    let (vault, pilot) = (world.vault, world.pilot);
+    assert_eq!(code(world.call(StockPilotInstruction::SetGlidePath { to: vec![7_000, 1_000, 1_000, 1_000], end: later }, &[w(vault), s(pilot)])), NOT_OWNER);
+}
+
+#[test]
+fn trades_are_judged_against_where_the_path_has_reached() {
+    // Control: with fixed 25% targets, buying $250 of a stock with USDG stays inside every band.
+    let mut fixed = World::new();
+    fixed.trade(0, 1, 250 * 1_000_000, 10).unwrap();
+    drop(fixed);
+
+    // Halfway along a path to 70% USDG, USDG's target is 47.5%: spending USDG moves it further below, and is refused;
+    // selling a stock into USDG moves both sides toward their targets, and is accepted.
+    let mut world = World::new();
+    let start = NOW.load(Ordering::SeqCst);
+    world.glide(vec![7_000, 1_000, 1_000, 1_000], start + 100 * DAY).unwrap();
+    let v = world.vault_state();
+    assert_eq!((v.glide_from[..4].to_vec(), v.glide_to[..4].to_vec()), (vec![2_500; 4], vec![7_000, 1_000, 1_000, 1_000]));
+    NOW.fetch_add(50 * DAY, Ordering::SeqCst);
+    world.refresh_prices();
+    assert_eq!(code(world.trade(0, 1, 250 * 1_000_000, 10)), OUTSIDE_BAND);
+    world.trade(1, 0, 1_000_000_000, 10).unwrap();
+}
+
+#[test]
+fn the_crash_guard_scales_glided_targets_and_must_stay_above_the_path() {
+    let mut world = World::new();
+    let usdg = world.mints[0].to_bytes();
+    let start = NOW.load(Ordering::SeqCst);
+    world.glide(vec![7_000, 1_000, 1_000, 1_000], start + 100 * DAY).unwrap();
+    // USDG glides to 70%: a defensive target at or below that would mean nothing by the end of the path.
+    assert_eq!(code(world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 7_000, drawdown_bps: 2_000 })), INVALID_SAFE_TARGET);
+    world.owner_call(StockPilotInstruction::SetCrashGuard { safe_mint: usdg, safe_target_bps: 8_000, drawdown_bps: 2_000 }).unwrap();
+    assert_eq!(code(world.glide(vec![8_500, 500, 500, 500], start + 200 * DAY)), INVALID_SAFE_TARGET);
+
+    // Halfway, a crash trips the guard: defensive targets are taken from the glided ones (17.5% * 20 / 52.5 = 6.66%).
+    NOW.fetch_add(50 * DAY, Ordering::SeqCst);
+    world.refresh_prices();
+    world.poke().unwrap();
+    world.crash(50);
+    world.poke().unwrap();
+    assert!(world.vault_state().defensive);
+    // After the crash each stock is 20% of the vault. On the glided target alone (17.5% ± 5) a small purchase would
+    // be allowed; on the defensive target (6.66% ± 5) it moves further outside the band, and is refused.
+    assert_eq!(code(world.trade(0, 1, 50 * 1_000_000, 10)), OUTSIDE_BAND);
+}
+
+#[test]
+fn a_new_path_starts_where_the_old_one_reached_and_a_new_mandate_ends_it() {
+    let mut world = World::new();
+    let start = NOW.load(Ordering::SeqCst);
+    world.glide(vec![7_000, 1_000, 1_000, 1_000], start + 100 * DAY).unwrap();
+    NOW.fetch_add(50 * DAY, Ordering::SeqCst);
+    world.glide(vec![2_500; 4], NOW.load(Ordering::SeqCst) + 100 * DAY).unwrap();
+    let v = world.vault_state();
+    assert_eq!(v.glide_from[..4].to_vec(), vec![4_750, 1_750, 1_750, 1_750]);
+
+    let (vault, owner) = (world.vault, world.owner);
+    let mut metas = vec![w(vault), s(owner)];
+    metas.extend(world.tokens.iter().map(|t| r(*t)));
+    world.call(StockPilotInstruction::SetMandate { assets: world.mandate(2_500, 500), limits: LIMITS }, &metas).unwrap();
+    assert_eq!(world.vault_state().glide_end, 0);
+    world.glide(vec![7_000, 1_000, 1_000, 1_000], NOW.load(Ordering::SeqCst) + DAY).unwrap();
+    world.glide(vec![], 0).unwrap();
+    assert_eq!(world.vault_state().glide_end, 0);
+}

@@ -39,7 +39,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Onboarding** | | Start from what you own: a statement screenshot read by Claude, or pasted holdings, mapped line by line into a draft that mirrors the portfolio; speak your goal instead of typing it |
 | **Owner tools** | | Household view of every vault (one per goal, combined total and allocation), monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
-| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance, the crash guard and recurring investments | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
+| **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance, the crash guard, recurring investments and glide paths | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks, 1,000 glide paths) |
 
 ## Try it in ten seconds
 
@@ -186,7 +186,8 @@ the owner's end mix, then holds it. The vault judges every trade against whereve
 pilot nor a forgetful owner can skip a step; the crash guard scales the glided targets in a crash and must stay above
 the path. A new path starts from where the old one reached, with no jump; a new mandate ends it. In the backtest, a
 growth mandate gliding to 70% cash over five years cut the typical worst fall from 44% to 34% and raised the bad-case
-ending value, at the cost of a lower typical one. Ethereum vault only for now; the Solana program has fixed targets.
+ending value, at the cost of a lower typical one. The Solana program runs the same glide path, its arithmetic checked
+against the TypeScript mirror on 1,000 vectors.
 
 **Every trade, explained before it runs.** The pilot's next move is drawn with the numbers the vault will judge it by
 ([`agent/explain.ts`](agent/explain.ts)): for each side, the target, the band the vault enforces, the trigger where the

@@ -15,7 +15,7 @@ contract's order, error names identical to the EVM contract's custom errors.
 
 It also has the crash guard's two rules, `guard_step` (record a new peak, or trip past the drawdown) and
 `defensive_target` (the safe asset's raised target, everyone else scaled down, rounding included), exactly the EVM
-vault's `_guard` and `_target`.
+vault's `_guard` and `_target`. And `glide_target`, where a glide path has taken a target, exactly the EVM vault's `_base`.
 
 It is proven equal to the other two implementations by a chain of tests:
 
@@ -26,6 +26,9 @@ It is proven equal to the other two implementations by a chain of tests:
    `npm run vectors` at the repository root; CI regenerates them and fails if they drift.
 3. `mandate-core/tests/guard_conformance.rs`: 2,000 crash-guard checks and defensive-target sets from the TypeScript
    functions the backtest and simulator use (which `test/crashguard.test.ts` checks against the contract's numbers).
+4. `mandate-core/tests/glide_conformance.rs`: 1,000 glide paths (2 to 8 assets, up to ten years, before, during and
+   after), whose targets `glide_target` reproduces exactly from `agent/glide.ts`, which `test/glidepath.test.ts`
+   checks second by second against the contract, rounding included.
 
 **`program`** is a Solana program built on `mandate-core`:
 
@@ -39,6 +42,7 @@ It is proven equal to the other two implementations by a chain of tests:
 | `SetHeir`, `CheckIn`, `ClaimInheritance` | Owner; heir | Inheritance as on the EVM vault: after 30 days to 10 years with no owner action (every owner instruction counts, the pilot's never do), the heir becomes the owner |
 | `SetCrashGuard`, `Poke`, `ExitDefensive` | Owner; anyone; owner | The crash guard as on the EVM vault: past the set fall from the recorded peak, defensive targets; `Rebalance` runs the same check first, so a pilot that never pokes is judged on them anyway |
 | `SetRecurringDeposit`, `PullRecurringDeposit` | Owner; anyone | Recurring investment as on the EVM vault: a set amount of one mandate asset from the owner's own token account, daily to yearly. The owner approves the vault authority PDA as that account's SPL Token delegate, so the approval caps what can ever be pulled; the pull goes only into the mandate's vault account for that mint, never while paused, and missed periods are not caught up. Stops when the asset leaves the mandate or the vault changes owner |
+| `SetGlidePath` | Owner | A glide path as on the EVM vault: every target moves in a straight line from where it stands to the owner's end mix by a date, then holds. Rebalance and Poke judge against wherever the path has reached; the crash guard scales the glided targets and must stay above the safe asset's path; a new path starts with no jump; a new mandate ends it |
 | `InitPriceFeed`, `SetPrice` | Feed authority | A demo USD price with 8 decimals and its update time, for local testing |
 
 **Prices.** Each asset names its price account. A Pyth `PriceUpdateV2` account (owned by Pyth's receiver program
@@ -48,7 +52,7 @@ price), the price must be positive with a confidence interval within 1%, and its
 mandate's `max_price_age`. Demo feed accounts owned by this program are accepted for local testing.
 
 **Account layout.** The vault account holds one borsh-serialized `Vault`; inheritance, the crash guard and the
-recurring investment are appended after the trading state (`VAULT_SPACE` sized for all of it). No v1 vault was ever deployed, so there is
+recurring investment and the glide path are appended after the trading state (`VAULT_SPACE` sized for all of it). No v1 vault was ever deployed, so there is
 nothing to migrate; a deployed program would add a version tag and a `realloc` path before changing the layout again.
 
 The vault authority is the PDA `["authority", vault]`: it owns the vault's token accounts and only this program can
@@ -68,7 +72,9 @@ budget, and Pyth accounts: a trade priced by Pyth, and partial verification, ano
 interval and a stale publish time each refused; inheritance and the crash guard; and recurring investments pulled on
 schedule as the SPL Token delegate (the stub enforces the delegate and its remaining allowance, as SPL Token does), into
 the right account only, never from anyone else's wallet, and stopped by pausing, turning off, a mandate without the
-asset, or a change of owner.
+asset, or a change of owner; and glide paths: validation, a trade allowed with fixed targets but refused halfway along
+a path, the crash guard's defensive targets taken from the glided ones, no jump on replacing a path, and a new mandate
+ending it.
 
 Not yet shown, because it needs a real validator: compute-unit cost, rollback of the venue's transfers on failure
 (the runtime guarantees it; the native tests never rely on state after an error), integration with a real DEX

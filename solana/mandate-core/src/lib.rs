@@ -251,6 +251,22 @@ pub fn defensive_target(targets: &[u16], safe: usize, safe_target_bps: u16, i: u
     ((targets[i] as u128 * (BPS - safe_target_bps as u128)) / (BPS - targets[safe] as u128)) as u16
 }
 
+/// Where a glide path has taken one asset's target at `now`, exactly the EVM vault's `_base` for a path from `from` at
+/// `start` to `to` at `end`: a straight line, rounded toward where it started, then `to` from `end` on. `now` is never
+/// before `start` (a path starts when it is set).
+pub fn glide_target(from: u16, to: u16, start: i64, end: i64, now: i64) -> u16 {
+    if now >= end {
+        return to;
+    }
+    let done = (now - start) as u128;
+    let span = (end - start) as u128;
+    if to >= from {
+        from + ((to - from) as u128 * done / span) as u16
+    } else {
+        from - ((from - to) as u128 * done / span) as u16
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

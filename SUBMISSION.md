@@ -146,7 +146,7 @@ Everything; the repository started empty.
 - **Multi-chain:** the mandate rules also exist as a Rust crate that reproduces 3,000 random verdicts of the TypeScript
   model exactly (which is itself proven equal to the EVM contract), and a Solana program built on it: vault PDAs,
   pilot-only rebalancing through an owner-chosen venue, owner-only withdrawals, Pyth price accounts, and the same
-  inheritance, crash guard and recurring investments as the EVM vault (the guard's rules match the TypeScript model on 2,000 more vectors).
+  inheritance, crash guard, recurring investments and glide paths as the EVM vault (the guard's rules match the TypeScript model on 2,000 more vectors).
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.

@@ -38,10 +38,11 @@ pub const MAX_ASSETS: usize = 8;
 pub const VAULT_TAG: [u8; 8] = *b"SPVAULT1";
 pub const FEED_TAG: [u8; 8] = *b"SPPRICE1";
 /// Enough for a vault with the maximum number of assets.
-pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + INHERITANCE_SPACE + GUARD_SPACE + RECURRING_SPACE + 64;
+pub const VAULT_SPACE: usize = 8 + 32 * 3 + 1 + 4 + 4 + MAX_ASSETS * (32 * 4 + 2 + 2 + 1) + (16 + 16 + 2 + 4 + 4) + 8 + 16 + 8 + INHERITANCE_SPACE + GUARD_SPACE + RECURRING_SPACE + GLIDE_SPACE + 64;
 const INHERITANCE_SPACE: usize = 32 + 4 + 8;
 const GUARD_SPACE: usize = 32 + 2 + 2 + 1 + 16;
 const RECURRING_SPACE: usize = 32 + 32 + 8 + 4 + 8;
+const GLIDE_SPACE: usize = 8 + 8 + MAX_ASSETS * 2 * 2;
 /// Inheritance periods, as on the EVM vault: 30 days to 10 years.
 pub const MIN_INACTIVITY: u32 = 30 * 86_400;
 pub const MAX_INACTIVITY: u32 = 3_650 * 86_400;
@@ -116,6 +117,12 @@ pub struct Vault {
     pub recurring_amount: u64,
     pub recurring_interval: u32,
     pub recurring_next_at: i64,
+    /// Glide path: each asset's target moves in a straight line from `glide_from` at `glide_start` to `glide_to` at
+    /// `glide_end` (mandate order), then stays there. `glide_end == 0` means off.
+    pub glide_start: i64,
+    pub glide_end: i64,
+    pub glide_from: [u16; MAX_ASSETS],
+    pub glide_to: [u16; MAX_ASSETS],
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +176,9 @@ pub enum StockPilotInstruction {
     /// Accounts: [vault (w), vault authority, source (w), the mint's vault token account (w), token program]. Anyone,
     /// when due; missed periods are not caught up.
     PullRecurringDeposit,
+    /// Accounts: [vault (w), owner (signer)]. From the targets in force now to `to` (mandate order, summing to 100%) by
+    /// `end`, in a straight line. `end == 0` turns it off. A new mandate ends it.
+    SetGlidePath { to: Vec<u16>, end: i64 },
 }
 
 /// Program errors. Codes 0 to 11 are the mandate reasons, in the same names the EVM contract uses.
@@ -196,6 +206,7 @@ pub enum StockPilotError {
     IntervalOutOfRange,
     RecurringOff,
     RecurringNotDue,
+    InvalidGlidePath,
 }
 
 impl StockPilotError {
@@ -223,6 +234,7 @@ impl StockPilotError {
             StockPilotError::IntervalOutOfRange => 118,
             StockPilotError::RecurringOff => 119,
             StockPilotError::RecurringNotDue => 120,
+            StockPilotError::InvalidGlidePath => 121,
         }
     }
 }
@@ -262,6 +274,7 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
         }),
         StockPilotInstruction::SetRecurringDeposit { mint, amount, interval } => set_recurring(program_id, accounts, mint, amount, interval),
         StockPilotInstruction::PullRecurringDeposit => pull_recurring(program_id, accounts),
+        StockPilotInstruction::SetGlidePath { to, end } => set_glide_path(program_id, accounts, to, end),
     }
 }
 
@@ -499,6 +512,10 @@ fn init_vault(program_id: &Pubkey, accounts: &[AccountInfo], pilot: [u8; 32], ve
         recurring_amount: 0,
         recurring_interval: 0,
         recurring_next_at: 0,
+        glide_start: 0,
+        glide_end: 0,
+        glide_from: [0; MAX_ASSETS],
+        glide_to: [0; MAX_ASSETS],
     };
     save(vault_info, &vault)
 }
@@ -519,6 +536,7 @@ fn set_mandate(program_id: &Pubkey, accounts: &[AccountInfo], assets: Vec<AssetC
     vault.limits = limits;
     vault.mandate_version += 1;
     vault.last_owner_activity = now;
+    vault.glide_end = 0; // a new mandate brings its own targets
     // The guard needs its safe asset listed, below its defensive target.
     if vault.drawdown_bps != 0 && safe_index(&vault).map(|i| vault.assets[i].target_bps >= vault.safe_target_bps).unwrap_or(true) {
         disarm(&mut vault);
@@ -588,6 +606,7 @@ fn claim_inheritance(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramRe
 }
 
 fn set_crash_guard(program_id: &Pubkey, accounts: &[AccountInfo], safe_mint: [u8; 32], safe_target_bps: u16, drawdown_bps: u16) -> ProgramResult {
+    let now = now()?;
     let mut err = None;
     owner_update(program_id, accounts, |v| {
         if drawdown_bps == 0 {
@@ -602,7 +621,7 @@ fn set_crash_guard(program_id: &Pubkey, accounts: &[AccountInfo], safe_mint: [u8
             err = Some(StockPilotError::DrawdownOutOfRange);
             return;
         }
-        if safe_target_bps <= v.assets[safe].target_bps || safe_target_bps as u128 > core::BPS {
+        if safe_target_bps <= highest_base(v, safe, now) || safe_target_bps as u128 > core::BPS {
             err = Some(StockPilotError::InvalidSafeTarget);
             return;
         }
@@ -618,8 +637,9 @@ fn set_crash_guard(program_id: &Pubkey, accounts: &[AccountInfo], safe_mint: [u8
     }
 }
 
-/// Reads every asset's balance and price, checking each account is the one the mandate names.
-fn read_assets(program_id: &Pubkey, vault_key: &Pubkey, vault: &Vault, tokens: &[AccountInfo], feeds: &[AccountInfo]) -> Result<Vec<core::Asset>, ProgramError> {
+/// Reads every asset's balance and price, checking each account is the one the mandate names. Targets are the ones in
+/// force at `now`: the mandate's, or where the glide path has reached.
+fn read_assets(program_id: &Pubkey, vault_key: &Pubkey, vault: &Vault, tokens: &[AccountInfo], feeds: &[AccountInfo], now: i64) -> Result<Vec<core::Asset>, ProgramError> {
     let (authority_key, _) = vault_authority(vault_key, program_id);
     let mut assets = Vec::with_capacity(vault.assets.len());
     for (i, cfg) in vault.assets.iter().enumerate() {
@@ -631,7 +651,7 @@ fn read_assets(program_id: &Pubkey, vault_key: &Pubkey, vault: &Vault, tokens: &
             return Err(StockPilotError::WrongAccount.into());
         }
         let (price, price_updated_at) = read_price(program_id, &feeds[i], cfg)?;
-        assets.push(core::Asset { balance: balance as u128, price, decimals: cfg.decimals, price_updated_at, target_bps: cfg.target_bps, band_bps: cfg.band_bps });
+        assets.push(core::Asset { balance: balance as u128, price, decimals: cfg.decimals, price_updated_at, target_bps: base_target(vault, i, now), band_bps: cfg.band_bps });
     }
     Ok(assets)
 }
@@ -646,7 +666,7 @@ fn apply_guard(vault: &mut Vault, assets: &mut [core::Asset]) {
     }
     if vault.defensive {
         if let Some(safe) = safe_index(vault) {
-            let targets: Vec<u16> = vault.assets.iter().map(|a| a.target_bps).collect();
+            let targets: Vec<u16> = assets.iter().map(|a| a.target_bps).collect(); // the glided targets, before defensive
             for (i, a) in assets.iter_mut().enumerate() {
                 a.target_bps = core::defensive_target(&targets, safe, vault.safe_target_bps, i);
             }
@@ -665,8 +685,8 @@ fn poke(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     if accounts.len() < 1 + 2 * n {
         return Err(ProgramError::NotEnoughAccountKeys);
     }
-    let mut assets = read_assets(program_id, vault_info.key, &vault, &accounts[1..1 + n], &accounts[1 + n..1 + 2 * n])?;
     let now = now()?;
+    let mut assets = read_assets(program_id, vault_info.key, &vault, &accounts[1..1 + n], &accounts[1 + n..1 + 2 * n], now)?;
     if assets.iter().any(|a| now - a.price_updated_at > vault.limits.max_price_age as i64) {
         return Err(StockPilotError::Mandate(core::Reason::StalePrice).into());
     }
@@ -735,13 +755,13 @@ fn rebalance(program_id: &Pubkey, accounts: &[AccountInfo], sell: usize, buy: us
     let (feeds, venue_accounts) = rest.split_at(n);
 
     // Every account must be the one the mandate names: a pilot cannot swap in its own token account or price feed.
-    let mut assets = read_assets(program_id, vault_info.key, &vault, tokens, feeds)?;
+    let now = now()?;
+    let mut assets = read_assets(program_id, vault_info.key, &vault, tokens, feeds, now)?;
     // A trade attempted past the drawdown is judged against the defensive targets (and records a new peak otherwise).
     apply_guard(&mut vault, &mut assets);
     if sell >= n || buy >= n {
         return Err(StockPilotError::Mandate(core::Reason::AssetNotInMandate).into());
     }
-    let now = now()?;
     let limits = core_limits(&vault.limits);
     let clock = clock_of(&vault, now);
     let trade = core::Trade { sell, buy, amount_in: amount_in as u128 };
@@ -899,4 +919,69 @@ fn pull_recurring(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResul
     invoke_signed(&ix, &[source.clone(), destination.clone(), authority.clone(), token_program.clone()], &[&[b"authority", vault_info.key.as_ref(), &[bump]]])?;
     msg!("Recurring deposit: {} into {}, next due at {}", amount, destination.key, vault.recurring_next_at);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Glide path
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// The target for asset `i` before any crash guard: the mandate's, or where the glide path has reached.
+fn base_target(v: &Vault, i: usize, now: i64) -> u16 {
+    if v.glide_end == 0 {
+        return v.assets[i].target_bps;
+    }
+    core::glide_target(v.glide_from[i], v.glide_to[i], v.glide_start, v.glide_end, now)
+}
+
+/// The highest base target asset `i` will have from now on (a glide path moves in a straight line).
+fn highest_base(v: &Vault, i: usize, now: i64) -> u16 {
+    let base = base_target(v, i, now);
+    if v.glide_end == 0 {
+        base
+    } else {
+        base.max(v.glide_to[i])
+    }
+}
+
+fn set_glide_path(program_id: &Pubkey, accounts: &[AccountInfo], to: Vec<u16>, end: i64) -> ProgramResult {
+    let now = now()?;
+    let mut err = None;
+    owner_update(program_id, accounts, |v| {
+        if end == 0 {
+            v.glide_end = 0;
+            return;
+        }
+        let n = v.assets.len();
+        if end <= now || to.len() != n {
+            err = Some(StockPilotError::InvalidGlidePath);
+            return;
+        }
+        if to.iter().map(|t| *t as u32).sum::<u32>() != 10_000 {
+            err = Some(StockPilotError::InvalidMandate);
+            return;
+        }
+        // From wherever the targets are now, so replacing a path never jumps.
+        let mut from = [0u16; MAX_ASSETS];
+        for (i, f) in from.iter_mut().enumerate().take(n) {
+            *f = base_target(v, i, now);
+        }
+        let mut dest = [0u16; MAX_ASSETS];
+        dest[..n].copy_from_slice(&to);
+        v.glide_from = from;
+        v.glide_to = dest;
+        v.glide_start = now;
+        v.glide_end = end;
+        // An armed crash guard needs its safe asset below its defensive target all the way.
+        if v.drawdown_bps != 0 {
+            if let Some(safe) = safe_index(v) {
+                if highest_base(v, safe, now) >= v.safe_target_bps {
+                    err = Some(StockPilotError::InvalidSafeTarget);
+                }
+            }
+        }
+    })?;
+    match err {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
 }
