@@ -1,0 +1,920 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+
+import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {ISwapAdapter} from "./interfaces/ISwapAdapter.sol";
+
+/// @title PilotVault
+/// @notice A self-custodied portfolio of tokenized stocks and stablecoins that an AI agent (the "pilot") can trade,
+/// but only inside a mandate the owner sets onchain.
+///
+/// The owner keeps custody: only the owner can withdraw, change the mandate, swap the pilot or the trading venue.
+/// The pilot can only call `rebalance`, and every trade must pass these checks against oracle prices:
+///
+/// 1. Both assets are in the mandate, and the venue is the one the owner chose.
+/// 2. The trade is no bigger than `maxTradeUsd`, and fits the trade budget: up to `dailyLimitUsd`, refilling
+///    continuously over 24 hours, so there is no midnight reset to burst through.
+/// 3. At least `cooldown` seconds have passed since the previous trade.
+/// 4. Every price used is younger than `maxPriceAge`.
+/// 5. What came back is worth at least `(1 - maxSlippageBps)` of what went out, at oracle prices.
+/// 6. Neither asset ends up outside its band around its target weight, unless the trade moved it toward the target
+///    (without crossing it).
+///
+/// Rule 6 is what turns an agent with trading rights into a pilot with a mandate: it may tilt the portfolio within
+/// the bands, and it may always move an asset back toward its target, but it can never concentrate the portfolio.
+///
+/// A hosted pilot is paid by an optional management fee: at most 2% a year, taken pro-rata from every asset so it
+/// never moves the weights, never accruing while the vault is paused, and cancellable by the owner at any time.
+///
+/// Inheritance: the owner may name an heir and an inactivity period (30 days to 10 years). Every owner action resets
+/// the clock; if the owner does nothing for the whole period (lost keys, incapacity, death), the heir can take
+/// ownership. The portfolio keeps being managed in the meantime. Ownership changing hands clears the heir.
+///
+/// Crash guard: the owner may set a maximum drawdown. When the vault's value falls that far below its recorded peak,
+/// it switches to defensive targets (a safe asset, typically the stablecoin, rises to a set weight and the rest shrink
+/// in proportion), and the band rule then only lets the pilot de-risk toward them. Anyone can trigger the switch with
+/// `poke()`, and any trade attempted while the condition holds is judged against the defensive targets, so the pilot
+/// cannot ignore it. Only the owner can leave defensive mode.
+///
+/// Recurring investment: the owner may set an amount of one listed asset (typically the stablecoin) to be pulled from
+/// their wallet at most once per interval. Anyone can trigger a due pull; it only ever moves the owner's preset amount
+/// from the owner's own wallet into the owner's vault, within the allowance the owner gave. Pulls are not owner
+/// activity, so they never keep an heir waiting.
+///
+/// Gasless safety actions: the owner can sign (EIP-712, or ERC-1271 for a smart wallet) a check-in or a pause, and
+/// anyone can submit it, so proof of life and the emergency brake never depend on the owner holding gas. Each
+/// signature names this vault and chain, carries a nonce and a deadline, and works once. Nothing that moves funds or
+/// changes rules can be done this way.
+contract PilotVault is Ownable2Step, Pausable, ReentrancyGuard, EIP712 {
+    using SafeERC20 for IERC20;
+
+    uint256 public constant BPS = 10_000;
+    uint256 public constant MAX_ASSETS = 8;
+    /// @notice Hard ceiling on the slippage an owner may allow, so a typo cannot hand the pilot a blank cheque.
+    uint256 public constant MAX_SLIPPAGE_BPS = 1_000;
+    /// @notice Hard ceiling on the annual management fee: 2%.
+    uint256 public constant MAX_FEE_BPS = 200;
+    uint256 private constant YEAR = 365 days;
+    /// @notice Bounds on the inactivity period before an heir can take over.
+    uint256 public constant MIN_INACTIVITY = 30 days;
+    uint256 public constant MAX_INACTIVITY = 3650 days;
+    /// @notice Bounds on the crash guard's drawdown trigger: 5% to 50%.
+    uint256 public constant MIN_DRAWDOWN_BPS = 500;
+    uint256 public constant MAX_DRAWDOWN_BPS = 5_000;
+    /// @notice Bounds on the recurring investment interval: daily to yearly.
+    uint256 public constant MIN_RECURRING_INTERVAL = 1 days;
+    uint256 public constant MAX_RECURRING_INTERVAL = 365 days;
+    bytes32 public constant CHECK_IN_TYPEHASH = keccak256("CheckIn(uint256 nonce,uint256 deadline)");
+    bytes32 public constant PAUSE_TYPEHASH = keccak256("Pause(uint256 nonce,uint256 deadline)");
+    uint256 private constant WAD = 1e18;
+
+    /// @notice One asset of the mandate, as the owner passes it in.
+    struct AssetConfig {
+        address token;
+        address feed; // Chainlink-compatible USD price feed
+        uint16 targetBps; // target share of the portfolio's value; all targets sum to 10_000
+        uint16 bandBps; // how far the pilot may let the weight drift from target, either way
+    }
+
+    /// @notice Trading limits. USD amounts have 18 decimals.
+    struct Limits {
+        uint128 maxTradeUsd;
+        uint128 dailyLimitUsd;
+        uint16 maxSlippageBps;
+        uint32 maxPriceAge;
+        uint32 cooldown;
+    }
+
+    struct Asset {
+        address feed;
+        uint8 tokenDecimals;
+        uint8 feedDecimals;
+        uint16 targetBps;
+        uint16 bandBps;
+        bool listed;
+    }
+
+    /// @dev One side of a trade, priced once at the start of `rebalance`.
+    struct Leg {
+        address token;
+        uint8 decimals;
+        uint16 targetBps;
+        uint16 bandBps;
+        uint256 price;
+        uint256 balance;
+        uint256 value;
+    }
+
+    /// @notice One row of `portfolio()`.
+    struct Holding {
+        address token;
+        uint256 balance;
+        uint256 priceUsd; // 18 decimals
+        uint256 priceUpdatedAt;
+        uint256 valueUsd; // 18 decimals
+        uint256 weightBps;
+        uint16 targetBps;
+        uint16 bandBps;
+    }
+
+    address[] private _tokens;
+    mapping(address token => Asset) public assets;
+    Limits public limits;
+
+    address public pilot;
+    address public adapter;
+    uint256 public mandateVersion;
+
+    uint64 public lastTradeAt;
+    /// @notice Trade budget (USD, 18 decimals) as of `budgetUpdatedAt`; see `tradeBudget()` for the live figure.
+    uint128 public budgetUsd;
+    uint64 public budgetUpdatedAt;
+
+    address public feeRecipient;
+    uint16 public feeBps;
+    uint64 public feeAccruedAt;
+
+    bool private _initialized;
+
+    /// @notice Who may take ownership after `inactivityPeriod` seconds without any action by the owner.
+    address public heir;
+    uint32 public inactivityPeriod;
+    /// @notice When the owner last did anything with the vault (or became its owner).
+    uint64 public lastOwnerActivity;
+
+    /// @notice Crash guard settings; `drawdownBps == 0` means off.
+    address public safeAsset;
+    uint16 public safeTargetBps;
+    uint16 public drawdownBps;
+    /// @notice True while the vault runs on defensive targets.
+    bool public defensive;
+    /// @notice Highest total value (USD, 18 decimals) recorded since the guard was armed or last re-armed.
+    uint128 public peakValueUsd;
+
+    /// @notice Recurring investment: `recurringAmount` of `recurringToken` from the owner's wallet, at most once per
+    /// `recurringInterval`, next due at `recurringNextAt`. Zero amount means off.
+    address public recurringToken;
+    uint128 public recurringAmount;
+    uint32 public recurringInterval;
+    uint64 public recurringNextAt;
+
+    /// @notice Nonce for the owner's next signed action; each signature works once.
+    uint256 public sigNonce;
+
+    /// @notice Glide path: each asset's target moves in a straight line from `fromBps` at `glideStart` to `toBps` at
+    /// `glideEnd`, then stays there, like a target-date fund. `glideEnd == 0` means off.
+    struct Glide {
+        uint16 fromBps;
+        uint16 toBps;
+    }
+
+    mapping(address token => Glide) public glide;
+    uint64 public glideStart;
+    uint64 public glideEnd;
+
+    event MandateSet(uint256 indexed version, AssetConfig[] assets, Limits limits);
+    event PilotSet(address indexed pilot);
+    event AdapterSet(address indexed adapter);
+    event Deposited(address indexed from, address indexed token, uint256 amount);
+    event Withdrawn(address indexed to, address indexed token, uint256 amount);
+    event FeeSet(address indexed recipient, uint256 feeBps);
+    event FeeCollected(address indexed recipient, address indexed token, uint256 amount);
+    event HeirSet(address indexed heir, uint32 inactivityPeriod);
+    event OwnerCheckedIn();
+    event InheritanceClaimed(address indexed previousOwner, address indexed heir);
+    event CrashGuardSet(address indexed safeAsset, uint16 safeTargetBps, uint16 drawdownBps);
+    event DefensiveModeEntered(uint256 peakUsd, uint256 valueUsd);
+    event DefensiveModeExited();
+    event RecurringDepositSet(address indexed token, uint256 amount, uint32 interval);
+    event RecurringDepositPulled(address indexed token, uint256 amount, uint256 nextAt);
+    event GlidePathSet(uint16[] toBps, uint64 start, uint64 end);
+    /// @param rationale Hash of the pilot's written reasoning for the trade, so its log can be checked against the chain.
+    event Rebalanced(
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 valueInUsd,
+        uint256 valueOutUsd,
+        bytes32 indexed rationale
+    );
+
+    error NotPilot();
+    error NotOwnerOrPilot();
+    error ZeroAddress();
+    error EmptyMandate();
+    error TooManyAssets();
+    error DuplicateAsset(address token);
+    error TargetsMustSumTo100Percent(uint256 sum);
+    error BandTooWide(address token);
+    error UnsupportedDecimals(address tokenOrFeed);
+    error SlippageCapTooHigh();
+    error ZeroLimit();
+    error NoAdapter();
+    error AssetNotInMandate(address token);
+    error SameAsset();
+    error ZeroAmount();
+    error CooldownActive(uint256 nextTradeAt);
+    error TradeTooLarge(uint256 valueUsd, uint256 maxTradeUsd);
+    error DailyLimitExceeded(uint256 valueUsd, uint256 availableUsd);
+    error FeeTooHigh();
+    error InvalidPrice(address feed);
+    error StalePrice(address feed, uint256 updatedAt);
+    error AdapterOverspent(uint256 spent, uint256 amountIn);
+    error InsufficientOutput(uint256 amountOut, uint256 minAmountOut);
+    error SlippageExceeded(uint256 valueInUsd, uint256 valueOutUsd);
+    error OutsideBand(address token, uint256 weightBeforeWad, uint256 weightAfterWad);
+    error RenounceDisabled();
+    error AlreadyInitialized();
+    error NotHeir();
+    error InvalidHeir();
+    error InactivityOutOfRange();
+    error OwnerStillActive(uint256 claimableAt);
+    error DrawdownOutOfRange();
+    error InvalidSafeTarget();
+    error CrashGuardOff();
+    error RecurringOff();
+    error RecurringNotDue(uint256 nextAt);
+    error IntervalOutOfRange();
+    error InvalidGlidePath();
+    error SignatureExpired();
+    error InvalidSignature();
+
+    modifier onlyPilot() {
+        if (msg.sender != pilot) revert NotPilot();
+        _;
+    }
+
+    /// @dev Owner-only, and proof of life for inheritance.
+    modifier ownerAction() {
+        _checkOwner();
+        lastOwnerActivity = uint64(block.timestamp);
+        _;
+    }
+
+    /// @dev The implementation behind every vault clone. It is locked: it can never be initialised or hold a mandate.
+    /// Its own owner is the deployer (the factory) and is irrelevant to clones, which have their own storage.
+    constructor() Ownable(msg.sender) EIP712("StockPilot Vault", "1") {
+        _initialized = true;
+    }
+
+    /// @notice Set up a vault clone. The factory calls this in the same transaction that creates the clone, so no one
+    /// else can initialise it first, and it can only ever run once.
+    function initialize(
+        address owner_,
+        address pilot_,
+        address adapter_,
+        AssetConfig[] calldata assets_,
+        Limits calldata limits_,
+        address feeRecipient_,
+        uint16 feeBps_
+    ) external {
+        if (_initialized) revert AlreadyInitialized();
+        _initialized = true;
+        if (owner_ == address(0)) revert ZeroAddress();
+        _transferOwnership(owner_);
+        pilot = pilot_;
+        adapter = adapter_;
+        emit PilotSet(pilot_);
+        emit AdapterSet(adapter_);
+        _setMandate(assets_, limits_);
+        feeAccruedAt = uint64(block.timestamp);
+        _setFee(feeRecipient_, feeBps_);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Owner
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Replace the whole mandate. Tokens dropped from it stay in the vault, unpriced and untradeable by the
+    /// pilot, until the owner withdraws them or lists them again.
+    function setMandate(AssetConfig[] calldata assets_, Limits calldata limits_) external ownerAction nonReentrant {
+        _collectFee(); // settle on the old asset list
+        _setMandate(assets_, limits_);
+    }
+
+    /// @notice Set or cancel the management fee. Fees accrued so far are paid at the old rate first.
+    function setFee(address recipient, uint16 bps) external ownerAction nonReentrant {
+        _collectFee();
+        _setFee(recipient, bps);
+    }
+
+    /// @notice Set the agent allowed to trade. `address(0)` revokes it.
+    function setPilot(address pilot_) external ownerAction {
+        pilot = pilot_;
+        emit PilotSet(pilot_);
+    }
+
+    /// @notice Set the venue the pilot trades through. `address(0)` stops all trading.
+    function setAdapter(address adapter_) external ownerAction {
+        adapter = adapter_;
+        emit AdapterSet(adapter_);
+    }
+
+    /// @notice Withdraw any token, any time, paused or not.
+    function withdraw(address token, uint256 amount, address to) external ownerAction nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        _collectFee(); // pay what is owed before the balance shrinks
+        if (amount > IERC20(token).balanceOf(address(this))) amount = IERC20(token).balanceOf(address(this));
+        if (!defensive) peakValueUsd = 0; // money leaving is not a crash: re-arm from the next recorded value
+        IERC20(token).safeTransfer(to, amount);
+        emit Withdrawn(to, token, amount);
+    }
+
+    /// @notice Stop the pilot. The owner or the pilot itself can pull this brake; only the owner can release it.
+    function pause() external nonReentrant {
+        if (msg.sender != owner() && msg.sender != pilot) revert NotOwnerOrPilot();
+        if (msg.sender == owner()) lastOwnerActivity = uint64(block.timestamp);
+        _collectFee(); // fees stop accruing from here
+        _pause();
+    }
+
+    function unpause() external ownerAction nonReentrant {
+        _collectFee(); // restarts the fee clock without charging for the pause
+        _unpause();
+    }
+
+    /// @dev Renouncing would lock the funds in the vault forever.
+    function renounceOwnership() public pure override {
+        revert RenounceDisabled();
+    }
+
+    /// @notice Start handing the vault to `newOwner` (who must accept). Counts as owner activity.
+    function transferOwnership(address newOwner) public override ownerAction {
+        super.transferOwnership(newOwner);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Inheritance
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Name an heir who may take ownership after `period` seconds without any owner action, or clear it with
+    /// `address(0)`. The clock restarts now.
+    function setHeir(address heir_, uint32 period) external ownerAction {
+        if (heir_ == address(0)) {
+            period = 0;
+        } else {
+            if (heir_ == owner()) revert InvalidHeir();
+            if (period < MIN_INACTIVITY || period > MAX_INACTIVITY) revert InactivityOutOfRange();
+        }
+        heir = heir_;
+        inactivityPeriod = period;
+        emit HeirSet(heir_, period);
+    }
+
+    /// @notice Proof of life: restarts the inactivity clock without changing anything else.
+    function checkIn() external ownerAction {
+        emit OwnerCheckedIn();
+    }
+
+    /// @notice The heir takes ownership once the owner has been inactive for the whole period. The pilot, mandate and
+    /// fee stay as they were; the new owner can change any of them, or withdraw everything.
+    function claimInheritance() external {
+        address h = heir;
+        if (h == address(0) || msg.sender != h) revert NotHeir();
+        uint256 at = inheritanceClaimableAt();
+        if (block.timestamp < at) revert OwnerStillActive(at);
+        address previous = owner();
+        _transferOwnership(h);
+        emit InheritanceClaimed(previous, h);
+    }
+
+    /// @notice When the heir may claim, if the owner does nothing until then; 0 without an heir.
+    function inheritanceClaimableAt() public view returns (uint256) {
+        return heir == address(0) ? 0 : uint256(lastOwnerActivity) + inactivityPeriod;
+    }
+
+    /// @dev Every change of owner (creation, a two-step transfer, an inheritance) restarts the clock and clears the
+    /// heir and the recurring investment: the previous owner's choices are not the new owner's, and pulls must never
+    /// come from a wallet whose owner did not set them up.
+    function _transferOwnership(address newOwner) internal override {
+        super._transferOwnership(newOwner);
+        lastOwnerActivity = uint64(block.timestamp);
+        if (heir != address(0)) {
+            heir = address(0);
+            inactivityPeriod = 0;
+            emit HeirSet(address(0), 0);
+        }
+        if (recurringAmount != 0) _stopRecurring();
+    }
+
+    function _stopRecurring() internal {
+        delete recurringToken;
+        delete recurringAmount;
+        delete recurringInterval;
+        delete recurringNextAt;
+        emit RecurringDepositSet(address(0), 0, 0);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Crash guard
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Arm the crash guard: past a `drawdownBps_` fall from the recorded peak, `safeAsset_`'s target becomes
+    /// `safeTargetBps_` and the other targets shrink in proportion. `drawdownBps_ == 0` turns it off.
+    function setCrashGuard(address safeAsset_, uint16 safeTargetBps_, uint16 drawdownBps_) external ownerAction {
+        if (drawdownBps_ == 0) {
+            _disarm();
+            return;
+        }
+        if (safeAsset_ == address(0)) revert ZeroAddress();
+        Asset memory a = assets[safeAsset_];
+        if (!a.listed) revert AssetNotInMandate(safeAsset_);
+        if (drawdownBps_ < MIN_DRAWDOWN_BPS || drawdownBps_ > MAX_DRAWDOWN_BPS) revert DrawdownOutOfRange();
+        if (safeTargetBps_ <= _highestBase(safeAsset_) || safeTargetBps_ > BPS) revert InvalidSafeTarget();
+        safeAsset = safeAsset_;
+        safeTargetBps = safeTargetBps_;
+        drawdownBps = drawdownBps_;
+        defensive = false;
+        peakValueUsd = 0;
+        emit CrashGuardSet(safeAsset_, safeTargetBps_, drawdownBps_);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Glide path
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice De-risk (or re-risk) on a schedule: from the targets in force now to `toBps` (mandate order, summing to
+    /// 100%) by `end`, in a straight line. Bands, limits and the crash guard apply to the moving targets as they do to
+    /// fixed ones. `end == 0` turns it off: the mandate's own targets apply again. A new mandate also ends it.
+    function setGlidePath(uint16[] calldata toBps, uint64 end) external ownerAction {
+        uint256 n = _tokens.length;
+        if (end == 0) {
+            glideEnd = 0;
+            emit GlidePathSet(toBps, 0, 0);
+            return;
+        }
+        if (end <= block.timestamp || toBps.length != n) revert InvalidGlidePath();
+        uint16[] memory from = new uint16[](n);
+        uint256 sum = 0;
+        for (uint256 i; i < n; ++i) {
+            from[i] = _base(_tokens[i]);
+            sum += toBps[i];
+        }
+        if (sum != BPS) revert TargetsMustSumTo100Percent(sum);
+        for (uint256 i; i < n; ++i) {
+            glide[_tokens[i]] = Glide(from[i], toBps[i]);
+        }
+        glideStart = uint64(block.timestamp);
+        glideEnd = end;
+        // An armed crash guard needs its safe asset below its defensive target all the way.
+        if (drawdownBps != 0 && _highestBase(safeAsset) >= safeTargetBps) revert InvalidSafeTarget();
+        emit GlidePathSet(toBps, uint64(block.timestamp), end);
+    }
+
+    /// @notice Back to the normal targets. The guard stays armed and starts again from the next recorded value.
+    function exitDefensive() external ownerAction {
+        defensive = false;
+        peakValueUsd = 0;
+        emit DefensiveModeExited();
+    }
+
+    /// @notice Record the vault's value at fresh oracle prices: a new peak, or, past the drawdown, defensive mode.
+    /// Anyone can call it (a keeper, the pilot, the owner); it never moves funds.
+    function poke() external nonReentrant returns (bool triggered) {
+        if (drawdownBps == 0) revert CrashGuardOff();
+        uint256 maxAge = limits.maxPriceAge;
+        uint256 total = 0;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            Asset memory asset = assets[_tokens[i]];
+            (uint256 price,) = _price(asset.feed, asset.feedDecimals, maxAge);
+            total += _value(IERC20(_tokens[i]).balanceOf(address(this)), price, asset.tokenDecimals);
+        }
+        return _guard(total);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Gasless safety actions, signed by the owner and submitted by anyone
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Proof of life by signature: restarts the inheritance clock as `checkIn()` would.
+    function checkInWithSig(uint256 deadline, bytes calldata signature) external {
+        _useOwnerSignature(CHECK_IN_TYPEHASH, deadline, signature);
+        lastOwnerActivity = uint64(block.timestamp);
+        emit OwnerCheckedIn();
+    }
+
+    /// @notice The emergency brake by signature: pauses the vault as the owner's `pause()` would.
+    function pauseWithSig(uint256 deadline, bytes calldata signature) external nonReentrant {
+        _useOwnerSignature(PAUSE_TYPEHASH, deadline, signature);
+        lastOwnerActivity = uint64(block.timestamp);
+        _collectFee(); // fees stop accruing from here
+        _pause();
+    }
+
+    /// @notice The EIP-712 digest the owner signs for `typehash` with the current nonce.
+    function signedActionDigest(bytes32 typehash, uint256 deadline) public view returns (bytes32) {
+        return _hashTypedDataV4(keccak256(abi.encode(typehash, sigNonce, deadline)));
+    }
+
+    function _useOwnerSignature(bytes32 typehash, uint256 deadline, bytes calldata signature) internal {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        bytes32 digest = signedActionDigest(typehash, deadline);
+        if (!SignatureChecker.isValidSignatureNow(owner(), digest, signature)) revert InvalidSignature();
+        ++sigNonce;
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Recurring investment
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Invest `amount` of `token` from your wallet every `interval` seconds (approve the vault for it first).
+    /// The first pull is due now. `amount == 0` turns it off.
+    function setRecurringDeposit(address token, uint128 amount, uint32 interval) external ownerAction {
+        if (amount == 0) {
+            _stopRecurring();
+            return;
+        }
+        if (!assets[token].listed) revert AssetNotInMandate(token);
+        if (interval < MIN_RECURRING_INTERVAL || interval > MAX_RECURRING_INTERVAL) revert IntervalOutOfRange();
+        recurringToken = token;
+        recurringAmount = amount;
+        recurringInterval = interval;
+        recurringNextAt = uint64(block.timestamp);
+        emit RecurringDepositSet(token, amount, interval);
+    }
+
+    /// @notice Pull the owner's recurring investment when due. Anyone can call it; missed periods are not caught up.
+    function pullRecurringDeposit() external whenNotPaused nonReentrant {
+        uint256 amount = recurringAmount;
+        if (amount == 0) revert RecurringOff();
+        uint256 next = recurringNextAt;
+        if (block.timestamp < next) revert RecurringNotDue(next);
+        address token = recurringToken;
+        uint256 nextAt = block.timestamp + recurringInterval;
+        recurringNextAt = uint64(nextAt);
+        _collectFee(); // as for any deposit: new money is never charged for time it was not in the vault
+        address from = owner();
+        IERC20(token).safeTransferFrom(from, address(this), amount);
+        emit Deposited(from, token, amount);
+        emit RecurringDepositPulled(token, amount, nextAt);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Anyone
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Pay the management fee accrued so far. Anyone can call it; the fee only ever goes to `feeRecipient`.
+    function collectFee() external nonReentrant {
+        _collectFee();
+    }
+
+    /// @notice Add funds. Plain transfers work too, but skip the fee settlement below, so prefer this.
+    function deposit(address token, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        if (msg.sender == owner()) lastOwnerActivity = uint64(block.timestamp);
+        _collectFee(); // settle first, so new money is never charged for time it was not in the vault
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        emit Deposited(msg.sender, token, amount);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Pilot
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Sell `amountIn` of `tokenIn` for `tokenOut` through the owner's adapter, subject to the mandate.
+    /// @param route Venue-specific routing data, passed through to the adapter.
+    /// @param rationale Hash of the pilot's explanation for this trade.
+    function rebalance(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata route,
+        bytes32 rationale
+    ) external onlyPilot whenNotPaused nonReentrant returns (uint256 amountOut) {
+        address venue = adapter;
+        if (venue == address(0)) revert NoAdapter();
+        if (tokenIn == tokenOut) revert SameAsset();
+        if (amountIn == 0) revert ZeroAmount();
+        _checkCooldown();
+
+        // Price everything once; the same prices judge the trade before and after.
+        (Leg memory sell, Leg memory buy, uint256 totalBefore) = _legs(tokenIn, tokenOut);
+        // A trade attempted past the drawdown is judged against the defensive targets.
+        if (_guard(totalBefore)) {
+            sell.targetBps = _target(sell.token);
+            buy.targetBps = _target(buy.token);
+        }
+
+        uint256 valueIn = _value(amountIn, sell.price, sell.decimals);
+        _checkSizeAndSpend(valueIn);
+
+        lastTradeAt = uint64(block.timestamp); // effects before the external call; a revert undoes it
+        amountOut = _swap(venue, sell, buy, amountIn, minAmountOut, route);
+
+        uint256 valueOut = _value(amountOut, buy.price, buy.decimals);
+        if (valueOut * BPS < valueIn * (BPS - limits.maxSlippageBps)) revert SlippageExceeded(valueIn, valueOut);
+
+        _checkBands(sell, buy, totalBefore);
+
+        emit Rebalanced(tokenIn, tokenOut, amountIn, amountOut, valueIn, valueOut, rationale);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Views
+    // ------------------------------------------------------------------------------------------------------------
+
+    function tokens() external view returns (address[] memory) {
+        return _tokens;
+    }
+
+    /// @notice Every asset in the mandate with its balance, price, value and weight. Stale prices are reported, not
+    /// rejected, so a dashboard keeps working when markets are closed; check `priceUpdatedAt`.
+    function portfolio() external view returns (Holding[] memory holdings, uint256 totalUsd) {
+        uint256 n = _tokens.length;
+        holdings = new Holding[](n);
+        for (uint256 i; i < n; ++i) {
+            address token = _tokens[i];
+            Asset memory asset = assets[token];
+            (uint256 price, uint256 updatedAt) = _price(asset.feed, asset.feedDecimals, 0);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            uint256 value = _value(balance, price, asset.tokenDecimals);
+            holdings[i] = Holding(token, balance, price, updatedAt, value, 0, _target(token), asset.bandBps);
+            totalUsd += value;
+        }
+        if (totalUsd > 0) {
+            for (uint256 i; i < n; ++i) {
+                holdings[i].weightBps = (holdings[i].valueUsd * BPS) / totalUsd;
+            }
+        }
+    }
+
+    /// @notice USD volume (18 decimals) the pilot can trade right now. Refills at `dailyLimitUsd` per 24 hours, up to
+    /// `dailyLimitUsd`.
+    function tradeBudget() external view returns (uint256) {
+        return _available(limits.dailyLimitUsd);
+    }
+
+    /// @notice Fee owed right now, per asset in mandate order, at current balances.
+    function feeOwed() external view returns (uint256[] memory owed) {
+        uint256 n = _tokens.length;
+        owed = new uint256[](n);
+        uint256 elapsed = block.timestamp - feeAccruedAt;
+        if (feeBps == 0 || paused()) return owed;
+        for (uint256 i; i < n; ++i) {
+            owed[i] = _feeOn(IERC20(_tokens[i]).balanceOf(address(this)), elapsed);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Internals
+    // ------------------------------------------------------------------------------------------------------------
+
+    function _setMandate(AssetConfig[] memory cfg, Limits memory lim) internal {
+        uint256 n = cfg.length;
+        if (n == 0) revert EmptyMandate();
+        if (n > MAX_ASSETS) revert TooManyAssets();
+        if (lim.maxSlippageBps > MAX_SLIPPAGE_BPS) revert SlippageCapTooHigh();
+        if (lim.maxTradeUsd == 0 || lim.dailyLimitUsd == 0 || lim.maxPriceAge == 0) revert ZeroLimit();
+
+        uint256 old = _tokens.length;
+        for (uint256 i; i < old; ++i) {
+            delete assets[_tokens[i]];
+        }
+        delete _tokens;
+
+        uint256 sum = 0;
+        for (uint256 i; i < n; ++i) {
+            AssetConfig memory c = cfg[i];
+            if (c.token == address(0) || c.feed == address(0)) revert ZeroAddress();
+            if (assets[c.token].listed) revert DuplicateAsset(c.token);
+            if (c.bandBps > BPS / 2) revert BandTooWide(c.token);
+            uint8 tokenDecimals = IERC20Metadata(c.token).decimals();
+            uint8 feedDecimals = AggregatorV3Interface(c.feed).decimals();
+            if (tokenDecimals > 36) revert UnsupportedDecimals(c.token);
+            if (feedDecimals > 18) revert UnsupportedDecimals(c.feed);
+            assets[c.token] = Asset(c.feed, tokenDecimals, feedDecimals, c.targetBps, c.bandBps, true);
+            _tokens.push(c.token);
+            sum += c.targetBps;
+        }
+        if (sum != BPS) revert TargetsMustSumTo100Percent(sum);
+
+        // The budget carries over (capped at the new limit), so re-mandating can't be used to reset it.
+        uint256 budget = mandateVersion == 0 ? lim.dailyLimitUsd : _available(limits.dailyLimitUsd);
+        budgetUsd = uint128(budget > lim.dailyLimitUsd ? lim.dailyLimitUsd : budget);
+        budgetUpdatedAt = uint64(block.timestamp);
+        limits = lim;
+        emit MandateSet(++mandateVersion, cfg, lim);
+        // The guard needs its safe asset listed, below its defensive target. And dropping an asset leaves it unpriced,
+        // which lowers the measured value without any crash: re-arm from the next recorded value.
+        if (drawdownBps != 0 && (!assets[safeAsset].listed || assets[safeAsset].targetBps >= safeTargetBps)) _disarm();
+        else if (!defensive) peakValueUsd = 0;
+        // A recurring investment into an asset no longer in the mandate stops.
+        if (recurringAmount != 0 && !assets[recurringToken].listed) _stopRecurring();
+        // A new mandate brings its own targets: any glide path ends.
+        if (glideEnd != 0) {
+            glideEnd = 0;
+            emit GlidePathSet(new uint16[](0), 0, 0);
+        }
+    }
+
+    function _disarm() internal {
+        safeAsset = address(0);
+        safeTargetBps = 0;
+        drawdownBps = 0;
+        defensive = false;
+        peakValueUsd = 0;
+        emit CrashGuardSet(address(0), 0, 0);
+    }
+
+    /// @dev Records a new peak, or enters defensive mode past the drawdown. Returns true when it just entered it.
+    function _guard(uint256 total) internal returns (bool) {
+        uint256 dd = drawdownBps;
+        if (dd == 0 || defensive) return false;
+        uint256 peak = peakValueUsd;
+        if (total > peak) {
+            peakValueUsd = uint128(total);
+            return false;
+        }
+        if (total * BPS >= peak * (BPS - dd)) return false;
+        defensive = true;
+        emit DefensiveModeEntered(peak, total);
+        return true;
+    }
+
+    /// @dev The target in force: the mandate's, or in defensive mode the safe asset's raised target and everyone
+    /// else's scaled down in proportion (rounded down, so the safe asset never ends below its defensive target).
+    function _target(address token) internal view returns (uint16) {
+        uint16 t = _base(token);
+        if (!defensive) return t;
+        address safe = safeAsset;
+        if (token == safe) return safeTargetBps;
+        return uint16((uint256(t) * (BPS - safeTargetBps)) / (BPS - _base(safe)));
+    }
+
+    /// @dev The target before any crash guard: the mandate's, or where the glide path has reached (rounded toward
+    /// where it started).
+    function _base(address token) internal view returns (uint16) {
+        uint256 end = glideEnd;
+        if (end == 0) return assets[token].targetBps;
+        Glide memory g = glide[token];
+        if (block.timestamp >= end) return g.toBps;
+        uint256 done = block.timestamp - glideStart;
+        uint256 span = end - glideStart;
+        return g.toBps >= g.fromBps
+            ? uint16(g.fromBps + (uint256(g.toBps - g.fromBps) * done) / span)
+            : uint16(g.fromBps - (uint256(g.fromBps - g.toBps) * done) / span);
+    }
+
+    /// @dev The highest base target `token` will have from now on (a glide path moves in a straight line).
+    function _highestBase(address token) internal view returns (uint16) {
+        uint16 now_ = _base(token);
+        if (glideEnd == 0) return now_;
+        uint16 to = glide[token].toBps;
+        return to > now_ ? to : now_;
+    }
+
+    function _available(uint256 cap) internal view returns (uint256) {
+        uint256 refilled = uint256(budgetUsd) + (cap * (block.timestamp - budgetUpdatedAt)) / 1 days;
+        return refilled > cap ? cap : refilled;
+    }
+
+    function _spend(uint256 valueUsd, uint256 dailyLimit) internal {
+        uint256 available = _available(dailyLimit);
+        if (valueUsd > available) revert DailyLimitExceeded(valueUsd, available);
+        budgetUsd = uint128(available - valueUsd);
+        budgetUpdatedAt = uint64(block.timestamp);
+    }
+
+    function _setFee(address recipient, uint16 bps) internal {
+        if (bps > MAX_FEE_BPS) revert FeeTooHigh();
+        if (bps != 0 && recipient == address(0)) revert ZeroAddress();
+        feeRecipient = recipient;
+        feeBps = bps;
+        emit FeeSet(recipient, bps);
+    }
+
+    /// @dev Pays the fee accrued since `feeAccruedAt` in kind, the same fraction of every listed asset, so weights are
+    /// untouched. Nothing accrues while paused.
+    function _collectFee() internal {
+        uint256 elapsed = block.timestamp - feeAccruedAt;
+        feeAccruedAt = uint64(block.timestamp);
+        address recipient = feeRecipient;
+        if (feeBps == 0 || elapsed == 0 || paused()) return;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            IERC20 token = IERC20(_tokens[i]);
+            // A token that misbehaves (frozen, paused, reverting) is skipped, never allowed to block a withdrawal or a
+            // pause: the fee on it for this period is simply forgone.
+            try token.balanceOf(address(this)) returns (uint256 balance) {
+                uint256 amount = _feeOn(balance, elapsed);
+                if (amount != 0 && token.trySafeTransfer(recipient, amount)) emit FeeCollected(recipient, address(token), amount);
+            } catch {}
+        }
+    }
+
+    function _feeOn(uint256 balance, uint256 elapsed) internal view returns (uint256) {
+        return Math.mulDiv(balance, uint256(feeBps) * elapsed, BPS * YEAR);
+    }
+
+    function _checkCooldown() internal view {
+        uint256 last = lastTradeAt;
+        if (last != 0 && block.timestamp < last + limits.cooldown) revert CooldownActive(last + limits.cooldown);
+    }
+
+    function _checkSizeAndSpend(uint256 valueUsd) internal {
+        uint256 maxTrade = limits.maxTradeUsd;
+        if (valueUsd > maxTrade) revert TradeTooLarge(valueUsd, maxTrade);
+        _spend(valueUsd, limits.dailyLimitUsd);
+    }
+
+    /// @dev Fresh prices for every listed asset; returns the two traded legs and the vault's total USD value.
+    function _legs(address tokenIn, address tokenOut)
+        internal
+        view
+        returns (Leg memory sell, Leg memory buy, uint256 total)
+    {
+        uint256 maxAge = limits.maxPriceAge;
+        uint256 n = _tokens.length;
+        for (uint256 i; i < n; ++i) {
+            address token = _tokens[i];
+            Asset memory asset = assets[token];
+            (uint256 price,) = _price(asset.feed, asset.feedDecimals, maxAge);
+            uint256 balance = IERC20(token).balanceOf(address(this));
+            uint256 value = _value(balance, price, asset.tokenDecimals);
+            total += value;
+            if (token == tokenIn || token == tokenOut) {
+                Leg memory leg = Leg(token, asset.tokenDecimals, _target(token), asset.bandBps, price, balance, value);
+                if (token == tokenIn) sell = leg;
+                else buy = leg;
+            }
+        }
+        if (sell.token == address(0)) revert AssetNotInMandate(tokenIn);
+        if (buy.token == address(0)) revert AssetNotInMandate(tokenOut);
+    }
+
+    /// @dev Trades through the adapter and measures the result from the vault's own balances.
+    function _swap(
+        address venue,
+        Leg memory sell,
+        Leg memory buy,
+        uint256 amountIn,
+        uint256 minAmountOut,
+        bytes calldata route
+    ) internal returns (uint256 amountOut) {
+        IERC20(sell.token).forceApprove(venue, amountIn);
+        ISwapAdapter(venue).swap(sell.token, buy.token, amountIn, minAmountOut, address(this), route);
+        IERC20(sell.token).forceApprove(venue, 0);
+
+        uint256 spent = sell.balance - IERC20(sell.token).balanceOf(address(this));
+        if (spent > amountIn) revert AdapterOverspent(spent, amountIn);
+        amountOut = IERC20(buy.token).balanceOf(address(this)) - buy.balance;
+        if (amountOut < minAmountOut) revert InsufficientOutput(amountOut, minAmountOut);
+    }
+
+    function _checkBands(Leg memory sell, Leg memory buy, uint256 totalBefore) internal view {
+        uint256 sellAfter = _value(IERC20(sell.token).balanceOf(address(this)), sell.price, sell.decimals);
+        uint256 buyAfter = _value(IERC20(buy.token).balanceOf(address(this)), buy.price, buy.decimals);
+        uint256 totalAfter = totalBefore + sellAfter + buyAfter - sell.value - buy.value;
+        _checkBand(sell, totalBefore, sellAfter, totalAfter);
+        _checkBand(buy, totalBefore, buyAfter, totalAfter);
+    }
+
+    /// @dev Price scaled to 18 decimals. `maxAge == 0` skips the freshness check.
+    function _price(address feed, uint8 feedDecimals, uint256 maxAge)
+        internal
+        view
+        returns (uint256 price, uint256 updatedAt)
+    {
+        int256 answer;
+        (, answer,, updatedAt,) = AggregatorV3Interface(feed).latestRoundData();
+        if (answer <= 0 || updatedAt == 0 || updatedAt > block.timestamp) revert InvalidPrice(feed);
+        if (maxAge != 0 && block.timestamp - updatedAt > maxAge) revert StalePrice(feed, updatedAt);
+        price = uint256(answer) * 10 ** (18 - feedDecimals);
+    }
+
+    function _value(uint256 amount, uint256 price, uint8 tokenDecimals) internal pure returns (uint256) {
+        return Math.mulDiv(amount, price, 10 ** tokenDecimals);
+    }
+
+    /// @dev Allowed when the asset ends within its band, or when it moved toward its target without crossing it.
+    /// So an asset already outside its band can be repaired step by step, but never flipped to the other side.
+    function _checkBand(Leg memory leg, uint256 totalBefore, uint256 valueAfter, uint256 totalAfter) internal pure {
+        uint256 target = (uint256(leg.targetBps) * WAD) / BPS;
+        uint256 band = (uint256(leg.bandBps) * WAD) / BPS;
+        uint256 wBefore = totalBefore == 0 ? 0 : Math.mulDiv(leg.value, WAD, totalBefore);
+        uint256 wAfter = totalAfter == 0 ? 0 : Math.mulDiv(valueAfter, WAD, totalAfter);
+        if (_absDiff(wAfter, target) <= band) return;
+        bool towardTarget = wBefore >= target
+            ? (wAfter <= wBefore && wAfter >= target)
+            : (wAfter >= wBefore && wAfter <= target);
+        if (towardTarget) return;
+        revert OutsideBand(leg.token, wBefore, wAfter);
+    }
+
+    function _absDiff(uint256 x, uint256 y) internal pure returns (uint256) {
+        return x > y ? x - y : y - x;
+    }
+}

@@ -1,0 +1,23 @@
+{
+  "network": "robinhoodTestnet",
+  "chainId": 46630,
+  "deployedAt": "2026-10-07T14:29:24.232Z",
+  "tokens": {
+    "USDG": "0x44f8be24fd5bb7c421780aaa4721a5de333fdb0a",
+    "TSLA": "0x561bd16f3e17981e2a4ba70bba95f10bd1800661",
+    "AAPL": "0x10e8a495bae739767e6ba4c443f608ff8ea99034",
+    "NVDA": "0x3b13546183aa2104e1bfc324fa424b1d018f3bac",
+    "SPY": "0x6d94e742a72ffb6ef8d17b301edd5f9d2a4cc691"
+  },
+  "feeds": {
+    "USDG": "0xe21a28fca6d253c1ee4b42ac5deb4b95585a6958",
+    "TSLA": "0x555b9c04bf3209a11b04213e14ce681061d9b014",
+    "AAPL": "0x76e50f683fa30f1e02a4e1e5ee705b2cc3d672a8",
+    "NVDA": "0xf42d783e9b39eb4d89dcc1ca8a625ae994437e52",
+    "SPY": "0xf73e93b49c1bb4b65673c45476ea1bf06d37bd25"
+  },
+  "marketMaker": "0xe7680f261c0543b13b1c0ac1dbec29ad65b124f3",
+  "factory": "0x318259c1153aa118733b5914e45bd53caf984664",
+  "registry": "0x12e02f0b852274948859c8ed8e10a414f5febeeb",
+  "demoVault": "0xfFfEBea2C701CA2cfD406D89580aE984adb0a783"
+}

@@ -1,0 +1,15 @@
+node_modules/
+artifacts/
+cache/
+typechain-types/
+coverage/
+.env
+deployments/localhost.json
+pilot-log/
+web/dist/
+
+solana/target/
+playwright-report/
+test-results/
+e2e-web/test-results/
+docker-smoke.log

@@ -1,0 +1,72 @@
+# StockPilot services. See docs/OPERATIONS.md.
+#
+#   Testnet:   cp .env.example .env  (fill it in)  &&  docker compose up -d fleet relayer
+#   Local demo (a Hardhat chain, the stack and one vault, no keys needed):
+#              docker compose --profile local up -d
+#
+# deployments/ is shared with the host: deploy from the host (npm run deploy:robinhood-testnet) or let the local
+# `setup` service write it.
+
+x-service: &service
+  build: .
+  image: stockpilot
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  stop_grace_period: 2m # SIGTERM lets the current tick (and any transaction in it) finish
+  volumes:
+    - ./deployments:/app/deployments
+    - pilot-log:/app/pilot-log
+
+services:
+  fleet:
+    <<: *service
+    command: ["agent/fleet-run.ts"]
+    environment:
+      HARDHAT_NETWORK: ${NETWORK:-robinhoodTestnet}
+    ports: ["${FLEET_PORT:-8080}:8080"]
+
+  relayer:
+    <<: *service
+    command: ["agent/relayer-run.ts"]
+    environment:
+      HARDHAT_NETWORK: ${NETWORK:-robinhoodTestnet}
+      PRIVATE_KEY: ${RELAYER_PRIVATE_KEY:-}
+    ports: ["${RELAYER_PORT:-8081}:8080"]
+
+  # --- local demo: `docker compose --profile local up -d` ---
+  chain:
+    profiles: [local]
+    image: stockpilot
+    build: .
+    entrypoint: ["npx", "hardhat", "node", "--hostname", "0.0.0.0"]
+    command: []
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8545',{method:'POST',headers:{'content-type':'application/json'},body:'{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\"}'}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      retries: 20
+    ports: ["8545:8545"]
+
+  setup:
+    profiles: [local]
+    image: stockpilot
+    build: .
+    depends_on: { chain: { condition: service_healthy } }
+    environment: { HARDHAT_NETWORK: localhost, LOCAL_RPC: "http://chain:8545" }
+    entrypoint: ["sh", "-c", "npx hardhat run scripts/deploy.ts && npx hardhat run scripts/create-vault.ts"]
+    command: []
+    user: root # writes deployments/localhost.json into the host directory, whoever owns it
+    volumes: ["./deployments:/app/deployments"]
+    restart: "no"
+
+  local-fleet:
+    profiles: [local]
+    <<: *service
+    depends_on: { setup: { condition: service_completed_successfully } }
+    command: ["agent/fleet-run.ts"]
+    environment: { HARDHAT_NETWORK: localhost, LOCAL_RPC: "http://chain:8545", INTERVAL: "15", PILOT_NAME: "StockPilot fleet (local)" }
+    ports: ["${FLEET_PORT:-8080}:8080"]
+
+volumes:
+  pilot-log:
