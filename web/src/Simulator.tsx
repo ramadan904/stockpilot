@@ -148,6 +148,11 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
       },
     },
     {
+      target: "pilot",
+      title: "Before it trades, it shows its math",
+      text: "For each side of the trade: your target, the band the vault enforces (shaded), where the pilot starts trading (dashed), where the weight is now and where the trade takes it.",
+    },
+    {
       target: "log",
       title: "The pilot rebalances",
       text: "It sells some of what ran up and buys what fell, back toward your targets. Each trade comes with a reason, and the reason's hash is stored onchain.",
@@ -199,7 +204,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
     {
       target: "vault",
       title: "Your turn",
-      text: "Describe your own goal at the top, try the Backtest tab, or connect a wallet in Live to run a real vault on testnet.",
+      text: "Describe your goal at the top, or start from what you own: paste your holdings or drop a statement screenshot. Then backtest it before and after tax, and in Live run a real vault on testnet, with a glide path, an heir, a tax-aware pilot and every vault in one household view.",
     },
   ];
 
@@ -426,7 +431,7 @@ export function Simulator({ mandate, usdSize, tourRequest = 0 }: { mandate: Mand
           </div>
         </Card>
 
-        <Card title="Pilot" aside={<span className="muted small">deterministic planner</span>}>
+        <Card tour="pilot" title="Pilot" aside={<span className="muted small">deterministic planner</span>}>
           <div className="row">
             <button className="btn primary" disabled={auto} onClick={() => setSim(pilotTick(sim))}>
               Run pilot

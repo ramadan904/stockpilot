@@ -14,11 +14,14 @@ test("the 60-second tour walks the whole story", async ({ page }) => {
   const titles: string[] = [];
   for (;;) {
     titles.push(await panel.locator("strong").innerText());
+    if (titles.at(-1) === "Before it trades, it shows its math") {
+      await expect(page.locator('[data-tour="pilot"].tour-focus').getByLabel("Why this trade").getByRole("img")).toHaveCount(2);
+    }
     const next = panel.getByRole("button", { name: "Next" });
     if ((await next.count()) === 0) break;
     await next.click();
   }
-  expect(titles).toEqual(["This is your vault", "Markets move", "The pilot rebalances", "Now the pilot is hacked", "Weeks go by", "Then the market crashes", "A report you can read", "Your turn"]);
+  expect(titles).toEqual(["This is your vault", "Markets move", "Before it trades, it shows its math", "The pilot rebalances", "Now the pilot is hacked", "Weeks go by", "Then the market crashes", "A report you can read", "Your turn"]);
   const log = page.locator('[data-tour="log"] .log li');
   await expect(log.filter({ hasText: /^Blocked/ })).toHaveCount(8);
   expect(await log.filter({ hasText: /^Trade/ }).count()).toBeGreaterThan(0);
