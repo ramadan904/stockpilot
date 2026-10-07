@@ -77,7 +77,7 @@ export interface TaxReport {
 const key = (a: string) => a.toLowerCase();
 
 /** Consume `amount` of `token` from the front of its lots. Returns the pieces taken, each with its share of basis. */
-function take(lots: Lot[], amount: bigint): { pieces: Lot[]; short: bigint } {
+export function take(lots: Lot[], amount: bigint): { pieces: Lot[]; short: bigint } {
   const pieces: Lot[] = [];
   let left = amount;
   while (left > 0n && lots.length) {
@@ -107,38 +107,58 @@ function split(total: bigint, pieces: Lot[], amount: bigint) {
   });
 }
 
-const yearOf = (t: number) => new Date(t * 1000).getUTCFullYear();
+export const yearOf = (t: number) => new Date(t * 1000).getUTCFullYear();
 
-/** The report for one vault. `events` in chain order. */
-export function taxReport(events: TaxEvent[], assets: Map<string, AssetInfo>): TaxReport {
-  const lots = new Map<string, Lot[]>();
-  const sales: Sale[] = [];
-  const withdrawn: TaxReport["withdrawn"] = [];
-  const warnings = new Set<string>();
-  const fees = new Map<number, bigint>();
-  const info = (t: Address) => assets.get(key(t)) ?? { symbol: `${t.slice(0, 6)}…`, decimals: 18, cash: false };
-  const lotsOf = (t: Address) => {
-    if (!lots.has(key(t))) lots.set(key(t), []);
-    return lots.get(key(t))!;
-  };
+/**
+ * The vault's lots, kept first in, first out as events arrive. `taxReport` replays a whole history through it; the
+ * tax-aware planner and the backtest keep one up to date trade by trade.
+ */
+export class LotBook {
+  private readonly lots = new Map<string, Lot[]>();
+  readonly sales: Sale[] = [];
+  readonly withdrawn: TaxReport["withdrawn"] = [];
+  readonly warnings = new Set<string>();
+  readonly fees = new Map<number, bigint>();
+  /** Net realized gain by calendar year. */
+  readonly gainsByYear = new Map<number, bigint>();
+  /** The last time each token (lower-case) was sold at a loss, for the wash-sale window. */
+  readonly lastLossSale = new Map<string, number>();
 
-  const acquire = (token: Address, amount: bigint, basisUsd: bigint, time: number, basisKnown: boolean) => {
-    if (info(token).cash || amount === 0n) return;
-    lotsOf(token).push({ token, amount, basisUsd, acquired: time, basisKnown });
-  };
+  constructor(readonly assets: Map<string, AssetInfo>) {}
 
-  const dispose = (token: Address, amount: bigint, proceedsUsd: bigint, time: number, via: Sale["via"], tx: Hash) => {
-    const a = info(token);
+  info(t: Address): AssetInfo {
+    return this.assets.get(key(t)) ?? { symbol: `${t.slice(0, 6)}…`, decimals: 18, cash: false };
+  }
+
+  /** Open lots of one token, oldest first. Live: callers that must not change them copy first. */
+  lotsOf(t: Address): Lot[] {
+    if (!this.lots.has(key(t))) this.lots.set(key(t), []);
+    return this.lots.get(key(t))!;
+  }
+
+  open(): Lot[] {
+    return [...this.lots.values()].flat();
+  }
+
+  acquire(token: Address, amount: bigint, basisUsd: bigint, time: number, basisKnown: boolean) {
+    if (this.info(token).cash || amount === 0n) return;
+    this.lotsOf(token).push({ token, amount, basisUsd, acquired: time, basisKnown });
+  }
+
+  dispose(token: Address, amount: bigint, proceedsUsd: bigint, time: number, via: Sale["via"], tx: Hash) {
+    const a = this.info(token);
     if (a.cash || amount === 0n) return;
-    const { pieces, short } = take(lotsOf(token), amount);
+    const { pieces, short } = take(this.lotsOf(token), amount);
     if (short > 0n) {
       // More sold than the history explains (tokens sent in by plain transfer): treat the rest as zero-basis.
-      warnings.add(`${a.symbol}: some units sold had no recorded acquisition (sent in by plain transfer?); their basis is taken as zero.`);
+      this.warnings.add(`${a.symbol}: some units sold had no recorded acquisition (sent in by plain transfer?); their basis is taken as zero.`);
       pieces.push({ token, amount: short, basisUsd: 0n, acquired: time, basisKnown: false });
     }
     const proceeds = split(proceedsUsd, pieces, amount);
+    let gain = 0n;
     pieces.forEach((p, i) => {
-      sales.push({
+      gain += proceeds[i] - p.basisUsd;
+      this.sales.push({
         token,
         symbol: a.symbol,
         amount: p.amount,
@@ -153,35 +173,48 @@ export function taxReport(events: TaxEvent[], assets: Map<string, AssetInfo>): T
         tx,
       });
     });
-  };
+    if (gain < 0n) this.lastLossSale.set(key(token), time);
+    this.gainsByYear.set(yearOf(time), (this.gainsByYear.get(yearOf(time)) ?? 0n) + gain);
+  }
 
-  for (const e of events) {
+  gainsIn(year: number): bigint {
+    return this.gainsByYear.get(year) ?? 0n;
+  }
+
+  apply(e: TaxEvent) {
     switch (e.kind) {
       case "deposit": {
-        const a = info(e.token);
-        if (e.priceUsd === null && !a.cash) warnings.add(`${a.symbol}: no price at a deposit; its basis is taken as zero until you enter it.`);
-        acquire(e.token, e.amount, e.priceUsd === null ? 0n : (e.amount * e.priceUsd) / 10n ** BigInt(a.decimals), e.time, e.priceUsd !== null);
+        const a = this.info(e.token);
+        if (e.priceUsd === null && !a.cash) this.warnings.add(`${a.symbol}: no price at a deposit; its basis is taken as zero until you enter it.`);
+        this.acquire(e.token, e.amount, e.priceUsd === null ? 0n : (e.amount * e.priceUsd) / 10n ** BigInt(a.decimals), e.time, e.priceUsd !== null);
         break;
       }
       case "trade":
-        dispose(e.tokenIn, e.amountIn, e.valueOutUsd, e.time, "trade", e.tx);
-        acquire(e.tokenOut, e.amountOut, e.valueOutUsd, e.time, true);
+        this.dispose(e.tokenIn, e.amountIn, e.valueOutUsd, e.time, "trade", e.tx);
+        this.acquire(e.tokenOut, e.amountOut, e.valueOutUsd, e.time, true);
         break;
       case "fee": {
-        const a = info(e.token);
+        const a = this.info(e.token);
         const value = e.priceUsd === null ? 0n : (e.amount * e.priceUsd) / 10n ** BigInt(a.decimals);
-        fees.set(yearOf(e.time), (fees.get(yearOf(e.time)) ?? 0n) + value);
-        dispose(e.token, e.amount, value, e.time, "fee", e.tx);
+        this.fees.set(yearOf(e.time), (this.fees.get(yearOf(e.time)) ?? 0n) + value);
+        this.dispose(e.token, e.amount, value, e.time, "fee", e.tx);
         break;
       }
       case "withdraw": {
-        if (info(e.token).cash) break;
-        const { pieces } = take(lotsOf(e.token), e.amount);
-        for (const p of pieces) withdrawn.push({ ...p, withdrawnAt: e.time, tx: e.tx });
+        if (this.info(e.token).cash) break;
+        const { pieces } = take(this.lotsOf(e.token), e.amount);
+        for (const p of pieces) this.withdrawn.push({ ...p, withdrawnAt: e.time, tx: e.tx });
         break;
       }
     }
   }
+}
+
+/** The report for one vault. `events` in chain order. */
+export function taxReport(events: TaxEvent[], assets: Map<string, AssetInfo>): TaxReport {
+  const book = new LotBook(assets);
+  for (const e of events) book.apply(e);
+  const { sales, withdrawn, warnings, fees } = book;
 
   const byYear = new Map<number, YearSummary>();
   const year = (y: number) => {
@@ -199,7 +232,7 @@ export function taxReport(events: TaxEvent[], assets: Map<string, AssetInfo>): T
 
   return {
     sales,
-    open: [...lots.values()].flat(),
+    open: book.open(),
     years: [...byYear.values()].sort((a, b) => a.year - b.year),
     withdrawn,
     warnings: [...warnings],

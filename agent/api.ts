@@ -14,6 +14,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { VaultFacts, askVault, attachRationales, type Turn } from "./ask";
 import { LOG_DIR } from "./log";
 import { verifySubscription } from "./alerts";
+import { verifyTaxPreferences } from "./taxaware";
 import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
 import { Proposal, draft, refine } from "./strategist";
@@ -86,11 +87,15 @@ export async function handleSubscribe(
   const chainId = Number((body as { chainId?: unknown } | null)?.chainId);
   const readOwner = Number.isFinite(chainId) ? readOwnerFor(chainId) : null;
   if (!readOwner) return { status: 400, json: { error: "Unsupported chain." } };
-  const v = await verifySubscription(body, readOwner).catch((e) => ({ ok: false as const, why: (e as Error).message.split("\n")[0] }));
-  if (!v.ok) return { status: 400, json: { error: `Subscription rejected: ${v.why}.` } };
+  // Alert subscriptions and tax preferences: both signed by the vault's owner, both kept in the operator's store.
+  const tax = (body as { kind?: unknown } | null)?.kind === "tax-preferences";
+  const v = await (tax ? verifyTaxPreferences(body, readOwner).then((r) => (r.ok ? { ok: true as const, doc: r.prefs as unknown } : r)) : verifySubscription(body, readOwner).then((r) => (r.ok ? { ok: true as const, doc: r.sub as unknown } : r))).catch(
+    (e) => ({ ok: false as const, why: (e as Error).message.split("\n")[0] }),
+  );
+  if (!v.ok) return { status: 400, json: { error: `${tax ? "Tax preferences" : "Subscription"} rejected: ${v.why}.` } };
   const sink = process.env.SUBSCRIPTION_SINK_URL;
   if (!sink) return { status: 200, json: { verified: true, forwarded: false } };
-  const res = await fetchImpl(sink, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v.sub) }).catch(() => null);
+  const res = await fetchImpl(sink, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v.doc) }).catch(() => null);
   return res?.ok ? { status: 200, json: { verified: true, forwarded: true } } : { status: 502, json: { error: "Verified, but the operator's store did not accept it." } };
 }
 

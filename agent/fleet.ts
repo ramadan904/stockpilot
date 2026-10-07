@@ -5,6 +5,7 @@ import type { Abi, Address, Hash, PublicClient, WalletClient } from "viem";
 import { readVault, rationaleHash, sendTrade } from "./chain";
 import { eq } from "./model";
 import { fmtUsd, plan, type PlannerOptions, DEFAULT_PLANNER } from "./planner";
+import { taxPolicyFor, type TaxPreferences } from "./taxaware";
 
 export interface FleetConfig {
   client: PublicClient;
@@ -16,6 +17,8 @@ export interface FleetConfig {
   minFeeBps?: number;
   planner?: PlannerOptions;
   notify?: Notifier;
+  /** Owners' signed tax preferences by vault (lower-case); a vault with them on is planned tax-aware. */
+  taxPreferences?: () => Map<string, TaxPreferences>;
   /** Called with each trade for the logbook. */
   onTrade?: (entry: { vault: Address; tx: Hash; rationale: string; rationaleHash: Hash }) => void;
 }
@@ -150,7 +153,10 @@ function onceADay(cfg: FleetConfig, vault: Address, error: string, now = Date.no
 async function flyOne(cfg: FleetConfig, vault: Address, _me: Address): Promise<FleetEvent> {
   const { client, vaultAbi } = cfg;
   const state = await readVault(client, vaultAbi, vault);
-  const p = plan(state, cfg.planner ?? DEFAULT_PLANNER);
+  let p = plan(state, cfg.planner ?? DEFAULT_PLANNER);
+  // Tax-aware only changes which trade, or holds one: read the vault's history only when there is a trade to weigh.
+  const prefs = cfg.taxPreferences?.().get(vault.toLowerCase());
+  if (p.action === "trade" && prefs?.enabled) p = plan(state, cfg.planner ?? DEFAULT_PLANNER, await taxPolicyFor(client, vaultAbi, state, prefs));
   if (p.action === "hold") return { kind: "hold", vault, reason: p.reason };
   const { hash } = await sendTrade(client, cfg.wallet, vaultAbi, vault, p.trade);
   cfg.onTrade?.({ vault, tx: hash, rationale: p.trade.rationale, rationaleHash: rationaleHash(p.trade.rationale) });

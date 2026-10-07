@@ -14,6 +14,7 @@ import {
   type Trade,
   type VaultState,
 } from "./model";
+import { DEFAULT_TAX, estimateSale, inWashWindow, type SaleEstimate, type TaxPolicy } from "./taxaware";
 
 export interface PlannerOptions {
   /** Fee the pilot expects the venue to charge, used to predict fills. */
@@ -83,7 +84,7 @@ export function drift(state: VaultState, triggerFraction = DEFAULT_PLANNER.trigg
  * overweight asset into the most underweight one, sized to bring the worse of the two back to target, then shrunk
  * until the vault's own rules accept it. One trade per call; the cooldown spaces them out.
  */
-export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER): Plan {
+export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER, tax?: TaxPolicy): Plan {
   const d = drift(state, opts.triggerFraction);
   if (state.paused) return { action: "hold", reason: "The vault is paused.", drift: d };
   if (state.assets.some((a) => state.now - a.priceUpdatedAt > BigInt(state.limits.maxPriceAge))) {
@@ -100,13 +101,19 @@ export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER):
   const total = totalValue(state.assets);
   const gap = (a: AssetState) => valueOf(a.balance, a.price, a.decimals) - (total * BigInt(a.targetBps)) / BPS;
   const byGap = [...state.assets].sort((x, y) => (gap(y) > gap(x) ? 1 : gap(y) < gap(x) ? -1 : 0));
-  const sell = byGap[0];
-  const buy = byGap[byGap.length - 1];
+  let sell = byGap[0];
+  let buy = byGap[byGap.length - 1];
+  const budget = available(state);
+  let taxNote = "";
+  if (tax && gap(sell) > 0n && gap(buy) < 0n) {
+    const choice = taxAwarePair(state, d, byGap, gap, budget, opts, tax);
+    if ("hold" in choice) return { action: "hold", reason: choice.hold, drift: d };
+    ({ sell, buy, note: taxNote } = choice);
+  }
   const excess = gap(sell);
   const deficit = -gap(buy);
   if (excess <= 0n || deficit <= 0n) return { action: "hold", reason: "Nothing is overweight enough to sell.", drift: d };
 
-  const budget = available(state);
   let usd = min(excess, deficit, state.limits.maxTradeUsd, budget);
   if (usd < opts.minTradeUsd) {
     const why = budget < opts.minTradeUsd ? "The 24-hour trading limit is used up for now." : "Drift is too small to trade.";
@@ -128,10 +135,87 @@ export function plan(state: VaultState, opts: PlannerOptions = DEFAULT_PLANNER):
     const rationale =
       `${sell.symbol} is ${pct(s.weightBps)} of the portfolio against a ${pct(s.targetBps)} target; ` +
       `${buy.symbol} is ${pct(b.weightBps)} against ${pct(b.targetBps)}. ` +
-      `Selling ${fmtUsd(valueUsd)} of ${sell.symbol} for ${buy.symbol} to move both back toward target.`;
+      `Selling ${fmtUsd(valueUsd)} of ${sell.symbol} for ${buy.symbol} to move both back toward target.` +
+      (tax ? ` ${taxNote}${taxSummary(estimateSale(tax, sell.token, amountIn, sell.price, sell.decimals, Number(state.now)), tax)}` : "");
     return { action: "trade", trade: { ...trade, minAmountOut, expectedAmountOut, valueUsd, rationale }, drift: d };
   }
   return { action: "hold", reason: "No trade size fits the mandate right now.", drift: d };
+}
+
+/**
+ * The tax-aware choice of what to sell and what to buy, among the trades that still rebalance. An asset outside its
+ * band always wins, whatever the tax: the mandate comes first.
+ */
+function taxAwarePair(
+  state: VaultState,
+  d: Drift[],
+  byGap: AssetState[],
+  gap: (a: AssetState) => bigint,
+  budget: bigint,
+  opts: PlannerOptions,
+  tax: TaxPolicy,
+): { sell: AssetState; buy: AssetState; note: string } | { hold: string } {
+  const now = Number(state.now);
+  const out = (a: AssetState) => d.find((x) => x.symbol === a.symbol)!.outOfBand;
+  const forced = d.some((x) => x.outOfBand);
+
+  // Buy: the most underweight asset, unless buying it would make a recent loss a wash sale (deferring that loss into
+  // the new lot) and another asset at least half as underweight is clean. Never a reason to wait.
+  const under = [...byGap].reverse().filter((a) => gap(a) < 0n && -gap(a) >= opts.minTradeUsd);
+  if (under.length === 0) return { sell: byGap[0], buy: byGap[byGap.length - 1], note: "" };
+  const clean = under.find((a) => !inWashWindow(tax, a.token, now) && -gap(a) * 2n >= -gap(under[0]));
+  const buy = out(under[0]) || !clean ? under[0] : clean;
+  const deficit = -gap(buy);
+
+  // Sell: of the overweight assets at least half as far over as the most overweight (so trades stay worth making),
+  // or only the out-of-band ones if any are, the lowest estimated tax per dollar sold.
+  const most = gap(byGap[0]);
+  let over = byGap.filter((a) => gap(a) > 0n && gap(a) * 2n >= most && gap(a) >= opts.minTradeUsd);
+  if (over.some(out)) over = over.filter(out);
+  if (over.length === 0) over = [byGap[0]];
+  const scored = over.map((a) => {
+    const usd = min(gap(a), deficit, state.limits.maxTradeUsd, budget > 0n ? budget : 1n);
+    const amount = min(amountFor(usd, a.price, a.decimals), a.balance);
+    return { a, usd: usd > 0n ? usd : 1n, est: estimateSale(tax, a.token, amount, a.price, a.decimals, now) };
+  });
+  // Lowest tax per dollar (cross-multiplied to stay exact); ties go to the more overweight asset, as without tax.
+  scored.sort((x, y) => {
+    const l = x.est.taxUsd * y.usd;
+    const r = y.est.taxUsd * x.usd;
+    return l < r ? -1 : l > r ? 1 : gap(y.a) > gap(x.a) ? 1 : gap(y.a) < gap(x.a) ? -1 : 0;
+  });
+  const best = scored[0];
+  const wait = best.est.longTermInDays;
+  // Waiting is only for drift well inside the bands: once anything nears its band edge, rebalance now.
+  const nearEdge = d.some((x) => Math.abs(x.driftBps) * 4 > x.bandBps * 3);
+  if (!forced && !nearEdge && tax.deferDays > 0 && wait !== null && wait <= tax.deferDays && best.est.taxUsd > 0n) {
+    const saving = (best.est.shortGainUsd * BigInt(tax.shortTermRateBps - tax.longTermRateBps)) / BPS;
+    return {
+      hold: `Waiting ${wait} day${wait === 1 ? "" : "s"}: selling ${best.a.symbol} now would realize ${fmtUsd(best.est.shortGainUsd)} of short-term gains; then they are long term, about ${fmtUsd(saving)} less tax. Nothing is outside its band.`,
+    };
+  }
+  // The owner's yearly gains budget: past it, only a band forces a sale.
+  const gain = best.est.shortGainUsd + best.est.longGainUsd;
+  if (!forced && tax.gainBudgetUsd !== undefined && gain > 0n && !best.est.washSale) {
+    const sofar = tax.realizedThisYearUsd ?? 0n;
+    if (sofar + gain > tax.gainBudgetUsd)
+      return {
+        hold: `Holding: selling ${best.a.symbol} now would realize ${fmtUsd(gain)} of gains, taking this year's to ${fmtUsd(sofar + gain)} against your ${fmtUsd(tax.gainBudgetUsd)} budget. It will rebalance anyway if any asset leaves its band.`,
+      };
+  }
+  const note = best.a.token !== byGap[0].token ? `Tax-aware: selling ${best.a.symbol} rather than ${byGap[0].symbol}. ` : "";
+  return { sell: best.a, buy, note };
+}
+
+/** One sentence on what a sale realizes. */
+export function taxSummary(e: SaleEstimate, tax: Pick<TaxPolicy, "shortTermRateBps" | "longTermRateBps"> = DEFAULT_TAX): string {
+  if (e.washSale) return "Realizes a loss, but within 30 days of buying, so it would not count (wash sale).";
+  const parts: string[] = [];
+  if (e.shortGainUsd !== 0n) parts.push(`${e.shortGainUsd < 0n ? "a short-term loss of " + fmtUsd(-e.shortGainUsd) : fmtUsd(e.shortGainUsd) + " short-term gain"}`);
+  if (e.longGainUsd !== 0n) parts.push(`${e.longGainUsd < 0n ? "a long-term loss of " + fmtUsd(-e.longGainUsd) : fmtUsd(e.longGainUsd) + " long-term gain"}`);
+  if (parts.length === 0) return "Realizes no gain or loss.";
+  const t = e.taxUsd;
+  return `Realizes ${parts.join(" and ")}: ${t < 0n ? `about ${fmtUsd(-t)} of tax saved` : `about ${fmtUsd(t)} of tax`} at ${tax.shortTermRateBps / 100}%/${tax.longTermRateBps / 100}%.`;
 }
 
 function min(...xs: bigint[]) {

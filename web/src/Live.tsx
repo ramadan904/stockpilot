@@ -35,6 +35,7 @@ import { CrashGuardCard } from "./CrashGuard";
 import { RecurringCard } from "./Recurring";
 import { signAndRelay } from "./signed";
 import { TaxCard } from "./Tax";
+import { TaxPilotCard } from "./TaxPilot";
 import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
@@ -567,6 +568,7 @@ function VaultPanel({ ctx, vault, draft }: { ctx: Ctx; vault: Address; draft: Dr
       />
       <StatementCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} state={state} owner={roles.owner} chainName={ctx.chain.name} />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
+      <TaxPilotCard client={client as never} wallet={wallet.kind === "watch" ? null : (w as never)} vault={vault} abi={pilotVaultAbi as Abi} state={state} chainId={ctx.chain.id} isOwner={isOwner} />
       <RecurringCard
         client={client as never}
         wallet={w}

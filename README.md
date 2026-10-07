@@ -33,6 +33,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
 | **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
+| **Tax-aware pilot** | Never overrides the mandate: a band always wins | Knows what each sale realizes (the vault sells FIFO), sells what costs the least tax, avoids wash sales, keeps within the owner's yearly gains budget; owner-signed preferences; backtested after tax |
 | **Owner tools** | | Monthly statements that reconcile to the chain, shareable strategy links, Ask your vault (Claude, answers checked against the chain), taxes (FIFO lots, Form 8949-style CSV), performance against untraded deposits, activity feed, alerts, mandate diff, reports |
 | **Operations** | | Docker image with health checks, metrics and graceful shutdown; a price relayer for testnets; an MCP server so any AI agent can fly a vault |
 | **Solana** | Proof of concept: the same rules as a Solana program, with Pyth price accounts, inheritance, the crash guard and recurring investments | Conformance-tested against the TypeScript model (3,000 trades, 2,000 guard checks) |
@@ -41,7 +42,7 @@ Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), t
 
 ```bash
 npm install
-npm test          # 188 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 204 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -176,6 +177,20 @@ first out, lot by lot, split into short and long term, with exact integer arithm
 shape of Form 8949. Open lots under water are shown as loss-harvesting candidates, with the wash-sale caveat. Not tax
 advice; every assumption is listed next to the numbers.
 
+**The tax-aware pilot.** Rebalancing sells winners, and selling is taxable. Because the vault matches lots first in,
+first out, the pilot can know exactly what a sale realizes before it makes it ([`agent/taxaware.ts`](agent/taxaware.ts)).
+Tax-aware, it chooses among the trades that still rebalance: the overweight asset whose sale costs the least tax (a
+loss saves tax, cash realizes nothing, short-term gains are dear), not an asset it sold at a loss in the last 30 days,
+and nothing that would take this year's net gains past the owner's **yearly gains budget**. A band always wins: an
+asset outside it is traded back whatever the tax, so the mandate is exactly as strict. Each trade's rationale (whose
+hash goes onchain) states what it realizes. Owners turn it on for the hosted pilot by signing their preferences, like
+alert subscriptions, and can preview the next rebalance with and without it.
+
+The Backtest tab measures it honestly, over the same simulated markets. Choosing the cheapest sale alone saves little.
+A gains budget is what works: with a $0 budget (sell at a gain only when a band forces it), a balanced $10,000
+mandate over three years paid about 40% less tax along the way, in fewer trades, with less tax in 87% of markets and
+more in 7%. The price is drift: assets wander out to their bands before the pilot sells.
+
 **Ask your vault.** Owners ask in plain words ("why did you sell NVDA?", "what happens if I lose my keys?") and get
 answers built only from facts the page reads from the chain: holdings, limits, trades, settings, taxes, heir
 ([`agent/ask.ts`](agent/ask.ts)). Claude must cite the transactions it relies on, and any citation that is not in the
@@ -195,7 +210,8 @@ Without an API key, the common questions are answered directly from the facts.
 | [`scripts/deploy-production.ts`](scripts/deploy-production.ts) | Config-driven deploy onto a chain with real assets, feeds and a DEX ([`deploy/`](deploy)) |
 | [`contracts/mocks/`](contracts/mocks) | Testnet stand-ins: stock tokens, Chainlink-shaped feeds, an oracle-priced market maker, and a hostile adapter for tests |
 | [`agent/model.ts`](agent/model.ts) | An exact BigInt model of the vault's checks, so the pilot knows before sending whether a trade will pass |
-| [`agent/planner.ts`](agent/planner.ts) | The pilot's brain: deterministic threshold rebalancing that only proposes trades the model accepts |
+| [`agent/planner.ts`](agent/planner.ts) | The pilot's brain: deterministic threshold rebalancing that only proposes trades the model accepts; tax-aware when given a policy |
+| [`agent/taxaware.ts`](agent/taxaware.ts) | Tax-aware rebalancing: what a sale realizes lot by lot, wash-sale windows, yearly netting with carryforward, owner-signed preferences |
 | [`agent/strategist.ts`](agent/strategist.ts) | Claude turns a goal in plain words into a draft mandate; code validates it and converts it to onchain units |
 | [`agent/run.ts`](agent/run.ts) | The live pilot loop for one vault |
 | [`agent/fleet.ts`](agent/fleet.ts) | The hosted pilot: flies every vault that names it, optionally only fee-paying ones, collects fees, posts trades to a Slack/Discord webhook (`npm run fleet`) |

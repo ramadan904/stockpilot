@@ -12,7 +12,8 @@
 //
 // Owner alerts: SUBSCRIPTIONS points at a JSON array of subscriptions signed by vault owners (the web app produces
 // them; see agent/alerts.ts). Each owner gets their vault's trades and errors, and a daily digest if they asked.
-// Owners who named an heir are reminded to check in before the heir can claim.
+// Owners who named an heir are reminded to check in before the heir can claim. The same store holds owners' signed
+// tax preferences (agent/taxaware.ts): their vaults are planned tax-aware, inside the same mandate.
 // Email goes through Resend when RESEND_API_KEY is set (ALERT_FROM sets the sender); webhooks need nothing.
 
 import hre from "hardhat";
@@ -24,6 +25,7 @@ import { collectFees, describe, fleetTick, webhookNotifier, type FleetConfig, ty
 import { writeReport } from "./reporter";
 import { appendLog } from "./log";
 import { registrationNeeded } from "./pilots";
+import { activeTaxPreferences, type TaxPreferences } from "./taxaware";
 import { count, runService } from "./service";
 
 async function main() {
@@ -39,10 +41,13 @@ async function main() {
 
   const email: EmailConfig = { apiKey: process.env.RESEND_API_KEY, from: process.env.ALERT_FROM ?? "StockPilot <alerts@example.com>" };
   let subs = new Map<string, Subscription>();
+  let taxPrefs = new Map<string, TaxPreferences>();
   const readOwner = (v: Address) => client.readContract({ address: v, abi: vaultAbi, functionName: "owner" }) as Promise<Address>;
   const reloadSubs = async () => {
     if (!process.env.SUBSCRIPTIONS || !existsSync(process.env.SUBSCRIPTIONS)) return;
-    subs = await activeSubscriptions(JSON.parse(readFileSync(process.env.SUBSCRIPTIONS, "utf8")), readOwner);
+    const docs = JSON.parse(readFileSync(process.env.SUBSCRIPTIONS, "utf8"));
+    subs = await activeSubscriptions(docs, readOwner);
+    taxPrefs = await activeTaxPreferences(docs, readOwner); // the same store keeps owners' signed tax preferences
   };
   const operator = process.env.WEBHOOK_URL ? webhookNotifier(process.env.WEBHOOK_URL) : undefined;
   const owners = routedNotifier(() => subs, email);
@@ -62,6 +67,7 @@ async function main() {
       await operator?.(e);
       await owners(e);
     },
+    taxPreferences: () => taxPrefs,
     onTrade: (t) => appendLog(t.vault, { tx: t.tx, rationale: t.rationale, rationaleHash: t.rationaleHash }),
   };
   console.log(`Fleet pilot ${wallet.account.address} on ${hre.network.name}, factory ${factory}`);

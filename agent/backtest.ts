@@ -9,6 +9,8 @@
 import type { Mandate } from "./mandate";
 import { BPS, WAD, afterSpend, amountFor, check, valueOf, type AssetState, type VaultState } from "./model";
 import { DEFAULT_PLANNER, plan, type PlannerOptions } from "./planner";
+import { LotBook, yearOf, type AssetInfo, type Sale } from "./tax";
+import { taxDue, type TaxPolicy } from "./taxaware";
 
 export interface AssetModel {
   symbol: string;
@@ -43,6 +45,33 @@ export interface BacktestOptions {
   /** Management fee, bps a year. */
   feeBps: number;
   planner?: PlannerOptions;
+  /** Track tax lots (and, if `aware`, plan tax-aware). */
+  tax?: TaxSettings;
+}
+
+/**
+ * Tax in the backtest. Wash sales are not adjusted for in the tax due: that can only understate the plain pilot's tax
+ * (the tax-aware one avoids them), so the comparison errs against the tax-aware pilot.
+ */
+export interface TaxSettings {
+  shortTermRateBps: number;
+  longTermRateBps: number;
+  deferDays: number;
+  /** Yearly net gains budget, USD. */
+  gainBudgetUsd?: number;
+  /** Plan tax-aware; otherwise lots are only tracked, to measure the plain pilot's taxes. */
+  aware: boolean;
+}
+
+export interface PathTax {
+  /** Tax due on gains realized along the way (fees paid in kind included), year by year. */
+  alongTheWayUsd: number;
+  /** Further tax if everything were sold on the last day. */
+  liquidationUsd: number;
+  /** The same for the starting portfolio left alone. */
+  holdLiquidationUsd: number;
+  shortGainUsd: number;
+  longGainUsd: number;
 }
 
 export interface PathResult {
@@ -58,6 +87,7 @@ export interface PathResult {
   maxRiskyWeightPct: number;
   /** Day the crash guard tripped, if it did. */
   defensiveDay: number | null;
+  tax?: PathTax;
 }
 
 /** The vault's crash guard, as `setCrashGuard` arms it. */
@@ -172,13 +202,44 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
   let peak = 0n;
   const dailyFee = BigInt(Math.round((o.feeBps / 252) * 1e6)); // per trading day, in millionths of a bp
 
+  // Tax lots: the starting portfolio is bought on day one; every trade and fee is a sale, first in, first out.
+  const info = new Map<string, AssetInfo>(state.assets.map((a, i) => [a.token, { symbol: a.symbol, decimals: a.decimals, cash: o.assets[i].vol === 0 }]));
+  const book = o.tax ? new LotBook(info) : null;
+  const holdBook = o.tax ? new LotBook(info) : null;
+  for (const a of state.assets) {
+    book?.acquire(a.token, a.balance, valueOf(a.balance, a.price, a.decimals), Number(now), true);
+    holdBook?.acquire(a.token, a.balance, valueOf(a.balance, a.price, a.decimals), Number(now), true);
+  }
+  const feeOwed = state.assets.map(() => 0n);
+  const cash = new Set(state.assets.filter((_, i) => o.assets[i].vol === 0).map((a) => a.token.toLowerCase()));
+  const policy = (): TaxPolicy | undefined =>
+    o.tax?.aware && book
+      ? {
+          lots: book.open(),
+          lastLossSale: book.lastLossSale,
+          cash,
+          shortTermRateBps: o.tax.shortTermRateBps,
+          longTermRateBps: o.tax.longTermRateBps,
+          deferDays: o.tax.deferDays,
+          gainBudgetUsd: o.tax.gainBudgetUsd === undefined ? undefined : toWad(o.tax.gainBudgetUsd),
+          realizedThisYearUsd: book.gainsIn(yearOf(Number(state.now))),
+        }
+      : undefined;
+
   for (let d = 0; d < prices[0].length; d++) {
     now += 86_400n;
     state = { ...state, now, assets: state.assets.map((a, i) => ({ ...a, price: toWad(prices[i][d]), priceUpdatedAt: now })) };
 
     if (d > 0 && o.feeBps > 0) {
       const before = total(state.assets);
-      state = { ...state, assets: state.assets.map((a) => ({ ...a, balance: a.balance - (a.balance * dailyFee) / (BPS * 1_000_000n) })) };
+      const fee = state.assets.map((a) => (a.balance * dailyFee) / (BPS * 1_000_000n));
+      // The fee accrues daily and is booked as collected once a month (a sale of what it took, at that day's price).
+      fee.forEach((f, i) => (feeOwed[i] += f));
+      if (book && d % 21 === 0) {
+        state.assets.forEach((a, i) => book.dispose(a.token, feeOwed[i], valueOf(feeOwed[i], a.price, a.decimals), Number(now), "fee", "0x"));
+        feeOwed.fill(0n);
+      }
+      state = { ...state, assets: state.assets.map((a, i) => ({ ...a, balance: a.balance - fee[i] })) };
       out.feesUsd += before - total(state.assets);
     }
 
@@ -195,7 +256,7 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
 
     // The pilot gets a few chances a day, the cooldown apart.
     for (let k = 0; k < 4; k++) {
-      const p = plan(state, o.planner ?? DEFAULT_PLANNER);
+      const p = plan(state, o.planner ?? DEFAULT_PLANNER, policy());
       if (p.action === "hold") break;
       const sell = state.assets.find((a) => a.token === p.trade.tokenIn)!;
       const buy = state.assets.find((a) => a.token === p.trade.tokenOut)!;
@@ -207,6 +268,9 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
         break;
       }
       state = afterSpend(state, verdict.valueIn);
+      const valueOut = valueOf(amountOut, buy.price, buy.decimals);
+      book?.dispose(sell.token, p.trade.amountIn, valueOut, Number(now), "trade", "0x");
+      book?.acquire(buy.token, amountOut, valueOut, Number(now), true);
       state = {
         ...state,
         assets: state.assets.map((a) =>
@@ -228,7 +292,79 @@ export function runPath(o: BacktestOptions, prices: number[][], guard?: GuardCon
       if (o.assets[i].vol > 0) out.maxRiskyWeightPct = Math.max(out.maxRiskyWeightPct, w / 100);
     });
   }
+  if (o.tax && book && holdBook) {
+    const end = Number(now);
+    const along = taxDue(book.sales, o.tax);
+    const sellAll = (b: LotBook): Sale[] =>
+      b.open().map((l) => {
+        const a = state.assets.find((x) => x.token === l.token)!;
+        const proceeds = valueOf(l.amount, a.price, a.decimals);
+        return { ...l, symbol: a.symbol, sold: end, proceedsUsd: proceeds, gainUsd: proceeds - l.basisUsd, term: end - l.acquired > 365 * 86_400 ? "long" : "short", via: "trade", tx: "0x" };
+      });
+    out.tax = {
+      alongTheWayUsd: fromWad(along.taxUsd),
+      liquidationUsd: fromWad(taxDue([...book.sales, ...sellAll(book)], o.tax).taxUsd - along.taxUsd),
+      holdLiquidationUsd: fromWad(taxDue(sellAll(holdBook), o.tax).taxUsd),
+      shortGainUsd: fromWad(along.shortGainUsd),
+      longGainUsd: fromWad(along.longGainUsd),
+    };
+  }
   return out;
+}
+
+export interface TaxStrategy {
+  /** Medians across paths. */
+  taxAlongTheWayUsd: number;
+  afterTaxFinalUsd: number;
+  tradesPerYear: number;
+  /** 95th percentile of the largest drift from target, in bps: tax awareness must not cost discipline. */
+  maxDriftBpsP95: number;
+}
+
+export interface TaxBacktestResult {
+  plain: TaxStrategy;
+  aware: TaxStrategy;
+  hold: { afterTaxFinalUsd: number };
+  /** Tax the tax-aware pilot saved along the way, on average per path (most paths see the same trades either way). */
+  savedUsd: number;
+  /** Share of paths where it paid less tax along the way, and where it paid more. */
+  savedPathsPct: number;
+  costlierPathsPct: number;
+  /** Share of paths where the tax-aware pilot ends with at least as much after tax as the plain one. */
+  awareWinsPct: number;
+  rejected: number;
+}
+
+/** The plain pilot and the tax-aware pilot over the same price paths, before and after tax. */
+export function taxBacktest(o: BacktestOptions, rates: Omit<TaxSettings, "aware">): TaxBacktestResult {
+  const u = rng(o.seed);
+  const plainRuns: PathResult[] = [];
+  const awareRuns: PathResult[] = [];
+  for (let i = 0; i < o.paths; i++) {
+    const prices = simulatePrices(o.assets, o.days, u);
+    plainRuns.push(runPath({ ...o, tax: { ...rates, aware: false } }, prices));
+    awareRuns.push(runPath({ ...o, tax: { ...rates, aware: true } }, prices));
+  }
+  const saved = plainRuns.map((r, i) => r.tax!.alongTheWayUsd - awareRuns[i].tax!.alongTheWayUsd);
+  const afterTax = (r: PathResult) => r.pilot[r.pilot.length - 1] - r.tax!.alongTheWayUsd - r.tax!.liquidationUsd;
+  const median = (xs: number[]) => percentiles(xs).p50;
+  const years = o.days / 252;
+  const summary = (runs: PathResult[]): TaxStrategy => ({
+    taxAlongTheWayUsd: median(runs.map((r) => r.tax!.alongTheWayUsd)),
+    afterTaxFinalUsd: median(runs.map(afterTax)),
+    tradesPerYear: mean(runs.map((r) => r.trades)) / years,
+    maxDriftBpsP95: percentiles(runs.map((r) => r.maxDriftBps)).p95,
+  });
+  return {
+    plain: summary(plainRuns),
+    aware: summary(awareRuns),
+    hold: { afterTaxFinalUsd: median(plainRuns.map((r) => r.hold[r.hold.length - 1] - r.tax!.holdLiquidationUsd)) },
+    savedUsd: mean(saved),
+    savedPathsPct: (saved.filter((x) => x > 0.005).length / o.paths) * 100,
+    costlierPathsPct: (saved.filter((x) => x < -0.005).length / o.paths) * 100,
+    awareWinsPct: (awareRuns.filter((r, i) => afterTax(r) >= afterTax(plainRuns[i]) - 1e-6).length / o.paths) * 100,
+    rejected: [...plainRuns, ...awareRuns].reduce((s, r) => s + r.rejected, 0),
+  };
 }
 
 export function backtest(o: BacktestOptions): BacktestResult {

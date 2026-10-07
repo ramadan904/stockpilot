@@ -913,3 +913,14 @@ tr.row-selected td {
     background: #fff;
   }
 }
+
+.tax-preview {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+.tax-preview td:first-child {
+  white-space: nowrap;
+  font-weight: 600;
+  width: 1%;
+}

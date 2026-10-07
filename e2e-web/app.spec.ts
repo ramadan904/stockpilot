@@ -68,6 +68,17 @@ test("the backtest never proposes a trade the vault would reject", async ({ page
   await expect(page.locator(".card").filter({ hasText: "A typical path" }).locator("figure.chart svg path.line")).toHaveCount(2);
 });
 
+test("after tax: the tax-aware pilot over the same markets, inside the same mandate", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Backtest" }).click();
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "After tax" }) });
+  await card.getByRole("button", { name: "Compare after tax" }).click();
+  const table = card.getByRole("table", { name: "After-tax comparison" });
+  await expect(table.locator("tr").filter({ hasText: "Tax due along the way" }).locator("td.num")).toHaveCount(3, { timeout: 60_000 });
+  await expect(card).toContainText("Trades the vault would reject: 0.");
+  await expect(card).toContainText(/paid less tax along the way in \d+% of them/);
+});
+
 test("stress test: the draft mandate through five shaped crashes, with and without the crash guard", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Backtest" }).click();
@@ -204,6 +215,18 @@ test("taxes: a profitable sale shows up lot by lot and downloads as Form 8949-st
   await page.getByLabel("Network").selectOption("31337");
   await page.getByRole("button", { name: "Use local dev account" }).click();
   await expect(page.getByText("Pilot's next move")).toContainText("Selling", { timeout: 30_000 });
+
+  // Before it trades: what would the sale realize? The tax-aware pilot reads the vault's lots from the chain.
+  const taxPilot = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Tax-aware pilot" }) });
+  await taxPilot.getByRole("button", { name: "Preview the next rebalance" }).click();
+  const preview = taxPilot.getByRole("table");
+  await expect(preview.locator("tr").filter({ hasText: "Plain pilot" })).toContainText(/Sell \$[\d,.]+ of NVDA for \w+\. Realizes \$[\d,.]+ short-term gain/, { timeout: 30_000 });
+  await expect(preview.locator("tr").filter({ hasText: "Tax-aware" })).toContainText(/Sell|Holding/);
+  await expect(taxPilot).toContainText("Realized this year: $0.00 of a $0.00 budget");
+  await taxPilot.getByRole("button", { name: "Sign preferences" }).click();
+  await expect(taxPilot.locator(".notice")).toContainText("Signature verified", { timeout: 30_000 });
+  await expect(taxPilot.locator("details pre")).toContainText('"kind": "tax-preferences"');
+
   await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
   const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
   await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
