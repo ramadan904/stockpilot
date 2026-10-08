@@ -52,6 +52,11 @@ export function deploymentFor(chainId: number) {
   return DEPLOYMENTS.find((d) => d.chainId === chainId);
 }
 
+export function explorerAddress(chainId: number, address: string) {
+  const url = chainById(chainId)?.blockExplorers?.default.url;
+  return url ? `${url}/address/${address}` : undefined;
+}
+
 export function explorerTx(chainId: number, hash: string) {
   const url = chainById(chainId)?.blockExplorers?.default.url;
   return url ? `${url}/tx/${hash}` : undefined;

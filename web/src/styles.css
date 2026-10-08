@@ -1614,3 +1614,8 @@ tr.muted td {
 .trade-reason { display: block; margin-top: 4px; color: var(--text); }
 .trade-reason q { font-style: italic; }
 .trade-reason .pill { margin-left: 4px; }
+
+/* Code check */
+.code-check { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.code-check li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 9px; background: var(--surface-2); font-size: 13px; }
+@media (max-width: 560px) { .code-check li { grid-template-columns: auto 1fr; } .code-check li > :last-child { grid-column: 2; } }

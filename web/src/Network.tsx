@@ -10,6 +10,7 @@ import { Constellation } from "./Constellation";
 import { LISTINGS } from "../../agent/listings";
 import { mandateCredentialAbi, pilotFundAbi, pilotFundFactoryAbi, pilotJournalAbi, pilotRegistryAbi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
+import { CodeCheckCard } from "./CodeCheck";
 import { historyStart, rpcTransport } from "./rpc";
 import { Card, usd } from "./ui";
 
@@ -309,6 +310,7 @@ export function Network() {
           </p>
         </Card>
       )}
+      {data && deployment && <CodeCheckCard client={client} deployment={deployment} chainId={chainId} />}
     </div>
   );
 }

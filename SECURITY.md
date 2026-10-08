@@ -64,6 +64,15 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 - **Plain transfers.** Tokens sent to the vault with a plain transfer instead of `deposit` skip fee settlement, so they
   may be charged the fee for the period since the last settlement.
 
+## Is the deployed code this code?
+
+`npm run check-code -- --network <name>` (and the Code check on the app's Network tab) fetches every contract in
+`deployments/<network>.json` and compares its runtime code with this repository's build: immutables (addresses,
+EIP-712 domains) are blanked using the compiler's own map of where they sit, and the compiler's metadata trailer is
+left out (it hashes the sources, so line endings alone change it), so the comparison is instruction for instruction.
+Vaults are checked as exact EIP-1167 clones of the vault code. CI regenerates the prints (`web/src/codeprints.ts`) on
+every change and fails if they drift from the source.
+
 ## Static analysis
 
 [Slither](https://github.com/crytic/slither) runs in CI over the production contracts (mocks excluded) and fails on any

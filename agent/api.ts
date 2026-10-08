@@ -20,6 +20,7 @@ import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
 import { Proposal, defaultClient, draft, refine } from "./strategist";
 import { IMAGE_TYPES, MAX_IMAGE_BASE64, parseHoldingsText, readStatementImage } from "./importer";
+import { cloneCode } from "./codecheck";
 
 const MAX_GOAL_CHARS = 1_000;
 
@@ -199,10 +200,7 @@ function factoriesFor(chainId: number): Address[] {
     .map((d) => d.factory as Address);
 }
 
-/** EIP-1167 minimal proxy runtime code pointing at `implementation`: exactly what the factory deploys. */
-export function cloneCode(implementation: Address): Hex {
-  return `0x363d3d373d3d3d363d73${implementation.slice(2).toLowerCase()}5af43d82803e903d91602b57fd5bf3`;
-}
+export { cloneCode } from "./codecheck";
 
 const FACTORY_ABI = [{ type: "function", name: "implementation", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 

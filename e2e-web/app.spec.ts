@@ -759,6 +759,12 @@ test("network: the whole deployment read from the chain, with the latest trades 
   await sky.getByRole("link", { name: /^Fund vault 0x.*flown by StockPilot House Pilot/ }).first().hover();
   await expect(sky.locator("figcaption")).toContainText(/^Fund vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}: \$[\d,]+, (on target|drifting|outside a band|paused), flown by StockPilot House Pilot/);
   await sky.screenshot({ path: "test-results/constellation.png" });
+  // Code check: every contract on the chain is this repository's code, and the demo vaults are genuine clones.
+  await expect(page.getByTestId("code-summary")).toHaveText(/^(\d+) of \1 match this repository$/, { timeout: 30_000 });
+  const code = page.getByRole("list", { name: "Code check" });
+  await expect(code.locator("li")).toHaveCount(9);
+  await expect(code.locator("li").filter({ hasText: "Vault code (every vault runs it)" })).toContainText("✓ match");
+  await code.screenshot({ path: "test-results/codecheck.png" });
   await page.locator("main").screenshot({ path: "test-results/network.png" });
   const trades = Number((await page.getByTestId("net-trades").innerText()).replace(/,/g, ""));
   const latest = page.getByRole("list", { name: "Latest trades" }).locator("li");

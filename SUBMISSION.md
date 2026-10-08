@@ -21,7 +21,8 @@
 2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**. Then the
    **[Network](https://stockpilot-six-virid.vercel.app/?view=network&chain=46630)** tab: every vault, fund, pilot and
    trade on Robinhood Chain testnet, read straight from the chain, drawn as a constellation: pilots are stars, their
-   vaults orbit them, glowing with their mood.
+   vaults orbit them, glowing with their mood. Below it, the **Code check** shows every live contract matching this
+   repository's code, instruction for instruction.
 3. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet, read
    straight from the chain: its mood lamp, its last rebalance, its activity.
 4. On that page press **Simulate a compromised pilot**: the **Attack Theater** sends nine attacks to the live contract
@@ -47,7 +48,7 @@ Testnet software, unaudited: do not use real money.
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 289 unit and contract tests, including 600 random trades on which an exact TypeScript model
+- **Proof, not promises:** 292 unit and contract tests, including 600 random trades on which an exact TypeScript model
   of the rules and the deployed contract must agree to the second; 33 browser tests against a real local chain; 40
   Rust tests for the Solana port; Slither in CI and stateful invariant fuzzing. On the live vault, the Attack Theater
   lets anyone watch the contract refuse nine attacks from the pilot's own address.
@@ -215,7 +216,7 @@ Everything; the repository started empty.
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 289 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 292 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -258,7 +259,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 289 tests
+npm test          # 292 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```
