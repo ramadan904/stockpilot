@@ -190,4 +190,83 @@ describe("PilotFund: one vault, many owners", () => {
       /TradeTooLarge|CooldownActive/,
     );
   });
+
+  describe("holders can fire the pilot", () => {
+    const DAY = 24 * 3600;
+    /** Let time pass, with the stock feeds updated as a live relayer would keep them. */
+    async function later(f: Awaited<ReturnType<typeof deployFund>>, seconds: number) {
+      await time.increase(seconds);
+      for (const [feed, p] of [[f.tslaFeed, 250], [f.aaplFeed, 200], [f.nvdaFeed, 125]] as const) await feed.write.setPrice([px(p)]);
+    }
+
+    it("holders of a majority fire it at once; shares bought for the vote count for nothing", async () => {
+      const f = await loadFixture(deployFund);
+      const [, , , , , carol, eve] = await hre.viem.getWalletClients();
+      await f.buy(f.alice, f.usdg, parseUnits("600", 6));
+      await f.buy(f.bob, f.usdg, parseUnits("400", 6));
+      await later(f, DAY + 1); // shares vote as they stood a day before the motion
+
+      const asBob = await f.as(f.bob);
+      const hash = await asBob.write.startMotion();
+      const [started] = parseEventLogs({ abi: f.fund.abi, logs: (await f.publicClient.getTransactionReceipt({ hash })).logs, eventName: "MotionStarted" });
+      expect(started.args).to.include({ id: 1n, supply: shares(1000) });
+      const [, , passed0, , votes0] = await f.fund.read.motions([1n]);
+      expect([passed0, votes0]).to.deep.equal([false, shares(400)]); // 40%: not yet
+
+      // A whale buys in after the record date: no votes, however many shares.
+      await f.buy(carol, f.usdg, parseUnits("5000", 6));
+      await expect((await f.as(carol)).write.vote([1n])).to.be.rejectedWith("NoVotes");
+      // Shares handed on after the record date don't vote twice.
+      await expect(asBob.write.vote([1n])).to.be.rejectedWith("AlreadyVoted");
+      await (await f.as(f.bob)).write.transfer([eve.account.address, shares(400)]);
+      await expect((await f.as(eve)).write.vote([1n])).to.be.rejectedWith("NoVotes");
+
+      const fired = await (await f.as(f.alice)).write.vote([1n]); // 100% of the recorded shares
+      const [event] = parseEventLogs({ abi: f.fund.abi, logs: (await f.publicClient.getTransactionReceipt({ hash: fired })).logs, eventName: "PilotFired" });
+      expect(getAddress(event.args.pilot)).to.equal(getAddress(f.pilot.account.address));
+      expect(await f.vault.read.pilot()).to.equal(zeroAddress);
+      const asPilot = await hre.viem.getContractAt("PilotVault", f.vault.address, { client: { wallet: f.pilot } });
+      await expect(asPilot.write.rebalance([f.usdg.address, f.nvda.address, parseUnits("100", 6), 0n, "0x", ("0x" + "11".repeat(32)) as Address])).to.be.rejectedWith("NotPilot");
+      await expect((await f.as(f.alice)).write.vote([1n])).to.be.rejectedWith("MotionClosed");
+      await expect(asBob.write.startMotion()).to.be.rejectedWith("NoPilot");
+      // Holders keep every right: leaving still works, and the manager can announce a new pilot, with notice.
+      await (await f.as(f.alice)).write.redeem([shares(600), f.alice.account.address]);
+      await f.fund.write.proposePilot([f.pilot.account.address]);
+    });
+
+    it("a firing also cancels a replacement the manager announced", async () => {
+      const f = await loadFixture(deployFund);
+      await f.buy(f.alice, f.usdg, parseUnits("1000", 6));
+      await later(f, DAY + 1);
+      await f.fund.write.proposePilot([f.bob.account.address]);
+      await (await f.as(f.alice)).write.startMotion(); // alice alone is a majority: passes as it starts
+      expect(await f.vault.read.pilot()).to.equal(zeroAddress);
+      expect(await f.fund.read.pendingPilot()).to.equal(zeroAddress);
+      await expect((await f.as(f.alice)).write.applyPilotChange()).to.be.rejectedWith("NoPilotChange");
+    });
+
+    it("needs 1% held a day before, allows one motion at a time, and a motion lapses after three days", async () => {
+      const f = await loadFixture(deployFund);
+      const [, , , , , carol] = await hre.viem.getWalletClients();
+      await f.buy(f.alice, f.usdg, parseUnits("990", 6));
+      await f.buy(f.bob, f.usdg, parseUnits("5", 6)); // 0.5%
+      await expect((await f.as(f.alice)).write.startMotion()).to.be.rejectedWith("TooFewSharesToMove"); // bought today
+      await later(f, DAY + 1);
+      await f.buy(carol, f.usdg, parseUnits("20", 6)); // 2%, but bought today
+      await expect((await f.as(f.bob)).write.startMotion()).to.be.rejectedWith("TooFewSharesToMove");
+      await expect((await f.as(carol)).write.startMotion()).to.be.rejectedWith("TooFewSharesToMove");
+
+      // A day on, carol's shares have their record and can move a motion.
+      await later(f, DAY + 1);
+      await (await f.as(carol)).write.startMotion();
+      await expect((await f.as(f.bob)).write.startMotion()).to.be.rejectedWith("MotionOpen");
+      await (await f.as(f.bob)).write.vote([1n]);
+      await later(f, 3 * DAY);
+      await expect((await f.as(f.alice)).write.vote([1n])).to.be.rejectedWith("MotionClosed");
+      expect(getAddress(await f.vault.read.pilot())).to.equal(getAddress(f.pilot.account.address)); // it lapsed
+      await (await f.as(carol)).write.startMotion(); // a new one may start
+      expect(await f.fund.read.motionCount()).to.equal(2n);
+      await expect((await f.as(f.bob)).write.vote([9n])).to.be.rejectedWith("NoMotion");
+    });
+  });
 });

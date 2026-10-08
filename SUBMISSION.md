@@ -138,7 +138,9 @@ Everything; the repository started empty.
   **Pilot funds:** a vault many people own together (`PilotFund`, an ERC-20 share token). Buy in with any mandate
   asset at the vault's value at fresh oracle prices; leave at any time with your exact share of every holding, in
   kind, which needs no prices and works while paused. The mandate, fee and venue can never change, and a new pilot
-  takes over only after three days' notice, so holders can always leave first. An AI-managed fund whose rules are
+  takes over only after three days' notice, so holders can always leave first. And the holders can fire the AI:
+  a majority of the shares, as they stood a day before the motion (so votes can't be bought for it), removes the
+  pilot at once. An AI-managed fund whose rules are
   enforced by the contract, not promised in a prospectus.
   **Letters from the pilot:** about once a day the pilot writes to the owner (what it did, why, what to watch; in
   Claude's words from figures read onchain) and publishes it in `PilotJournal`. Only the vault's current pilot can
@@ -208,7 +210,7 @@ Everything; the repository started empty.
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 275 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 278 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -251,7 +253,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 275 tests
+npm test          # 278 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```

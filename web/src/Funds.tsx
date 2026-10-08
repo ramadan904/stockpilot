@@ -25,6 +25,18 @@ function tokenAmount(usdAmount: number, priceWad: bigint, decimals: number) {
   return parseUnits((usdAmount / price).toFixed(Math.min(decimals, 8)), decimals);
 }
 
+interface Motion {
+  id: bigint;
+  start: number;
+  end: number;
+  passed: boolean;
+  supply: bigint;
+  votes: bigint;
+  voted: boolean;
+  /** Your votes in it: your shares as they stood a day before it began. */
+  mine: bigint;
+}
+
 interface FundInfo {
   name: string;
   symbol: string;
@@ -34,7 +46,14 @@ interface FundInfo {
   pendingPilot: Address;
   pilotChangeAt: number;
   mine: bigint;
+  motion: Motion | null;
+  /** Your shares, and all shares, as they stood a day ago: what starting a motion now would count. */
+  recordMine: bigint;
+  recordSupply: bigint;
+  stakeBps: bigint;
 }
+
+const DAY = 86_400;
 
 /** On a vault page: if the vault belongs to a fund, its shares, a way in, a way out, and any announced pilot change. */
 export function FundCard(props: {
@@ -73,8 +92,28 @@ export function FundCard(props: {
         read("pilotChangeAt"),
         me.kind === "watch" ? Promise.resolve(0n) : read("balanceOf", [me.address]),
       ]);
+      const recordAt = BigInt(Math.max(0, Number(state.now) - DAY));
+      const [count, recordSupply, recordMine, stakeBps] = await Promise.all([
+        read("motionCount") as Promise<bigint>,
+        read("getPastTotalSupply", [recordAt]) as Promise<bigint>,
+        me.kind === "watch" ? Promise.resolve(0n) : (read("getPastVotes", [me.address, recordAt]) as Promise<bigint>),
+        read("MOTION_STAKE_BPS") as Promise<bigint>,
+      ]);
+      let motion: Motion | null = null;
+      if (count > 0n) {
+        const [start, end, passed, supply, votes] = (await read("motions", [count])) as [number, number, boolean, bigint, bigint];
+        const [voted, mineVotes] =
+          me.kind === "watch"
+            ? [false, 0n]
+            : ((await Promise.all([read("hasVoted", [count, me.address]), read("getPastVotes", [me.address, BigInt(Math.max(0, Number(start) - DAY))])])) as [boolean, bigint]);
+        motion = { id: count, start: Number(start), end: Number(end), passed, supply, votes, voted, mine: mineVotes };
+      }
       if (live)
         setInfo({
+          motion,
+          recordMine,
+          recordSupply,
+          stakeBps,
           name: name as string,
           symbol: symbol as string,
           supply: supply as bigint,
@@ -88,7 +127,7 @@ export function FundCard(props: {
     return () => {
       live = false;
     };
-  }, [client, deployment.funds, owner, me.address, me.kind]);
+  }, [client, deployment.funds, owner, me.address, me.kind, state.now]);
 
   if (!info) return null;
   const w = me.client;
@@ -157,6 +196,8 @@ export function FundCard(props: {
         </p>
       )}
 
+      <HoldersVote info={info} pilot={pilot} pilotName={pilotName} now={now} canWrite={canWrite} write={write} run={run} />
+
       {canWrite ? (
         <>
           <div className="row">
@@ -224,6 +265,77 @@ export function FundCard(props: {
         </p>
       )}
     </Card>
+  );
+}
+
+/** Holders of a majority of the shares can fire the pilot: the open motion, the last result, or a way to start one. */
+function HoldersVote(props: {
+  info: FundInfo;
+  pilot: Address;
+  pilotName: (a: Address) => string;
+  now: number;
+  canWrite: boolean;
+  write: (label: string, functionName: string, args?: readonly unknown[]) => Promise<unknown>;
+  run: Run;
+}) {
+  const { info, pilot, pilotName, now, canWrite, write, run } = props;
+  const m = info.motion;
+  const open = m && !m.passed && now < m.end;
+  const when = (t: number) => new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const pctOf = (part: bigint, whole: bigint) => (whole > 0n ? Number((part * 10_000n) / whole) / 100 : 0);
+  const canStart =
+    canWrite && !open && pilot !== zeroAddress && info.recordMine > 0n && info.recordMine * 10_000n >= info.recordSupply * info.stakeBps;
+  return (
+    <div className="holders-vote" data-testid="holders-vote">
+      <div className="spread small">
+        <strong>Holders' vote</strong>
+        <span className="muted">holders of more than half the shares can fire the pilot</span>
+      </div>
+      {open ? (
+        <>
+          <p className="small" style={{ margin: "6px 0" }}>
+            A motion to fire {pilotName(pilot)} is open until {when(m.end)}: {pctOf(m.votes, m.supply).toFixed(1)}% of the shares have voted for it;
+            it passes above 50%.
+          </p>
+          <div className="vote-bar" role="progressbar" aria-label="Votes to fire the pilot" aria-valuenow={pctOf(m.votes, m.supply)} aria-valuemin={0} aria-valuemax={100}>
+            <span style={{ width: `${Math.min(100, pctOf(m.votes, m.supply))}%` }} />
+            <i aria-hidden />
+          </div>
+          {canWrite &&
+            (m.voted ? (
+              <p className="muted small" style={{ margin: "6px 0 0" }}>You voted.</p>
+            ) : m.mine > 0n ? (
+              <button className="btn danger small" style={{ marginTop: 8 }} onClick={run(() => write("Vote to fire the pilot", "vote", [m.id]))}>
+                Vote to fire the pilot
+              </button>
+            ) : (
+              <p className="muted small" style={{ margin: "6px 0 0" }}>Only shares held a day before the motion began can vote.</p>
+            ))}
+        </>
+      ) : (
+        <>
+          {m?.passed && (
+            <p className="notice warn" style={{ margin: "6px 0" }} data-testid="pilot-fired">
+              Holders fired the pilot on {when(m.start)}, with {pctOf(m.votes, m.supply).toFixed(1)}% of the shares. The fund has
+              {pilot === zeroAddress ? " no pilot until the manager announces one, with three days' notice." : ` a new pilot: ${pilotName(pilot)}.`}
+            </p>
+          )}
+          {m && !m.passed && <p className="muted small" style={{ margin: "6px 0" }}>The last motion to fire the pilot lapsed on {when(m.end)}.</p>}
+          {canStart ? (
+            <button className="btn danger small" style={{ marginTop: 6 }} onClick={run(() => write("Move to fire the pilot", "startMotion"))}>
+              Move to fire the pilot
+            </button>
+          ) : (
+            !m && (
+              <p className="muted small" style={{ margin: "6px 0 0" }}>
+                Any holder with 1% of the shares, held for a day, can start a motion. Shares count as they stood a day before it began, so votes can't
+                be bought for the occasion.
+              </p>
+            )
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

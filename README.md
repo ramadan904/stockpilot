@@ -37,7 +37,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-d
 | **Glide path** | Targets move on the owner's schedule toward an end mix by a date, like a target-date fund; bands, limits and the crash guard apply to the moving targets | Backtest with and without it, a card showing where the path stands, exact TypeScript mirror of the contract's arithmetic |
 | **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
 | **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a leaderboard ranked by value added after fees against holding what each pilot took over (with worst falls and vault-days of evidence), a picker, MCP tools for agents to get hired |
-| **Pilot funds** | `PilotFund`: a vault many people own. Shares are bought at the vault's value at fresh prices; any holder leaves any time with their exact share of every holding, in kind, paused or not. The mandate, fee and venue can never change; a new pilot takes over only after three days' notice | Launch a fund from any drafted mandate, buy and redeem in the app, a demo fund flown by the house pilot |
+| **Pilot funds** | `PilotFund`: a vault many people own. Shares are bought at the vault's value at fresh prices; any holder leaves any time with their exact share of every holding, in kind, paused or not. The mandate, fee and venue can never change; a new pilot takes over only after three days' notice. Holders of a majority of the shares (as they stood a day before the vote) can fire the pilot at once | Launch a fund from any drafted mandate, buy and redeem in the app, a demo fund flown by the house pilot |
 | **Verified Mandate** | `MandateCredential`: a soulbound token for a genuine vault that flew one mandate, unchanged, for a day; `isCurrent` says whether it still does | Fully onchain image and metadata, shown on every vault page |
 | **Letters from the pilot** | `PilotJournal`: only a genuine vault's current pilot can post, so each letter is an attributable public statement | About once a day, written from onchain figures (by Claude when configured), each text checked against its onchain hash |
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
@@ -54,7 +54,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-d
 
 ```bash
 npm install
-npm test          # 275 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 278 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```

@@ -1576,3 +1576,9 @@ tr.muted td {
 .net-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; margin-top: 14px; gap: 2px; }
 .net-bar span { background: var(--c); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 60%, transparent); min-width: 4px; }
 .net-trades li { display: block; }
+
+/* Holders' vote on a fund */
+.holders-vote { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.vote-bar { position: relative; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.vote-bar span { display: block; height: 100%; background: var(--bad, #d64545); box-shadow: 0 0 12px color-mix(in srgb, var(--bad, #d64545) 60%, transparent); }
+.vote-bar i { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--text, currentColor); opacity: 0.6; }

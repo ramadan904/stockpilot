@@ -2,6 +2,8 @@
 pragma solidity 0.8.28;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -17,14 +19,23 @@ import {PilotVaultFactory} from "./PilotVaultFactory.sol";
 /// @dev The fund owns one vault created by the StockPilot factory, so the vault enforces the mandate on every trade as
 /// it does for anyone. The fund never exposes the vault's owner powers that could hurt holders: the mandate, fee,
 /// venue, heir and owner can never change. Its manager can pause and unpause, and replace the pilot only after a
-/// notice period long enough for any holder to leave first.
-contract PilotFund is ERC20, ReentrancyGuard {
+/// notice period long enough for any holder to leave first. Holders of a majority of the shares can fire the pilot:
+/// shares vote as they stood when the motion began, so votes cannot be bought for the occasion.
+contract PilotFund is ERC20Votes, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @notice The smallest purchase, in USD (18 decimals). Keeps share prices meaningful from the first purchase on.
     uint256 public constant MIN_PURCHASE_USD = 1e18;
+    uint256 private constant BPS = 10_000;
     /// @notice How long holders have to leave before a new pilot takes over.
     uint256 public constant PILOT_NOTICE = 3 days;
+    /// @notice How long a motion to fire the pilot stays open.
+    uint256 public constant MOTION_PERIOD = 3 days;
+    /// @notice The share of all shares (basis points) a holder needs to start a motion.
+    uint256 public constant MOTION_STAKE_BPS = 100;
+    /// @notice Shares vote as they stood this long before a motion began: buying in for the vote, then leaving, is
+    /// not enough; a voter must have held through that time.
+    uint256 public constant VOTE_RECORD_AGE = 1 days;
 
     /// @notice The vault this fund owns.
     PilotVault public immutable vault;
@@ -33,6 +44,20 @@ contract PilotFund is ERC20, ReentrancyGuard {
 
     address public pendingPilot;
     uint64 public pilotChangeAt;
+
+    /// @notice A motion by holders to fire the pilot. It passes the moment votes exceed half of `supply`, both counted
+    /// as shares stood `VOTE_RECORD_AGE` before `start`.
+    struct Motion {
+        uint48 start;
+        uint48 end;
+        bool passed;
+        uint256 supply;
+        uint256 votes;
+    }
+
+    uint256 public motionCount;
+    mapping(uint256 id => Motion) public motions;
+    mapping(uint256 id => mapping(address holder => bool)) public hasVoted;
 
     /// @notice The vault a fund is created with: its pilot, venue, mandate (fixed for the fund's life) and fee.
     struct VaultConfig {
@@ -51,6 +76,9 @@ contract PilotFund is ERC20, ReentrancyGuard {
     event PilotChangeProposed(address indexed pilot, uint256 effectiveAt);
     event PilotChangeCancelled(address indexed pilot);
     event PilotChanged(address indexed pilot);
+    event MotionStarted(uint256 indexed id, address indexed by, uint256 endsAt, uint256 supply);
+    event Voted(uint256 indexed id, address indexed holder, uint256 shares);
+    event PilotFired(uint256 indexed id, address indexed pilot);
 
     error NotManager();
     error ZeroAddress();
@@ -63,6 +91,13 @@ contract PilotFund is ERC20, ReentrancyGuard {
     error WipedOut();
     error NoPilotChange();
     error NoticeRunning(uint256 effectiveAt);
+    error NoPilot();
+    error MotionOpen(uint256 id);
+    error TooFewSharesToMove(uint256 shares, uint256 needed);
+    error NoMotion(uint256 id);
+    error MotionClosed(uint256 id);
+    error AlreadyVoted(uint256 id);
+    error NoVotes(uint256 id);
 
     modifier onlyManager() {
         if (msg.sender != manager) revert NotManager();
@@ -72,6 +107,7 @@ contract PilotFund is ERC20, ReentrancyGuard {
     /// @dev Called by PilotFundFactory, which records the fund; the vault is created here so the fund is its owner.
     constructor(string memory name_, string memory symbol_, address manager_, PilotVaultFactory factory, VaultConfig memory cfg)
         ERC20(name_, symbol_)
+        EIP712(name_, "1")
     {
         if (manager_ == address(0)) revert ZeroAddress();
         manager = manager_;
@@ -143,6 +179,33 @@ contract PilotFund is ERC20, ReentrancyGuard {
     }
 
     // ------------------------------------------------------------------------------------------------------------
+    // Holders' motion to fire the pilot
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Start a motion to fire the pilot, and vote for it. Needs 1% of the shares as they stood a day ago.
+    function startMotion() external returns (uint256 id) {
+        if (vault.pilot() == address(0)) revert NoPilot();
+        uint256 last = motionCount;
+        if (last != 0 && !motions[last].passed && block.timestamp < motions[last].end) revert MotionOpen(last);
+        uint256 before = _recordTime(block.timestamp);
+        uint256 supply = getPastTotalSupply(before);
+        uint256 stake = getPastVotes(msg.sender, before);
+        uint256 needed = Math.mulDiv(supply, MOTION_STAKE_BPS, BPS, Math.Rounding.Ceil);
+        if (stake == 0 || stake < needed) revert TooFewSharesToMove(stake, needed);
+        id = last + 1;
+        motionCount = id;
+        uint256 end = block.timestamp + MOTION_PERIOD;
+        motions[id] = Motion(uint48(block.timestamp), uint48(end), false, supply, 0);
+        emit MotionStarted(id, msg.sender, end, supply);
+        _vote(id, msg.sender);
+    }
+
+    /// @notice Vote to fire the pilot, with the shares you held when the motion began.
+    function vote(uint256 id) external {
+        _vote(id, msg.sender);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
     // Manager
     // ------------------------------------------------------------------------------------------------------------
 
@@ -182,8 +245,52 @@ contract PilotFund is ERC20, ReentrancyGuard {
     }
 
     // ------------------------------------------------------------------------------------------------------------
+    // Votes: shares are counted by timestamp, and every holder votes with their own shares without having to ask
+    // ------------------------------------------------------------------------------------------------------------
+
+    function clock() public view override returns (uint48) {
+        return uint48(block.timestamp);
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function CLOCK_MODE() public pure override returns (string memory) {
+        return "mode=timestamp";
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        super._update(from, to, value);
+        if (to != address(0) && delegates(to) == address(0)) _delegate(to, to);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------------------------------------------------------
+
+    /// @dev The moment shares are counted at for a motion starting at `start`.
+    function _recordTime(uint256 start) internal pure returns (uint256) {
+        return start > VOTE_RECORD_AGE ? start - VOTE_RECORD_AGE : 0;
+    }
+
+    function _vote(uint256 id, address holder) internal {
+        Motion storage m = motions[id];
+        if (m.start == 0) revert NoMotion(id);
+        if (m.passed || block.timestamp >= m.end) revert MotionClosed(id);
+        if (hasVoted[id][holder]) revert AlreadyVoted(id);
+        uint256 shares = getPastVotes(holder, _recordTime(m.start));
+        if (shares == 0) revert NoVotes(id);
+        hasVoted[id][holder] = true;
+        m.votes += shares;
+        emit Voted(id, holder, shares);
+        if (m.votes * 2 <= m.supply) return;
+        // A majority: the pilot goes now, and any announced replacement with it. The manager can announce a new one,
+        // with the usual notice, and holders can fire that one too.
+        m.passed = true;
+        delete pendingPilot;
+        delete pilotChangeAt;
+        address fired = vault.pilot();
+        emit PilotFired(id, fired);
+        vault.setPilot(address(0));
+    }
 
     /// @dev The price of `token` and the vault's value, refusing any price older than the mandate allows: a purchase
     /// at a stale price would let a buyer take value from the holders.

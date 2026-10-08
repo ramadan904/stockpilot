@@ -674,6 +674,49 @@ test("pilot funds: launch one from the draft, a second person buys in, then leav
   expect(errors).toEqual([]);
 });
 
+test("holders fire the pilot: a fund's majority votes, and the contract removes the pilot at once", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  const funds = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) });
+  await funds.getByRole("button", { name: "Launch a fund with this mandate" }).click();
+  await funds.getByLabel("Fund name").fill("Vote Fund");
+  await funds.getByLabel("Ticker").fill("VOTE");
+  await funds.getByRole("button", { name: "Launch fund" }).click();
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("Vote Fund", { timeout: 60_000 });
+  const vote = fund.getByTestId("holders-vote");
+  // Shares bought today can't move a motion yet: they vote only once they have a day's record.
+  await expect(vote).toContainText("held for a day");
+  await expect(vote.getByRole("button", { name: "Move to fire the pilot" })).toHaveCount(0);
+
+  await rpc("evm_increaseTime", [86_460]);
+  await rpc("evm_mine");
+  await movePrice("", 1);
+  // A day later: reopen the fund.
+  const vaultAddress = await page.locator("[data-address]").first().getAttribute("data-address");
+  await page.reload();
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByLabel("Vault address").fill(vaultAddress!);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await vote.getByRole("button", { name: "Move to fire the pilot" }).click();
+  // The only holder is a majority: the motion passes as it starts, and the vault has no pilot.
+  await expect(fund.getByTestId("pilot-fired")).toContainText("Holders fired the pilot", { timeout: 60_000 });
+  await expect(fund.getByTestId("pilot-fired")).toContainText("100.0% of the shares");
+  await fund.screenshot({ path: "test-results/fired.png" });
+  await expect(page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "fee" })).toContainText("None");
+  expect(errors).toEqual([]);
+});
+
+async function rpc(method: string, params: unknown[] = []) {
+  await fetch("http://127.0.0.1:8545", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+}
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");
