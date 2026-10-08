@@ -20,6 +20,7 @@
     "web:preview": "vite preview web",
     "fleet": "hardhat run agent/fleet-run.ts",
     "mcp": "ts-node --transpile-only agent/mcp-main.ts",
+    "mcp:demo": "ts-node --transpile-only scripts/mcp-demo.ts",
     "relay": "hardhat run agent/relayer-run.ts",
     "gas": "hardhat run scripts/gas.ts",
     "vectors": "ts-node --transpile-only scripts/conformance-vectors.ts",

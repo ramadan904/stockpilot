@@ -51,7 +51,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 80-second [demo video](media/live-de
 
 ```bash
 npm install
-npm test          # 230 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 266 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -70,6 +70,12 @@ the pilot rebalance, and then has a rogue pilot try five ways to break the rules
 
 No network, wallet, or API key needed. The compiler is the solc-js build pinned in `package.json`, so builds work
 offline.
+
+To see what an AI agent sees, run the MCP server against the live demo vault, read-only and without a key:
+
+```bash
+npm run mcp:demo  # lists the tools, reads the vault, asks the planner, then tries a hijacked agent's trade and shows the contract refuse it
+```
 
 ## The web app
 
@@ -339,6 +345,22 @@ mainnet, the vault takes real stock tokens, real feeds and a real venue adapter,
 To run the hosted pilot and the price relayer as services (Docker, health checks, metrics), see
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Business model
+
+Owners pay their pilot, onchain, and nobody else. StockPilot earns the way any pilot does: by flying vaults well
+enough that owners hire it.
+
+| Who | Pays or earns | How it is enforced |
+|---|---|---|
+| Vault owner | A management fee they set, at most 2% a year (`PilotVault.MAX_FEE_BPS`) | Accrues by the second, paid in kind pro rata so it never moves the weights; stops while the vault is paused; the owner can change or cancel it at any time, and what was owed is settled at the old rate first |
+| Pilot (an AI agent or a person) | That fee | Listed in `PilotRegistry` with its asking fee; the fleet service can refuse vaults paying less (`MIN_FEE_BPS`) |
+| StockPilot | Runs the hosted House Pilot fleet, one pilot among many in the marketplace | The same mandate checks as every other pilot; owners compare it on a track record read from the chain |
+
+Example: a $10,000 vault at 0.5% a year pays its pilot about $50 a year, about $0.14 a day, and nothing during any
+paused day. The contracts take no protocol cut today. Pilots compete on the leaderboard (value added after fees
+against holding what they took over), and an agent can list itself and get hired through the MCP tools, so the
+marketplace is open to any agent, not only ours.
+
 ## Status and honest limits
 
 This is a hackathon build. The contracts are tested but **not audited**; do not put real money in them.
@@ -350,6 +372,9 @@ enforces.
 - Tokens dropped from a mandate stay in the vault, unpriced, until the owner withdraws them or lists them again.
 - Market hours: tokenized stocks may trade around the clock, but feeds for some may pause. The vault refuses to trade
   on a price older than `maxPriceAge`, and the pilot holds.
+- A pilot's letters are its own statements. The journal proves which pilot wrote each one and that its text is
+  unchanged; the figures in it are read from the chain, but the judgments are the pilot's.
+- The demo vault's testnet pilot runs hourly on GitHub Actions, which can start late or skip a run when busy.
 
 ## Roadmap
 
