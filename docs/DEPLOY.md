@@ -39,7 +39,7 @@ After it runs:
 - **Keep prices fresh and the pilot flying**: `docker compose up -d relayer fleet` ([OPERATIONS.md](OPERATIONS.md)).
   Vaults refuse to trade on prices older than their mandate allows, so without the relayer the demo vault's pilot holds.
 - **On Vercel**, set `ANTHROPIC_API_KEY` (Claude drafts mandates, reads statement screenshots, answers questions and
-  writes reports) and `SIGNATURE_RELAY_KEY` (a small funded key that pays gas for owners' signed check-ins and pauses)
+  writes reports) and `SIGNATURE_RELAY_KEY` (a small funded key that pays gas for owners' signed check-ins and pauses, fund holders' signed redemptions, and the $100 free fund trials on testnets)
   in the project's environment variables.
 
 The script is safe to re-run: finished steps are skipped. It was rehearsed end to end against a local chain

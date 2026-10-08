@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -27,6 +28,8 @@ contract PilotFund is ERC20Votes, ReentrancyGuard {
     /// @notice The smallest purchase, in USD (18 decimals). Keeps share prices meaningful from the first purchase on.
     uint256 public constant MIN_PURCHASE_USD = 1e18;
     uint256 private constant BPS = 10_000;
+    /// @notice A holder's signed request to redeem, so anyone (a relay paying the gas) can submit it for them.
+    bytes32 public constant REDEEM_TYPEHASH = keccak256("Redeem(address holder,uint256 shares,address to,uint256 nonce,uint256 deadline)");
     /// @notice How long holders have to leave before a new pilot takes over.
     uint256 public constant PILOT_NOTICE = 3 days;
     /// @notice How long a motion to fire the pilot stays open.
@@ -92,6 +95,8 @@ contract PilotFund is ERC20Votes, ReentrancyGuard {
     error NoPilotChange();
     error NoticeRunning(uint256 effectiveAt);
     error NoPilot();
+    error SignatureExpired();
+    error InvalidSignature();
     error MotionOpen(uint256 id);
     error TooFewSharesToMove(uint256 shares, uint256 needed);
     error NoMotion(uint256 id);
@@ -121,46 +126,28 @@ contract PilotFund is ERC20Votes, ReentrancyGuard {
     /// @notice Buy shares with `amount` of `token` (any asset in the mandate), at the vault's value at fresh prices.
     /// @param minShares The fewest shares to accept; the purchase reverts below it. Use `quote` and allow for prices.
     function buy(address token, uint256 amount, uint256 minShares) external nonReentrant returns (uint256 shares) {
-        if (amount == 0) revert ZeroAmount();
-        if (vault.paused()) revert FundPaused();
-        vault.collectFee(); // the fee owed so far is the existing holders' cost, not the buyer's
-        (uint256 price, uint256 nav) = _prices(token);
+        return _buy(msg.sender, token, amount, minShares);
+    }
 
-        IERC20 t = IERC20(token);
-        uint256 before = t.balanceOf(address(this));
-        t.safeTransferFrom(msg.sender, address(this), amount);
-        uint256 received = t.balanceOf(address(this)) - before;
-
-        uint256 valueUsd = Math.mulDiv(received, price, 10 ** IERC20Metadata(token).decimals());
-        shares = _sharesFor(valueUsd, nav);
-        if (shares == 0 || shares < minShares) revert TooFewShares(shares, minShares);
-        _mint(msg.sender, shares);
-        emit Bought(msg.sender, token, received, valueUsd, shares);
-
-        t.forceApprove(address(vault), received);
-        vault.deposit(token, received);
+    /// @notice Buy shares for `receiver`, paid by the caller: a gift, or a sponsor buying for someone without gas.
+    function buyFor(address receiver, address token, uint256 amount, uint256 minShares) external nonReentrant returns (uint256 shares) {
+        if (receiver == address(0)) revert ZeroAddress();
+        return _buy(receiver, token, amount, minShares);
     }
 
     /// @notice Burn `shares` and receive the same fraction of every holding in the vault, sent to `to`. Works at any
     /// time, paused or not, and needs no prices.
     function redeem(uint256 shares, address to) external nonReentrant {
-        if (shares == 0) revert ZeroAmount();
-        if (to == address(0)) revert ZeroAddress();
-        uint256 supply = totalSupply();
-        _burn(msg.sender, shares);
-        emit Redeemed(msg.sender, to, shares);
+        _redeem(msg.sender, shares, to);
+    }
 
-        vault.collectFee(); // settle first, so every holder bears the fee up to now
-        address[] memory list = vault.tokens();
-        for (uint256 i; i < list.length; ++i) {
-            uint256 amount = Math.mulDiv(IERC20(list[i]).balanceOf(address(vault)), shares, supply);
-            if (amount == 0) continue;
-            // One token that will not move must never trap the rest.
-            try vault.withdraw(list[i], amount, to) {}
-            catch {
-                emit RedemptionSkipped(msg.sender, list[i], amount);
-            }
-        }
+    /// @notice Redeem for `holder` with their EIP-712 signature (`REDEEM_TYPEHASH`, this fund's domain, their next
+    /// `nonces`), so a holder with no gas can still leave: anyone may submit it, and the holdings go only to `to`.
+    function redeemWithSig(address holder, uint256 shares, address to, uint256 deadline, bytes calldata signature) external nonReentrant {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(REDEEM_TYPEHASH, holder, shares, to, _useNonce(holder), deadline)));
+        if (!SignatureChecker.isValidSignatureNow(holder, digest, signature)) revert InvalidSignature();
+        _redeem(holder, shares, to);
     }
 
     /// @notice Shares `amount` of `token` would buy now, and its value in USD (18 decimals). Paying the fee owed first
@@ -265,6 +252,47 @@ contract PilotFund is ERC20Votes, ReentrancyGuard {
     // ------------------------------------------------------------------------------------------------------------
     // Internal
     // ------------------------------------------------------------------------------------------------------------
+
+    function _buy(address receiver, address token, uint256 amount, uint256 minShares) internal returns (uint256 shares) {
+        if (amount == 0) revert ZeroAmount();
+        if (vault.paused()) revert FundPaused();
+        vault.collectFee(); // the fee owed so far is the existing holders' cost, not the buyer's
+        (uint256 price, uint256 nav) = _prices(token);
+
+        IERC20 t = IERC20(token);
+        uint256 before = t.balanceOf(address(this));
+        t.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = t.balanceOf(address(this)) - before;
+
+        uint256 valueUsd = Math.mulDiv(received, price, 10 ** IERC20Metadata(token).decimals());
+        shares = _sharesFor(valueUsd, nav);
+        if (shares == 0 || shares < minShares) revert TooFewShares(shares, minShares);
+        _mint(receiver, shares);
+        emit Bought(receiver, token, received, valueUsd, shares);
+
+        t.forceApprove(address(vault), received);
+        vault.deposit(token, received);
+    }
+
+    function _redeem(address holder, uint256 shares, address to) internal {
+        if (shares == 0) revert ZeroAmount();
+        if (to == address(0)) revert ZeroAddress();
+        uint256 supply = totalSupply();
+        _burn(holder, shares);
+        emit Redeemed(holder, to, shares);
+
+        vault.collectFee(); // settle first, so every holder bears the fee up to now
+        address[] memory list = vault.tokens();
+        for (uint256 i; i < list.length; ++i) {
+            uint256 amount = Math.mulDiv(IERC20(list[i]).balanceOf(address(vault)), shares, supply);
+            if (amount == 0) continue;
+            // One token that will not move must never trap the rest.
+            try vault.withdraw(list[i], amount, to) {}
+            catch {
+                emit RedemptionSkipped(holder, list[i], amount);
+            }
+        }
+    }
 
     /// @dev The moment shares are counted at for a motion starting at `start`.
     function _recordTime(uint256 start) internal pure returns (uint256) {

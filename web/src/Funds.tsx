@@ -19,6 +19,14 @@ type Me = { client: WalletClient; address: Address; kind: "injected" | "dev" | "
 const shares = (wad: bigint) => Number(formatUnits(wad, 18)).toLocaleString("en-US", { maximumFractionDigits: 4 });
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
+/** Have the operator's relay submit a fund action (a free trial, or a signed redemption), so the holder pays no gas. */
+async function relayFund(body: Record<string, unknown>): Promise<Hash> {
+  const res = await fetch("/api/fund", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const json = (await res.json().catch(() => ({}))) as { tx?: Hash; error?: string };
+  if (!res.ok || !json.tx) throw new Error(json.error ?? `Relay failed (HTTP ${res.status}).`);
+  return json.tx;
+}
+
 /** The token amount worth `usdAmount` at the asset's price in the vault (18-decimal USD). */
 function tokenAmount(usdAmount: number, priceWad: bigint, decimals: number) {
   const price = Number(priceWad) / 1e18;
@@ -155,6 +163,29 @@ export function FundCard(props: {
     await write(`Redeem ${info.symbol}`, "redeem", [n, me.address]);
   });
 
+  const trial = run(() => send("Free trial: $100 of shares", () => relayFund({ chainId: chain.id, fund: owner, action: "trial", holder: me.address })));
+
+  // Leave without gas: sign the redemption (EIP-712, no gas); the relay submits it and the fund checks the signature.
+  const redeemNoGas = run(async () => {
+    const n = sellShares.trim() === "" ? 0n : parseUnits(sellShares.trim(), 18);
+    if (n <= 0n || n > info.mine) throw new Error(`Enter up to ${shares(info.mine)} shares.`);
+    const [nonce, block] = await Promise.all([
+      client.readContract({ address: owner, abi: pilotFundAbi, functionName: "nonces", args: [me.address] }) as Promise<bigint>,
+      client.getBlock(),
+    ]);
+    const deadline = block.timestamp + 3_600n;
+    const signature = await w.signTypedData({
+      account: w.account!,
+      domain: { name: info.name, version: "1", chainId: chain.id, verifyingContract: owner },
+      types: { Redeem: [{ name: "holder", type: "address" }, { name: "shares", type: "uint256" }, { name: "to", type: "address" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+      primaryType: "Redeem",
+      message: { holder: me.address, shares: n, to: me.address, nonce, deadline },
+    });
+    await send(`Redeem ${info.symbol} without gas`, () =>
+      relayFund({ chainId: chain.id, fund: owner, action: "redeem", holder: me.address, shares: n.toString(), to: me.address, deadline: deadline.toString(), signature }),
+    );
+  });
+
   const due = info.pilotChangeAt !== 0 && now >= info.pilotChangeAt;
   return (
     <Card title={<>Fund <span className="pill info">{info.symbol}</span></>} aside={<span className="muted small">many owners, one mandate that never changes</span>}>
@@ -218,6 +249,11 @@ export function FundCard(props: {
             <button className="btn primary" style={{ alignSelf: "end" }} disabled={state.paused} onClick={buy}>
               Buy shares
             </button>
+            {!deployment.production && (
+              <button className="btn" style={{ alignSelf: "end" }} disabled={state.paused} onClick={trial} title="The relay mints $100 of test cash and buys you shares with it. You pay nothing, not even gas.">
+                Try it free: $100, no gas
+              </button>
+            )}
           </div>
           {info.mine > 0n && (
             <div className="row">
@@ -230,6 +266,9 @@ export function FundCard(props: {
               </button>
               <button className="btn" style={{ alignSelf: "end" }} onClick={redeem}>
                 Redeem in kind
+              </button>
+              <button className="btn" style={{ alignSelf: "end" }} onClick={redeemNoGas} title="Sign the redemption; the relay pays the gas. Your holdings still come straight to your wallet.">
+                Redeem without gas
               </button>
             </div>
           )}
@@ -261,7 +300,7 @@ export function FundCard(props: {
         </>
       ) : (
         <p className="muted small" style={{ marginBottom: 0 }}>
-          Connect a wallet to buy shares.
+          Connect a wallet to buy shares{deployment.production ? "" : ", or to try it free: $100 of shares with no gas, on this testnet"}.
         </p>
       )}
     </Card>

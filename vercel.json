@@ -5,6 +5,9 @@
   "functions": {
     "api/relay.ts": {
       "includeFiles": "deployments/**"
+    },
+    "api/fund.ts": {
+      "includeFiles": "deployments/**"
     }
   }
 }

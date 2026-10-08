@@ -802,10 +802,34 @@ test("judges can open the demo fund without a wallet: a pooled vault, open to an
   await expect(fund).toContainText("StockPilot House Fund", { timeout: 30_000 });
   await expect(fund).toContainText("SPHF");
   await expect(fund.getByTestId("fund-nav")).toHaveText(/^\$\d+\.\d\d$/);
-  await expect(fund).toContainText("Connect a wallet to buy shares.");
+  await expect(fund).toContainText("Connect a wallet to buy shares, or to try it free: $100 of shares with no gas");
   await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) }).getByRole("list", { name: "Funds" })).toContainText("StockPilot House Fund");
   // Flown by the same house pilot, under the same contract checks.
   await expect(page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "fee" })).toContainText("StockPilot House Pilot");
+  expect(errors).toEqual([]);
+});
+
+test("try a fund free: no gas to buy in, no gas to leave", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1);
+  const { readFileSync } = await import("node:fs");
+  const d = JSON.parse(readFileSync(`${__dirname}/../deployments/localhost.json`, "utf8"));
+  // A judge opens the demo fund, then connects a wallet (here a local dev account) that holds no shares.
+  await page.goto(`/?chain=31337&vault=${d.demoFundVault}`);
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("button", { name: "Switch to dev account 2" }).click();
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("StockPilot House Fund", { timeout: 30_000 });
+  const before = Number((await fund.getByTestId("fund-mine").innerText()).replace(/,/g, ""));
+
+  await fund.getByRole("button", { name: "Try it free: $100, no gas" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Free trial: $100 of shares: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).not.toHaveText(String(before), { timeout: 30_000 });
+  // Leaving is a signature too: the relay pays the gas, the holdings come to the holder's wallet.
+  await fund.getByRole("button", { name: "All" }).click();
+  await fund.getByRole("button", { name: "Redeem without gas" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Redeem SPHF without gas: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 

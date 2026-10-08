@@ -51,6 +51,11 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
   If the market has moved and the feed has not caught up yet, a buyer can pay the old price and later leave in kind at
   the new one, at the other holders' expense. The window is the feed's lag, bounded by `maxPriceAge`; tight feeds and
   a short `maxPriceAge` keep it small. Leaving never depends on prices.
+- **Gas-free fund actions.** The operator's relay (`/api/fund`, paid by `SIGNATURE_RELAY_KEY`) can buy trial shares
+  for a wallet on testnets and submit a holder's signed redemption. It cannot do anything else with a fund: a
+  redemption signature binds the holder, the number of shares, where the holdings go, a one-time nonce and a deadline,
+  and the fund checks it. Trials are rate-limited (one per wallet per fund a day, 30 an hour in all) so nobody can
+  drain the relay's gas; the limits live in memory, so a restarted relay forgets them.
 - **Firing the pilot.** Holders of a majority of a fund's shares, as they stood a day before a motion began, can
   remove its pilot at once. Shares bought after that record time never vote, so votes cannot be bought for the
   occasion; a holder who had the shares a day earlier may vote and then leave. A firing only removes the pilot: it
@@ -77,7 +82,7 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `incorrect-equality`, `calls-loop` (fund) | `PilotFund` guards on exact zero (supply, shares, amounts, no pending pilot, no motion, no pilot to fire) and redeems by looping over the vault's tokens | Zero guards cannot be nudged into a wrong branch: a donation before the first purchase goes to the first buyer, and after it shares are priced by the value per share. The loop is bounded at 8 assets, and a token that will not move is skipped, so it can never trap a holder's other assets. |
 | `unused-return` (fund) | `PilotFund` reads only the total from `portfolio()` and only `maxPriceAge` from `limits()` | The other fields are not needed there. |
 | `missing-zero-check` (fund) | `proposePilot(0)` | As for the vault, zero removes the pilot, and the same three days' notice applies. |
-| `timestamp` (fund) | The pilot-change notice, the price-age check on purchases, and holders' motions (the one-day vote record, the three-day window) | Intended; seconds of drift against windows of a day or more and the mandate's price age. Votes are counted from checkpoints by timestamp (`clock()` is `block.timestamp`). |
+| `timestamp` (fund) | The pilot-change notice, the price-age check on purchases, holders' motions (the one-day vote record, the three-day window), and the deadline on a signed redemption | Intended; seconds of drift against windows of a day or more and the mandate's price age. Votes are counted from checkpoints by timestamp (`clock()` is `block.timestamp`). |
 | `reentrancy-benign`, `reentrancy-events` (fund factory) | `createFund` records the fund after `new PilotFund` | The only external code run is the fund's own constructor and the StockPilot vault factory, both ours. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |

@@ -191,6 +191,78 @@ describe("PilotFund: one vault, many owners", () => {
     );
   });
 
+  it("a sponsor can buy shares for someone, who can leave with a signature alone, no gas", async () => {
+    const f = await loadFixture(deployFund);
+    const [, , , , , carol, relay] = await hre.viem.getWalletClients();
+    // The sponsor pays; carol gets the shares.
+    await f.usdg.write.mint([relay.account.address, parseUnits("100", 6)]);
+    await (await hre.viem.getContractAt("MockERC20", f.usdg.address, { client: { wallet: relay } })).write.approve([f.fund.address, parseUnits("100", 6)]);
+    const asRelay = await f.as(relay);
+    await asRelay.write.buyFor([carol.account.address, f.usdg.address, parseUnits("100", 6), shares(100)]);
+    expect(await f.fund.read.balanceOf([carol.account.address])).to.equal(shares(100));
+    expect(await f.fund.read.balanceOf([relay.account.address])).to.equal(0n);
+
+    const sign = async (who: typeof carol, msg: { holder: Address; shares: bigint; to: Address; nonce: bigint; deadline: bigint }) =>
+      who.signTypedData({
+        account: who.account,
+        domain: { name: "House Fund", version: "1", chainId: await f.publicClient.getChainId(), verifyingContract: f.fund.address },
+        types: { Redeem: [{ name: "holder", type: "address" }, { name: "shares", type: "uint256" }, { name: "to", type: "address" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+        primaryType: "Redeem",
+        message: msg,
+      });
+    const deadline = BigInt(await time.latest()) + 3600n;
+    const msg = { holder: carol.account.address, shares: shares(100), to: carol.account.address, nonce: 0n, deadline };
+    const sig = await sign(carol, msg);
+    // Only the holder's own signature, for exactly these terms, works.
+    await expect(asRelay.write.redeemWithSig([carol.account.address, shares(100), relay.account.address, deadline, sig])).to.be.rejectedWith("InvalidSignature");
+    await expect(asRelay.write.redeemWithSig([carol.account.address, shares(100), carol.account.address, deadline, await sign(relay, msg)])).to.be.rejectedWith("InvalidSignature");
+    await asRelay.write.redeemWithSig([carol.account.address, shares(100), carol.account.address, deadline, sig]);
+    expect(await f.usdg.read.balanceOf([carol.account.address])).to.equal(parseUnits("100", 6));
+    expect(await f.fund.read.nonces([carol.account.address])).to.equal(1n);
+    // Not twice, and not late.
+    await expect(asRelay.write.redeemWithSig([carol.account.address, shares(100), carol.account.address, deadline, sig])).to.be.rejectedWith("InvalidSignature");
+    await expect(asRelay.write.redeemWithSig([carol.account.address, 1n, carol.account.address, 1n, sig])).to.be.rejectedWith("SignatureExpired");
+  });
+
+  it("the fund relay gives one free trial per wallet a day, and submits only a valid signed redemption", async () => {
+    const f = await loadFixture(deployFund);
+    const { handleFund } = await import("../agent/api");
+    const [, , , , , carol, relay] = await hre.viem.getWalletClients();
+    const asRelay = await f.as(relay);
+    const relayer = {
+      isFund: (fund: Address) => f.funds.read.isFund([fund]),
+      async trial(fund: Address, holder: Address) {
+        const usdg = await hre.viem.getContractAt("MockERC20", f.usdg.address, { client: { wallet: relay } });
+        await usdg.write.mint([relay.account.address, parseUnits("100", 6)]);
+        await usdg.write.approve([fund, parseUnits("100", 6)]);
+        return asRelay.write.buyFor([holder, f.usdg.address, parseUnits("100", 6), 0n]);
+      },
+      redeem: (_fund: Address, holder: Address, n: bigint, to: Address, deadline: bigint, sig: `0x${string}`) => asRelay.write.redeemWithSig([holder, n, to, deadline, sig]),
+    };
+    const trial = { chainId: 31337, fund: f.fund.address, action: "trial", holder: carol.account.address };
+    expect((await handleFund({ ...trial, action: "withdraw" }, () => relayer)).status).to.equal(400);
+    expect((await handleFund(trial, () => null)).status).to.equal(501);
+    expect((await handleFund({ ...trial, fund: f.vault.address }, () => relayer)).status).to.equal(400); // not a fund
+    expect((await handleFund(trial, () => relayer)).status).to.equal(200);
+    expect(await f.fund.read.balanceOf([carol.account.address])).to.equal(shares(100));
+    expect((await handleFund(trial, () => relayer)).status).to.equal(429); // one a day
+    expect((await handleFund(trial, () => relayer, Date.now() + 86_500_000)).status).to.equal(200);
+
+    const deadline = BigInt(await time.latest()) + 3600n;
+    const signature = await carol.signTypedData({
+      account: carol.account,
+      domain: { name: "House Fund", version: "1", chainId: 31337, verifyingContract: f.fund.address },
+      types: { Redeem: [{ name: "holder", type: "address" }, { name: "shares", type: "uint256" }, { name: "to", type: "address" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+      primaryType: "Redeem",
+      message: { holder: carol.account.address, shares: shares(200), to: carol.account.address, nonce: 0n, deadline },
+    });
+    const redeem = { chainId: 31337, fund: f.fund.address, action: "redeem", holder: carol.account.address, shares: shares(200).toString(), to: carol.account.address, deadline: deadline.toString(), signature };
+    expect((await handleFund({ ...redeem, to: relay.account.address }, () => relayer)).status).to.equal(422); // the fund rejects altered terms
+    expect((await handleFund(redeem, () => relayer)).status).to.equal(200);
+    expect(await f.fund.read.balanceOf([carol.account.address])).to.equal(0n);
+    expect(await f.usdg.read.balanceOf([carol.account.address])).to.equal(parseUnits("200", 6));
+  });
+
   describe("holders can fire the pilot", () => {
     const DAY = 24 * 3600;
     /** Let time pass, with the stock feeds updated as a live relayer would keep them. */
