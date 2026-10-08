@@ -32,6 +32,16 @@ const withoutMetadata = (bytes) => {
   return length + 2 <= bytes.length ? bytes.slice(0, bytes.length - length - 2) : bytes;
 };
 
+// Every embedded metadata block's source hash, blanked (see agent/codecheck.ts: a factory carries its child's).
+const IPFS_TAG = [0xa2, 0x64, 0x69, 0x70, 0x66, 0x73, 0x58, 0x22];
+const SOLC_TAG = [0x64, 0x73, 0x6f, 0x6c, 0x63, 0x43];
+const blankEmbeddedMetadata = (bytes) => {
+  const at = (i, tag) => tag.every((b, k) => bytes[i + k] === b);
+  for (let i = 0; i + IPFS_TAG.length + 34 + SOLC_TAG.length <= bytes.length; i++) {
+    if (at(i, IPFS_TAG) && at(i + IPFS_TAG.length + 34, SOLC_TAG)) bytes.fill(0, i + IPFS_TAG.length, i + IPFS_TAG.length + 34);
+  }
+};
+
 const prints = {};
 for (const [name, source] of Object.entries(CONTRACTS)) {
   const deployed = build.output.contracts[source][name].evm.deployedBytecode;
@@ -41,6 +51,7 @@ for (const [name, source] of Object.entries(CONTRACTS)) {
     .sort((a, b) => a[0] - b[0]);
   const bytes = Uint8Array.from(Buffer.from(deployed.object, "hex"));
   for (const [start, length] of immutables) bytes.fill(0, start, start + length);
+  blankEmbeddedMetadata(bytes);
   prints[name] = { hash: keccak256(withoutMetadata(bytes)), immutables };
 }
 

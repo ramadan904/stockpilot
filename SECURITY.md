@@ -69,7 +69,9 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 `npm run check-code -- --network <name>` (and the Code check on the app's Network tab) fetches every contract in
 `deployments/<network>.json` and compares its runtime code with this repository's build: immutables (addresses,
 EIP-712 domains) are blanked using the compiler's own map of where they sit, and the compiler's metadata trailer is
-left out (it hashes the sources, so line endings alone change it), so the comparison is instruction for instruction.
+left out (it hashes the sources, so line endings alone change it), as is the same block inside a child contract's
+creation code that a factory carries (the fund factory carries the fund's), so the comparison is instruction for
+instruction.
 Vaults are checked as exact EIP-1167 clones of the vault code. CI regenerates the prints (`web/src/codeprints.ts`) on
 every change and fails if they drift from the source.
 
