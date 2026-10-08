@@ -204,8 +204,17 @@ export { cloneCode } from "./codecheck";
 
 const FACTORY_ABI = [{ type: "function", name: "implementation", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 
+/**
+ * The relay's key as pasted: MetaMask shows keys without "0x", and copies can carry spaces or line breaks. Anything
+ * that is not 64 hex digits once cleaned means no relay, rather than a crash.
+ */
+export function relayKey(raw: string | undefined): Hex | undefined {
+  const k = (raw ?? "").replace(/\s+/g, "").replace(/^0x/i, "");
+  return /^[0-9a-fA-F]{64}$/.test(k) ? `0x${k}` : undefined;
+}
+
 function chainRelayer(chainId: number): Relayer | null {
-  const key = process.env.SIGNATURE_RELAY_KEY as Hex | undefined;
+  const key = relayKey(process.env.SIGNATURE_RELAY_KEY);
   const url = process.env[`RPC_${chainId}`] ?? RPCS[chainId];
   if (!key || !url) return null;
   const account = privateKeyToAccount(key);
@@ -293,7 +302,7 @@ function deploymentOn(chainId: number): { funds?: Address; tokens?: Record<strin
 }
 
 function chainFundRelayer(chainId: number): FundRelayer | null {
-  const key = process.env.SIGNATURE_RELAY_KEY as Hex | undefined;
+  const key = relayKey(process.env.SIGNATURE_RELAY_KEY);
   const url = process.env[`RPC_${chainId}`] ?? RPCS[chainId];
   const d = deploymentOn(chainId);
   if (!key || !url || !d?.funds) return null;
