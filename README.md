@@ -4,7 +4,8 @@
 The AI does the work; the contract keeps it honest.
 
 **[Live app](https://stockpilot-six-virid.vercel.app)** ·
-**[Live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** (Robinhood Chain testnet, no wallet) ·
+**[Live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303)** (Robinhood Chain testnet, no wallet) ·
+**[On Arbitrum Sepolia](https://stockpilot-six-virid.vercel.app/?chain=421614&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** ·
 **[100-second demo](media/live-demo.mp4)** · **[Submission](SUBMISSION.md)** · `npm test` · `npm run demo`
 
 Tokenized stocks trade around the clock and settle onchain, but managing a portfolio still means watching it.
@@ -16,7 +17,7 @@ the rules, and cannot concentrate your portfolio, because the contract won't let
 
 Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), targeting the Ethereum ecosystem tracks
 (Robinhood Chain, Arbitrum). Judges: open the **[live app](https://stockpilot-six-virid.vercel.app)** (no wallet needed),
-the [live demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783),
+the [live demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303) (also [on Arbitrum Sepolia](https://stockpilot-six-virid.vercel.app/?chain=421614&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)),
 then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-demo.mp4) (recorded by `npm run video`).
 
 ```
