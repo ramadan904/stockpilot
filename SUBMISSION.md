@@ -18,7 +18,9 @@
 ## Judges: start here (no wallet, under two minutes)
 
 1. **Watch the [80-second demo](media/live-demo.mp4)**, captioned, recorded straight from the running app.
-2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**.
+2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**. Then the
+   **[Network](https://stockpilot-six-virid.vercel.app/?view=network&chain=46630)** tab: every vault, fund, pilot and
+   trade on Robinhood Chain testnet, read straight from the chain.
 3. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet, read
    straight from the chain: its mood lamp, its last rebalance, its activity.
 4. On that page press **Simulate a compromised pilot**: the **Attack Theater** sends nine attacks to the live contract

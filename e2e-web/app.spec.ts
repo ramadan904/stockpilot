@@ -693,6 +693,31 @@ async function movePrice(symbol: string, factor: number) {
   }
 }
 
+test("network: the whole deployment read from the chain, with the latest trades across every vault", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.goto("/?view=network&chain=31337"); // the link judges get
+  await expect(page.getByRole("tab", { name: "Network" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Network")).toHaveValue("31337");
+  await expect(page.getByTestId("net-total")).toHaveText(/^\$[\d,]+$/, { timeout: 30_000 });
+  await expect(page.getByTestId("net-funds")).toHaveText(/^[1-9]\d*$/); // the demo fund at least
+  await expect(page.getByTestId("net-pilots")).toHaveText(/^[1-9]\d*$/); // the house pilot at least
+  await expect(page.getByTestId("net-letters")).toHaveText(/^[1-9]\d*$/); // the demo pilot's first letter
+  await expect(page.getByRole("img", { name: /^Invested in: USDG \$/ })).toBeVisible();
+  await page.locator("main").screenshot({ path: "test-results/network.png" });
+  const trades = Number((await page.getByTestId("net-trades").innerText()).replace(/,/g, ""));
+  const latest = page.getByRole("list", { name: "Latest trades" }).locator("li");
+  if (trades > 0) {
+    await expect(latest.first()).toContainText(/ago · vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} sold \$[\d,.]+ of [A-Z]+ for [A-Z]+/);
+    // Each trade links to its vault, which opens read-only on the Live tab.
+    await latest.first().getByRole("link").first().click();
+    await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
+  } else {
+    await expect(page.getByText(/No trades yet on/)).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});
+
 test("judges can open the demo vault from the Live tab, read-only, without a wallet", async ({ page }) => {
   const errors = await pageErrors(page);
   await page.goto("/");

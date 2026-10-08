@@ -1571,3 +1571,8 @@ tr.muted td {
 /* Pilot funds */
 .fund-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
 .fund-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+
+/* Network: what the money under mandate is invested in, as light */
+.net-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; margin-top: 14px; gap: 2px; }
+.net-bar span { background: var(--c); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 60%, transparent); min-width: 4px; }
+.net-trades li { display: block; }

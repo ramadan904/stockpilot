@@ -96,6 +96,9 @@ npm run web       # http://localhost:5173
   concentrated each gets. Plus a **stress test** through five shaped crashes and rallies, left alone, piloted, and
   piloted with the crash guard. The simulated vault runs the same `check()` the real pilot uses, and
   the randomized test proves `check()` agrees with the contract trade for trade, so what you see is what the chain does.
+- **Network** (no wallet; `?view=network`): the whole deployment read from the chain, refreshed every minute: the
+  money under mandate and what it is invested in, drawn as light, the number of vaults, funds, pilots, letters and
+  Verified Mandates, all-time trades and volume, and the latest trades across every vault, each linking to its vault.
 - **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
   drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
