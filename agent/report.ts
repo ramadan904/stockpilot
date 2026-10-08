@@ -68,7 +68,9 @@ export function basicReport(f: ReportFacts): Report {
   const highlights = [
     biggestMove ? `${biggestMove.symbol} moved the most: ${biggestMove.priceChangePct! >= 0 ? "+" : ""}${biggestMove.priceChangePct!.toFixed(1)}%.` : null,
     f.blocked.length ? `The vault blocked ${f.blocked.length} trade attempt${f.blocked.length === 1 ? "" : "s"} that broke the mandate.` : null,
-    `Every asset is ${drifting.length === 0 ? "within" : "mostly within"} its rebalancing trigger.`,
+    drifting.length === 0
+      ? "Every asset is within its rebalancing trigger."
+      : `${drifting.length} of ${f.holdings.length} assets ${drifting.length === 1 ? "is" : "are"} past ${drifting.length === 1 ? "its" : "their"} rebalancing trigger, so the pilot will keep trading toward target within its limits.`,
     f.feeBps ? `The pilot's fee is ${(f.feeBps / 100).toFixed(2)}% a year.` : null,
   ].filter((x): x is string => x !== null);
   const watch = [

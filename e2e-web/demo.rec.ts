@@ -39,7 +39,7 @@ async function show(locator: Locator, pause = 900) {
   await locator.page().waitForTimeout(pause);
 }
 
-test("StockPilot in about eighty seconds", async ({ page }) => {
+test("StockPilot in under two minutes", async ({ page }) => {
   // Set the stage on the local chain: the demo vault earns its Verified Mandate (a day passes), and prices are fresh.
   hardhat("scripts/demo-credential.ts");
   await rpc("evm_increaseTime", [86_460]);
@@ -73,6 +73,20 @@ test("StockPilot in about eighty seconds", async ({ page }) => {
   await show(credential);
   await caption(page, "A vault that keeps its rules earns a soulbound Verified Mandate, with its image and status fully onchain.", 3400);
 
+  const letters = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Letters from the pilot" }) });
+  await show(letters);
+  await caption(page, "Once a day the pilot writes to the owner: what it did and why, published onchain and signed by the key that trades.", 3600);
+
+  // Pool it: the demo fund, flown by the same pilot.
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  await page.waitForTimeout(600);
+  await page.getByRole("link", { name: "Open the demo fund" }).click();
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await fund.waitFor({ timeout: 30_000 });
+  await show(fund, 400);
+  await caption(page, "Or pool it. A fund is a vault many people own: buy in at its value, leave any time with your exact share of every holding.", 3600);
+  await caption(page, "Its rules can never change, and a new pilot takes over only after three days' notice, so holders can always leave first.", 3400);
+
   // Make it yours.
   await show(page.getByRole("button", { name: "Copy this mandate" }));
   await caption(page, "Like what you see? Copy its rules, never its funds.", 1600);
@@ -104,7 +118,15 @@ test("StockPilot in about eighty seconds", async ({ page }) => {
   await show(page.locator(".card").filter({ hasText: "StockPilot against buy and hold" }), 400);
   await page.waitForTimeout(2200);
 
+  // The whole network, read from the chain.
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  await page.getByRole("tab", { name: "Network" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByTestId("net-total").waitFor({ timeout: 30_000 });
+  await show(page.locator(".card").filter({ has: page.getByRole("heading", { name: /StockPilot onchain/ }) }), 700);
+  await caption(page, "And the whole network on one page, read from the chain: money under mandate, vaults, funds, pilots, letters and every trade.", 3800);
+
+  await page.getByRole("tab", { name: "Simulator" }).click();
   await page.waitForTimeout(700);
   await page.getByRole("button", { name: "Strategy card" }).click();
   await caption(page, "Share any strategy or vault as a card.", 2600);

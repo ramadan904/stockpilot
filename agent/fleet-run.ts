@@ -68,6 +68,7 @@ async function main() {
       await owners(e);
     },
     taxPreferences: () => taxPrefs,
+    journal: (process.env.JOURNAL ?? deployment.journal) as Address | undefined,
     onTrade: (t) => appendLog(t.vault, { tx: t.tx, rationale: t.rationale, rationaleHash: t.rationaleHash }),
   };
   console.log(`Fleet pilot ${wallet.account.address} on ${hre.network.name}, factory ${factory}`);

@@ -19,7 +19,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { LISTINGS } from "../../agent/listings";
 import { toMandate } from "../../agent/mandate";
-import { rationaleHash, readVault, sendTrade } from "../../agent/chain";
+import { publishReason, rationaleHash, readVault, sendTrade } from "../../agent/chain";
 import { available, type VaultState } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
@@ -52,6 +52,8 @@ import { AskCard, rememberReason } from "./Ask";
 import { historyStart, rpcTransport } from "./rpc";
 import { AttackTheater } from "./Theater";
 import { CredentialCard } from "./Credential";
+import { LettersCard } from "./Letters";
+import { FundCard, FundsCard } from "./Funds";
 import { logsInRange } from "../../agent/history";
 
 declare global {
@@ -202,6 +204,11 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
                   Open the demo vault
                 </a>
               )}
+              {deployment?.demoFundVault && (
+                <a className="btn" style={{ alignSelf: "end" }} href={`?chain=${chain.id}&vault=${deployment.demoFundVault}`}>
+                  Open the demo fund
+                </a>
+              )}
             </>
           )}
           {wallet?.kind === "dev" && (
@@ -247,6 +254,18 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
               <HouseholdCard client={client as never} abi={pilotVaultAbi as Abi} chainId={chain.id} vaults={vaults} me={wallet!.address} selected={selected} onOpen={setSelected} refresh={refresh} />
             )}
             <OpenVault onOpen={(v) => setSelected(v)} />
+            <FundsCard
+              client={client as never}
+              me={wallet!}
+              chain={chain}
+              deployment={deployment!}
+              proposal={draft?.proposal ?? null}
+              market={market}
+              refresh={refresh}
+              send={send}
+              run={run}
+              onOpen={(v) => { setSelected(v); setRefresh((r) => r + 1); }}
+            />
             {deployment?.registry && (
               <MarketplaceCard
                 // Re-mounted when your own listing appears (to show it), not when others' load, which would close an open form.
@@ -528,7 +547,13 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         )}
       </Card>
 
+      <FundCard client={client as never} me={wallet} chain={ctx.chain} deployment={deployment} owner={roles.owner} pilot={roles.pilot} state={state} market={ctx.market} send={send} run={run} />
+
       <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
+
+      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
+
+      <LettersCard client={client as never} journal={ctx.deployment.journal} vault={vault} chainId={ctx.chain.id} />
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
@@ -544,6 +569,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
                   setError(null);
                   rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
                   await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
+                  // Then publish the full reason, so anyone can check it against the hash the trade recorded.
+                  await publishReason(client as never, w, deployment.journal, vault, p.trade.rationale);
                 })}
               >
                 Run pilot (send planned trade)
@@ -640,6 +667,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         pilot={roles.pilot}
         pilotName={ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? null}
         feeBps={roles.feeBps}
+        journal={deployment.journal}
       />
       <StatementCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} state={state} owner={roles.owner} chainName={ctx.chain.name} />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
@@ -656,13 +684,12 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         send={send}
         run={run}
       />
-      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <GlidePathCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
-      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
+      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} journal={deployment.journal} />
     </>
   );
 }

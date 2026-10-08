@@ -28,6 +28,7 @@ async function main() {
     wallet,
     vault: vault as Address,
     vaultAbi: pilotVaultAbi,
+    journal: process.env.JOURNAL && isAddress(process.env.JOURNAL) ? process.env.JOURNAL : undefined,
     onTrade: (t) => appendLog(vault, t),
     marketplace:
       process.env.REGISTRY && process.env.FACTORY && isAddress(process.env.REGISTRY) && isAddress(process.env.FACTORY)

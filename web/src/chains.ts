@@ -18,6 +18,10 @@ export interface Deployment {
   factory: Address;
   /** Verified Mandate credentials. Older deployment files predate it. */
   credential?: Address;
+  /** Letters from pilots. Older deployment files predate it. */
+  journal?: Address;
+  /** Pilot funds: vaults many people own together. Older deployment files predate it. */
+  funds?: Address;
   /** The pilot directory. Older deployment files predate it. */
   registry?: Address;
   /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */
@@ -28,6 +32,8 @@ export interface Deployment {
   startBlock?: number;
   /** A funded vault anyone can open read-only (scripts/create-vault.ts with DEMO=1). */
   demoVault?: Address;
+  /** The demo fund's vault: a pooled vault anyone can buy into (scripts/demo-fund.ts). */
+  demoFundVault?: Address;
   tokens: Record<string, Address>;
   feeds: Record<string, Address>;
 }
@@ -44,6 +50,11 @@ export function chainById(id: number) {
 
 export function deploymentFor(chainId: number) {
   return DEPLOYMENTS.find((d) => d.chainId === chainId);
+}
+
+export function explorerAddress(chainId: number, address: string) {
+  const url = chainById(chainId)?.blockExplorers?.default.url;
+  return url ? `${url}/address/${address}` : undefined;
 }
 
 export function explorerTx(chainId: number, hash: string) {

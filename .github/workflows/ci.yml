@@ -22,8 +22,8 @@ jobs:
         run: |
           pip install -q slither-analyzer==0.11.6
           slither . --config-file slither.config.json --fail-low
-      - name: Web ABIs match the contracts
-        run: node scripts/export-abi.mjs && git diff --exit-code web/src/abi.ts
+      - name: Web ABIs and code prints match the contracts
+        run: node scripts/export-abi.mjs && node scripts/export-codeprints.mjs && git diff --exit-code web/src/abi.ts web/src/codeprints.ts
       - run: npm run typecheck
       - run: npm run web:build
       - run: npm test

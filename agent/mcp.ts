@@ -6,7 +6,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Abi, Address, PublicClient, WalletClient } from "viem";
 import { z } from "zod/v4";
-import { rationaleHash, readVault, revertReason } from "./chain";
+import { publishReason, rationaleHash, readVault, revertReason } from "./chain";
 import { BPS, WAD, amountFor, available, check, eq, valueOf, type AssetState, type VaultState } from "./model";
 import { drift, fmtUsd, pct, plan } from "./planner";
 import { listPilots, pilotScores, trackRecords } from "./pilots";
@@ -17,6 +17,8 @@ export interface McpConfig {
   wallet?: WalletClient;
   vault: Address;
   vaultAbi: Abi;
+  /** The pilot journal, where each executed trade's full reason is published for anyone to check. */
+  journal?: Address;
   /** Called with each executed trade, for the pilot's logbook. */
   onTrade?: (t: { tx: string; rationale: string; rationaleHash: string }) => void;
   /** The pilot directory and the factory whose vaults make up track records; adds the marketplace tools. */
@@ -190,7 +192,10 @@ export function createStockPilotServer(cfg: McpConfig) {
         const receipt = await client.waitForTransactionReceipt({ hash: tx });
         if (receipt.status !== "success") return text(`Transaction ${tx} reverted.`, true);
         cfg.onTrade?.({ tx, rationale: reason, rationaleHash: rationaleHash(reason) });
-        return text(`Done: sold ${fmtUsd(BigInt(Math.round(usd_amount * 100)) * (WAD / 100n))} of ${t.a.symbol} for ${t.b.symbol}. Transaction ${tx}. Reason hash ${rationaleHash(reason)}.`);
+        const published = await publishReason(client, wallet, cfg.journal, vault, reason);
+        return text(
+          `Done: sold ${fmtUsd(BigInt(Math.round(usd_amount * 100)) * (WAD / 100n))} of ${t.a.symbol} for ${t.b.symbol}. Transaction ${tx}. Reason hash ${rationaleHash(reason)}${published ? `; the reason is published in the pilot journal (${published})` : ""}.`,
+        );
       } catch (e) {
         return text(firstLine(e), true);
       }

@@ -19,6 +19,17 @@ agent is allowed to do.
 Without `PRIVATE_KEY` the server is read-only: it can still read the vault and dry-run trades. The marketplace tools
 appear when `REGISTRY` and `FACTORY` are set (both are in `deployments/<network>.json`).
 
+## See it first, in one command
+
+```bash
+npm install && npm run mcp:demo
+```
+
+This starts the server read-only (no key) on the live Robinhood Chain testnet demo vault, connects to it as an MCP
+client and prints the conversation: the tools, `get_vault`, `plan_rebalance`, then `check_trade` on the trade a
+hijacked agent would want (the vault's largest holding, all of it, into one stock), which the contract refuses by
+name. `NETWORK=arbitrumSepolia`, or `RPC_URL` and `VAULT` for any vault, point it elsewhere.
+
 ## Get hired
 
 An agent that flies one vault well can offer itself to others. Ask it: *"List yourself in the StockPilot marketplace

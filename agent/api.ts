@@ -5,6 +5,7 @@
 // POST /api/ask { question, facts, history } -> AskResult (answers grounded in the vault's onchain facts).
 // POST /api/relay { chainId, vault, action, deadline, signature } -> { tx } (submits an owner's signed check-in or
 // pause, paid by the operator's SIGNATURE_RELAY_KEY, so the owner needs no gas).
+// POST /api/fund { chainId, fund, action, ... } -> { tx } (a free trial in a fund on testnets, or a signed redemption).
 // The API key stays on the server; the browser turns the proposal into a mandate for whichever chain it is on.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -19,6 +20,7 @@ import { LISTINGS } from "./listings";
 import { ReportFacts, writeReport } from "./reporter";
 import { Proposal, defaultClient, draft, refine } from "./strategist";
 import { IMAGE_TYPES, MAX_IMAGE_BASE64, parseHoldingsText, readStatementImage } from "./importer";
+import { cloneCode } from "./codecheck";
 
 const MAX_GOAL_CHARS = 1_000;
 
@@ -198,10 +200,7 @@ function factoriesFor(chainId: number): Address[] {
     .map((d) => d.factory as Address);
 }
 
-/** EIP-1167 minimal proxy runtime code pointing at `implementation`: exactly what the factory deploys. */
-export function cloneCode(implementation: Address): Hex {
-  return `0x363d3d373d3d3d363d73${implementation.slice(2).toLowerCase()}5af43d82803e903d91602b57fd5bf3`;
-}
+export { cloneCode } from "./codecheck";
 
 const FACTORY_ABI = [{ type: "function", name: "implementation", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
 
@@ -250,6 +249,109 @@ export async function handleRelay(body: unknown, relayerFor: (chainId: number) =
   try {
     const tx = await relayer.send(vault, action === "checkIn" ? "checkInWithSig" : "pauseWithSig", BigInt(deadline), signature);
     return { status: 200, json: { tx } };
+  } catch (e) {
+    return { status: 422, json: { error: (e as { shortMessage?: string }).shortMessage ?? (e as Error).message.split("\n")[0] } };
+  }
+}
+
+// POST /api/fund { chainId, fund, action: "trial", holder } -> { tx }: on a testnet, the relay mints $100 of test cash
+// and buys the holder shares in a genuine StockPilot fund, so anyone with a wallet can try a fund without gas.
+// POST /api/fund { chainId, fund, action: "redeem", holder, shares, to, deadline, signature } -> { tx }: submits a
+// holder's signed redemption (the fund checks the signature), so a holder with no gas can still leave.
+
+export const TRIAL_USD = 100;
+const TRIALS_PER_HOUR = 30;
+const REDEEMS_PER_HOUR = 5;
+
+export interface FundRelayer {
+  /** True only for a fund listed by this deployment's fund factory. */
+  isFund(fund: Address): Promise<boolean>;
+  /** Mint TRIAL_USD of test cash to the relay and buy `holder` shares with it. Testnets only. */
+  trial(fund: Address, holder: Address): Promise<Hex>;
+  /** Dry-runs the signed redemption (a bad signature reverts, so nothing is paid for it), then sends it. */
+  redeem(fund: Address, holder: Address, shares: bigint, to: Address, deadline: bigint, signature: Hex): Promise<Hex>;
+}
+
+const FUND_ABI = [
+  { type: "function", name: "isFund", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "buyFor", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "address" }, { type: "uint256" }, { type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "redeemWithSig", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }, { type: "address" }, { type: "uint256" }, { type: "bytes" }], outputs: [] },
+  { type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [] },
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "allowance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+
+/** This chain's deployment, from the deployment files (DEPLOYMENTS_DIR, default deployments/). */
+function deploymentOn(chainId: number): { funds?: Address; tokens?: Record<string, Address>; production?: boolean } | null {
+  const dir = process.env.DEPLOYMENTS_DIR ?? "deployments";
+  if (!existsSync(dir)) return null;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".json"))) {
+    const d = JSON.parse(readFileSync(join(dir, f), "utf8"));
+    if (d.chainId === chainId) return d;
+  }
+  return null;
+}
+
+function chainFundRelayer(chainId: number): FundRelayer | null {
+  const key = process.env.SIGNATURE_RELAY_KEY as Hex | undefined;
+  const url = process.env[`RPC_${chainId}`] ?? RPCS[chainId];
+  const d = deploymentOn(chainId);
+  if (!key || !url || !d?.funds) return null;
+  const account = privateKeyToAccount(key);
+  const chain = { id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [url] } } };
+  const pub = createPublicClient({ chain, transport: http(url) });
+  const wallet = createWalletClient({ account, chain, transport: http(url) });
+  const send = async (address: Address, functionName: "mint" | "approve" | "buyFor" | "redeemWithSig", args: readonly unknown[]) => {
+    const { request } = await pub.simulateContract({ account, address, abi: FUND_ABI, functionName, args } as never);
+    return wallet.writeContract(request as never) as Promise<Hex>;
+  };
+  return {
+    isFund: (fund) => pub.readContract({ address: d.funds!, abi: FUND_ABI, functionName: "isFund", args: [fund] }) as Promise<boolean>,
+    async trial(fund, holder) {
+      const usdg = d.tokens?.USDG;
+      if (d.production || !usdg) throw new Error("Free trials run on testnets only.");
+      const amount = BigInt(TRIAL_USD) * 10n ** 6n;
+      await pub.waitForTransactionReceipt({ hash: await send(usdg, "mint", [account.address, amount]) });
+      const allowance = (await pub.readContract({ address: usdg, abi: FUND_ABI, functionName: "allowance", args: [account.address, fund] })) as bigint;
+      if (allowance < amount) await pub.waitForTransactionReceipt({ hash: await send(usdg, "approve", [fund, 2n ** 255n]) });
+      return send(fund, "buyFor", [holder, usdg, amount, 0n]);
+    },
+    redeem: (fund, holder, shares, to, deadline, signature) => send(fund, "redeemWithSig", [holder, shares, to, deadline, signature]),
+  };
+}
+
+const fundLog = new Map<string, number[]>();
+const trialLog = new Map<string, number>();
+
+/** Gas-free fund actions: a free trial purchase on testnets, and submitting a holder's signed redemption. */
+export async function handleFund(body: unknown, relayerFor: (chainId: number) => FundRelayer | null = chainFundRelayer, now = Date.now()): Promise<{ status: number; json: unknown }> {
+  const { chainId, fund, action, holder } = (body ?? {}) as Record<string, unknown>;
+  if (typeof fund !== "string" || !isAddress(fund) || typeof holder !== "string" || !isAddress(holder)) return { status: 400, json: { error: "Bad fund or holder address." } };
+  if (action !== "trial" && action !== "redeem") return { status: 400, json: { error: "Only a trial purchase or a signed redemption can be relayed." } };
+  const relayer = relayerFor(Number(chainId));
+  if (!relayer) return { status: 501, json: { error: "No relay is configured here. Use a wallet with gas instead." } };
+  if (!(await relayer.isFund(fund).catch(() => false))) return { status: 400, json: { error: "Not a StockPilot fund on this chain." } };
+  const hour = (k: string, max: number) => {
+    const recent = (fundLog.get(k) ?? []).filter((t) => now - t < 3_600_000);
+    if (recent.length >= max) return false;
+    fundLog.set(k, [...recent, now]);
+    return true;
+  };
+  try {
+    if (action === "trial") {
+      // One trial per wallet per fund a day, and a cap across everyone, so nobody can drain the relay's gas.
+      const key = `${chainId}:${fund.toLowerCase()}:${holder.toLowerCase()}`;
+      const last = trialLog.get(key);
+      if (last !== undefined && now - last < 86_400_000) return { status: 429, json: { error: "This wallet already had its free trial of this fund today." } };
+      if (!hour(`${chainId}:trials`, TRIALS_PER_HOUR)) return { status: 429, json: { error: "Too many free trials this hour; try again later." } };
+      trialLog.set(key, now);
+      return { status: 200, json: { tx: await relayer.trial(getAddress(fund), getAddress(holder)) } };
+    }
+    const { shares, to, deadline, signature } = body as Record<string, unknown>;
+    if (typeof to !== "string" || !isAddress(to) || typeof signature !== "string" || !isHex(signature)) return { status: 400, json: { error: "Malformed signature." } };
+    if (typeof shares !== "string" || !/^\d+$/.test(shares) || typeof deadline !== "string" || !/^\d+$/.test(deadline)) return { status: 400, json: { error: "Malformed signature." } };
+    if (!hour(`${chainId}:redeem:${holder.toLowerCase()}`, REDEEMS_PER_HOUR)) return { status: 429, json: { error: "Too many relayed redemptions; try again later." } };
+    return { status: 200, json: { tx: await relayer.redeem(getAddress(fund), getAddress(holder), BigInt(shares), getAddress(to), BigInt(deadline), signature) } };
   } catch (e) {
     return { status: 422, json: { error: (e as { shortMessage?: string }).shortMessage ?? (e as Error).message.split("\n")[0] } };
   }

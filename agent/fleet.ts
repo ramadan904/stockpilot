@@ -2,7 +2,7 @@
 // sends the trades the vaults will accept, and reports what happened. One vault failing never stops the others.
 
 import type { Abi, Address, Hash, PublicClient, WalletClient } from "viem";
-import { readVault, rationaleHash, sendTrade } from "./chain";
+import { publishReason, readVault, rationaleHash, sendTrade } from "./chain";
 import { eq } from "./model";
 import { fmtUsd, plan, type PlannerOptions, DEFAULT_PLANNER } from "./planner";
 import { taxPolicyFor, type TaxPreferences } from "./taxaware";
@@ -19,6 +19,8 @@ export interface FleetConfig {
   notify?: Notifier;
   /** Owners' signed tax preferences by vault (lower-case); a vault with them on is planned tax-aware. */
   taxPreferences?: () => Map<string, TaxPreferences>;
+  /** The pilot journal: each trade's full reason is published there, checkable against the trade's hash. */
+  journal?: Address;
   /** Called with each trade for the logbook. */
   onTrade?: (entry: { vault: Address; tx: Hash; rationale: string; rationaleHash: Hash }) => void;
 }
@@ -160,6 +162,7 @@ async function flyOne(cfg: FleetConfig, vault: Address, _me: Address): Promise<F
   if (p.action === "hold") return { kind: "hold", vault, reason: p.reason };
   const { hash } = await sendTrade(client, cfg.wallet, vaultAbi, vault, p.trade);
   cfg.onTrade?.({ vault, tx: hash, rationale: p.trade.rationale, rationaleHash: rationaleHash(p.trade.rationale) });
+  await publishReason(client, cfg.wallet, cfg.journal, vault, p.trade.rationale);
   return { kind: "trade", vault, tx: hash, rationale: p.trade.rationale, valueUsd: p.trade.valueUsd };
 }
 
