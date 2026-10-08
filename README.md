@@ -54,7 +54,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-d
 
 ```bash
 npm install
-npm test          # 280 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 283 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
