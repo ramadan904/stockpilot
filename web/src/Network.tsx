@@ -4,9 +4,11 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { createPublicClient, type Address, type Hash, type PublicClient } from "viem";
+import { starMood, type StarVault } from "../../agent/constellation";
 import { logsInRange } from "../../agent/history";
+import { Constellation } from "./Constellation";
 import { LISTINGS } from "../../agent/listings";
-import { mandateCredentialAbi, pilotFundFactoryAbi, pilotJournalAbi, pilotRegistryAbi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
+import { mandateCredentialAbi, pilotFundAbi, pilotFundFactoryAbi, pilotJournalAbi, pilotRegistryAbi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
 import { CHAINS, deploymentFor, explorerTx, type Deployment } from "./chains";
 import { historyStart, rpcTransport } from "./rpc";
 import { Card, usd } from "./ui";
@@ -39,6 +41,8 @@ interface NetworkData {
   credentials: number | null;
   now: number;
   block: bigint;
+  stars: StarVault[];
+  pilotNames: Record<string, string>;
 }
 
 async function readNetwork(client: PublicClient, d: Deployment): Promise<NetworkData> {
@@ -49,9 +53,17 @@ async function readNetwork(client: PublicClient, d: Deployment): Promise<Network
   )) as Address[];
 
   const symbolOf = new Map(Object.entries(d.tokens).map(([s, a]) => [a.toLowerCase(), s]));
-  const [portfolios, paused] = await Promise.all([
+  const [portfolios, paused, pilotsOf, fundVaults] = await Promise.all([
     Promise.all(vaults.map((v) => client.readContract({ address: v, abi: pilotVaultAbi, functionName: "portfolio" }).catch(() => null))),
     Promise.all(vaults.map((v) => client.readContract({ address: v, abi: pilotVaultAbi, functionName: "paused" }).catch(() => false))),
+    Promise.all(vaults.map((v) => client.readContract({ address: v, abi: pilotVaultAbi, functionName: "pilot" }).catch(() => null) as Promise<Address | null>)),
+    d.funds
+      ? client
+          .readContract({ address: d.funds, abi: pilotFundFactoryAbi, functionName: "funds" })
+          .then((fs) => Promise.all((fs as Address[]).map((fund) => client.readContract({ address: fund, abi: pilotFundAbi, functionName: "vault" }) as Promise<Address>)))
+          .then((vs) => new Set(vs.map((v) => v.toLowerCase())))
+          .catch(() => new Set<string>())
+      : Promise.resolve(new Set<string>()),
   ]);
   const by = new Map<string, bigint>();
   let totalUsd = 0n;
@@ -80,6 +92,43 @@ async function readNetwork(client: PublicClient, d: Deployment): Promise<Network
   ]);
 
   const recent = trades.slice(-8).reverse();
+  // Which vaults traded in the last day: walk back from the newest trade until a day old (or 50 trades).
+  const dayAgo = Number(headBlock.timestamp) - 86_400;
+  const tradedToday = new Set<string>();
+  const blockTime = new Map<bigint, number>();
+  for (const t of trades.slice(-50).reverse()) {
+    if (!blockTime.has(t.blockNumber!)) blockTime.set(t.blockNumber!, Number((await client.getBlock({ blockNumber: t.blockNumber! })).timestamp));
+    if (blockTime.get(t.blockNumber!)! < dayAgo) break;
+    tradedToday.add(t.address.toLowerCase());
+  }
+  const zero = "0x0000000000000000000000000000000000000000";
+  const stars: StarVault[] = vaults.flatMap((v, i) => {
+    const p = portfolios[i];
+    if (!p) return [];
+    const [holdings, total] = p as unknown as [{ token: Address; valueUsd: bigint; weightBps: bigint; targetBps: number; bandBps: number }[], bigint];
+    const value = Number(total / 10n ** 14n) / 10_000;
+    return [
+      {
+        vault: v,
+        pilot: pilotsOf[i] && pilotsOf[i] !== zero ? pilotsOf[i]!.toLowerCase() : null,
+        valueUsd: value,
+        fund: fundVaults.has(v.toLowerCase()),
+        mood: starMood(holdings.map((h) => ({ weightBps: Number(h.weightBps), targetBps: Number(h.targetBps), bandBps: Number(h.bandBps) })), Boolean(paused[i])),
+        slices: total > 0n ? holdings.filter((h) => h.valueUsd > 0n).map((h) => ({ symbol: symbolOf.get(h.token.toLowerCase()) ?? "Other", share: Number((h.valueUsd * 10_000n) / total) / 10_000 })) : [],
+        recent: tradedToday.has(v.toLowerCase()),
+      },
+    ];
+  });
+  const pilotNames: Record<string, string> = {};
+  if (d.registry) {
+    const unique = [...new Set(stars.map((s) => s.pilot).filter((x): x is string => !!x))].slice(0, 12);
+    await Promise.all(
+      unique.map(async (pl) => {
+        const entry = (await client.readContract({ address: d.registry!, abi: pilotRegistryAbi, functionName: "pilotOf", args: [pl as Address] }).catch(() => null)) as { name?: string } | null;
+        if (entry?.name) pilotNames[pl] = entry.name;
+      }),
+    );
+  }
   const times = new Map<bigint, number>();
   await Promise.all(
     [...new Set(recent.map((t) => t.blockNumber!))].map(async (b) => times.set(b, Number((await client.getBlock({ blockNumber: b })).timestamp))),
@@ -108,6 +157,8 @@ async function readNetwork(client: PublicClient, d: Deployment): Promise<Network
     credentials,
     now: Number(headBlock.timestamp),
     block: head,
+    stars,
+    pilotNames,
   };
 }
 
@@ -202,6 +253,7 @@ export function Network() {
               {data.credentials !== null && stat("Verified Mandates", String(data.credentials), "soulbound credentials", "net-credentials")}
             </div>
             {data.read < data.vaults && <p className="muted small">Totals cover the newest {data.read} vaults.</p>}
+            <Constellation stars={data.stars} pilotNames={data.pilotNames} chainId={chainId} />
             {data.bySymbol.length > 0 && (
               <>
                 <div className="net-bar" role="img" aria-label={`Invested in: ${data.bySymbol.map((b) => `${b.symbol} ${usd(b.usd, false)}`).join(", ")}`}>

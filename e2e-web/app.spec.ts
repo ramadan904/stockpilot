@@ -747,6 +747,14 @@ test("network: the whole deployment read from the chain, with the latest trades 
   await expect(page.getByTestId("net-pilots")).toHaveText(/^[1-9]\d*$/); // the house pilot at least
   await expect(page.getByTestId("net-letters")).toHaveText(/^[1-9]\d*$/); // the demo pilot's first letter
   await expect(page.getByRole("img", { name: /^Invested in: USDG \$/ })).toBeVisible();
+  // The constellation: the house pilot is a star, and the demo vault and demo fund orbit it (the fund with its halo).
+  const sky = page.getByRole("figure", { name: "The network as a constellation" });
+  await expect(sky.getByRole("link", { name: /^Vault 0x.*flown by StockPilot House Pilot/ }).first()).toBeVisible();
+  await expect(sky.getByRole("link", { name: /^Fund vault 0x.*flown by StockPilot House Pilot/ }).first()).toBeVisible();
+  await sky.locator("svg").hover({ position: { x: 5, y: 5 } }); // the orbits hold still under the pointer
+  await sky.getByRole("link", { name: /^Fund vault 0x.*flown by StockPilot House Pilot/ }).first().hover();
+  await expect(sky.locator("figcaption")).toContainText(/^Fund vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}: \$[\d,]+, (on target|drifting|outside a band|paused), flown by StockPilot House Pilot/);
+  await sky.screenshot({ path: "test-results/constellation.png" });
   await page.locator("main").screenshot({ path: "test-results/network.png" });
   const trades = Number((await page.getByTestId("net-trades").innerText()).replace(/,/g, ""));
   const latest = page.getByRole("list", { name: "Latest trades" }).locator("li");

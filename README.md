@@ -54,7 +54,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-d
 
 ```bash
 npm install
-npm test          # 283 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 287 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -99,6 +99,9 @@ npm run web       # http://localhost:5173
 - **Network** (no wallet; `?view=network`): the whole deployment read from the chain, refreshed every minute: the
   money under mandate and what it is invested in, drawn as light, the number of vaults, funds, pilots, letters and
   Verified Mandates, all-time trades and volume, and the latest trades across every vault, each linking to its vault.
+  The **constellation** draws it all: each pilot a star, the vaults it flies in orbit around it, each sized by its
+  value, ringed with its holdings' colours and glowing with its mood (funds wear a dashed halo; a vault that traded
+  today pulses). Hover for details, click to open.
 - **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
   drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
