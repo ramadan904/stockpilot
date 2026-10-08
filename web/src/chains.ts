@@ -42,7 +42,9 @@ export interface Deployment {
 const files = import.meta.glob<Deployment>("../../deployments/*.json", { eager: true, import: "default" });
 export const DEPLOYMENTS: Deployment[] = Object.values(files);
 
-export const CHAINS: Chain[] = [robinhoodTestnet, arbitrumSepolia, hardhat];
+// The local Hardhat chain exists only on a developer's own machine, so it is offered only when this build has a local
+// deployment (deployments/localhost.json is never committed, so the public site never lists it).
+export const CHAINS: Chain[] = [robinhoodTestnet, arbitrumSepolia, hardhat].filter((c) => c.id !== hardhat.id || DEPLOYMENTS.some((d) => d.chainId === hardhat.id));
 
 export function chainById(id: number) {
   return CHAINS.find((c) => c.id === id);
