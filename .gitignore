@@ -13,3 +13,4 @@ playwright-report/
 test-results/
 e2e-web/test-results/
 docker-smoke.log
+.vercel
