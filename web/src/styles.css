@@ -1479,3 +1479,143 @@ tr.muted td {
   opacity: 0.55;
   transition: opacity 0.2s ease;
 }
+
+/* Attack Theater: each attempt against the live contract, and its answer. */
+.theater-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.theater-list li {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--bad);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 5%, var(--surface));
+  animation: theater-in 0.35s ease-out;
+}
+.theater-list li.allowed {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+.theater-list code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--bad);
+  overflow-wrap: anywhere;
+}
+@keyframes theater-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theater-list li {
+    animation: none;
+  }
+}
+
+/* Verified Mandate: the credential's own onchain image. */
+.credential img {
+  display: block;
+  width: 100%;
+  max-width: 600px;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px -18px var(--accent);
+}
+
+/* A live vault's heartbeat: the pilot traded recently. */
+.pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
+  animation: pulse 2s ease-out infinite;
+  vertical-align: 1px;
+}
+@keyframes pulse {
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+
+/* Letters from the pilot: plain text, as published onchain. */
+.letter {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.letter-text {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Pilot funds */
+.fund-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.fund-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+
+/* Network: what the money under mandate is invested in, as light */
+.net-bar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; margin-top: 14px; gap: 2px; }
+.net-bar span { background: var(--c); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 60%, transparent); min-width: 4px; }
+.net-trades li { display: block; }
+
+/* Holders' vote on a fund */
+.holders-vote { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.vote-bar { position: relative; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.vote-bar span { display: block; height: 100%; background: var(--bad, #d64545); box-shadow: 0 0 12px color-mix(in srgb, var(--bad, #d64545) 60%, transparent); }
+.vote-bar i { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--text, currentColor); opacity: 0.6; }
+
+/* The network as a constellation */
+.constellation { margin: 16px 0 0; }
+.constellation svg { width: 100%; height: auto; display: block; border-radius: 14px; }
+.constellation figcaption { margin-top: 6px; min-height: 2.6em; }
+.constellation .orbit { animation: orbit-spin var(--spin, 160s) linear infinite; }
+/* Orbits hold still while the pointer is over the map (or an orb has focus), so any orb is easy to point at. */
+.constellation:hover .orbit, .constellation:focus-within .orbit { animation-play-state: paused; }
+.constellation .tether { stroke: #9cc7ff; stroke-opacity: 0.12; stroke-width: 1; }
+.constellation .hub-star { fill: #fff6d6; }
+.constellation .hub-label { fill: #e6edf5; font: 600 12px system-ui, sans-serif; paint-order: stroke; stroke: #05080c; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.constellation .hub-sub { fill: #8aa0b8; font: 11px system-ui, sans-serif; paint-order: stroke; stroke: #05080c; stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.constellation .orb { cursor: pointer; }
+.constellation .orb-core { fill: var(--mood); fill-opacity: 0.85; }
+.constellation .orb-ring { fill: none; stroke-width: 3; stroke-linecap: butt; }
+.constellation .orb-fund { fill: none; stroke: #e6edf5; stroke-opacity: 0.55; stroke-width: 1; stroke-dasharray: 2 3; }
+.constellation .orb-pulse { fill: none; stroke: var(--mood); stroke-width: 2; animation: orb-pulse 2.4s ease-out infinite; }
+.constellation .orb:hover .orb-core, .constellation .orb:focus .orb-core { fill-opacity: 1; stroke: #fff; stroke-width: 1.5; }
+.constellation .orb.mood-calm { --mood: #2dd4bf; }
+.constellation .orb.mood-drifting { --mood: #f5b83d; }
+.constellation .orb.mood-outside { --mood: #f05252; }
+.constellation .orb.mood-paused { --mood: #7b8794; }
+@keyframes orbit-spin { to { transform: rotate(360deg); } }
+@keyframes orb-pulse { from { transform: scale(1); opacity: 0.9; } to { transform: scale(1.9); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .constellation .orbit, .constellation .orb-pulse { animation: none; }
+}
+
+/* A trade's published reason in the activity feed */
+.trade-reason { display: block; margin-top: 4px; color: var(--text); }
+.trade-reason q { font-style: italic; }
+.trade-reason .pill { margin-left: 4px; }
+
+/* Code check */
+.code-check { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.code-check li { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 9px; background: var(--surface-2); font-size: 13px; }
+@media (max-width: 560px) { .code-check li { grid-template-columns: auto 1fr; } .code-check li > :last-child { grid-column: 2; } }

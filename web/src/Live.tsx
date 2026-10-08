@@ -19,7 +19,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { LISTINGS } from "../../agent/listings";
 import { toMandate } from "../../agent/mandate";
-import { rationaleHash, readVault, sendTrade } from "../../agent/chain";
+import { publishReason, rationaleHash, readVault, sendTrade } from "../../agent/chain";
 import { available, type VaultState } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
@@ -50,6 +50,10 @@ import { StatementCard } from "./Statement";
 import { PerformanceCard } from "./Performance";
 import { AskCard, rememberReason } from "./Ask";
 import { historyStart, rpcTransport } from "./rpc";
+import { AttackTheater } from "./Theater";
+import { CredentialCard } from "./Credential";
+import { LettersCard } from "./Letters";
+import { FundCard, FundsCard } from "./Funds";
 import { logsInRange } from "../../agent/history";
 
 declare global {
@@ -200,6 +204,11 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
                   Open the demo vault
                 </a>
               )}
+              {deployment?.demoFundVault && (
+                <a className="btn" style={{ alignSelf: "end" }} href={`?chain=${chain.id}&vault=${deployment.demoFundVault}`}>
+                  Open the demo fund
+                </a>
+              )}
             </>
           )}
           {wallet?.kind === "dev" && (
@@ -245,9 +254,22 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
               <HouseholdCard client={client as never} abi={pilotVaultAbi as Abi} chainId={chain.id} vaults={vaults} me={wallet!.address} selected={selected} onOpen={setSelected} refresh={refresh} />
             )}
             <OpenVault onOpen={(v) => setSelected(v)} />
+            <FundsCard
+              client={client as never}
+              me={wallet!}
+              chain={chain}
+              deployment={deployment!}
+              proposal={draft?.proposal ?? null}
+              market={market}
+              refresh={refresh}
+              send={send}
+              run={run}
+              onOpen={(v) => { setSelected(v); setRefresh((r) => r + 1); }}
+            />
             {deployment?.registry && (
               <MarketplaceCard
-                key={`${wallet!.address}-${market.pilots.length}`}
+                // Re-mounted when your own listing appears (to show it), not when others' load, which would close an open form.
+                key={`${wallet!.address}-${market.byAddress.has(wallet!.address.toLowerCase())}`}
                 market={market}
                 me={wallet!.address}
                 canList={wallet!.kind !== "watch"}
@@ -385,6 +407,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
   const [state, setState] = useState<VaultState | null>(null);
   const [roles, setRoles] = useState<{ owner: Address; pilot: Address; feeBps: number; feeRecipient: Address } | null>(null);
   const [events, setEvents] = useState<TradeEvent[]>([]);
+  // The latest trade's time, so a visitor sees the pilot is flying.
+  const [lastTrade, setLastTrade] = useState<{ at: number; tx: Hash; count: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newPilot, setNewPilot] = useState("");
   const [reviewing, setReviewing] = useState(false);
@@ -414,6 +438,11 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
           .map((l) => ({ tx: l.transactionHash!, ...(l.args as Omit<TradeEvent, "tx">) }))
           .reverse(),
       );
+      const latest = logs[logs.length - 1];
+      if (latest?.blockNumber !== undefined && latest.blockNumber !== null) {
+        const block = await client.getBlock({ blockNumber: latest.blockNumber });
+        setLastTrade({ at: Number(block.timestamp), tx: latest.transactionHash!, count: logs.length });
+      }
     })().catch((e) => setError(short(e)));
   }, [client, vault]);
 
@@ -488,6 +517,22 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         <div className="table-scroll">
           <HoldingsTable assets={state.assets} drift={d} />
         </div>
+        <p className="small" style={{ marginBottom: 0 }} data-testid="last-rebalance">
+          {lastTrade ? (
+            <>
+              <span className="pulse-dot" aria-hidden /> Last rebalance {ago(Number(state.now) - lastTrade.at)} ago
+              {explorerTx(ctx.chain.id, lastTrade.tx) && (
+                <>
+                  {" "}
+                  (<a href={explorerTx(ctx.chain.id, lastTrade.tx)} target="_blank" rel="noreferrer">view the transaction</a>)
+                </>
+              )}
+              , {lastTrade.count} trade{lastTrade.count === 1 ? "" : "s"} in all, each checked by the contract.
+            </>
+          ) : (
+            "No trades yet: the pilot trades when an asset drifts past its trigger."
+          )}
+        </p>
         <p className="small" style={{ marginBottom: 0 }}>
           Pilot's next move: {p.action === "trade" ? p.trade.rationale : p.reason}
         </p>
@@ -501,6 +546,14 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
           </div>
         )}
       </Card>
+
+      <FundCard client={client as never} me={wallet} chain={ctx.chain} deployment={deployment} owner={roles.owner} pilot={roles.pilot} state={state} market={ctx.market} send={send} run={run} />
+
+      <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
+
+      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
+
+      <LettersCard client={client as never} journal={ctx.deployment.journal} vault={vault} chainId={ctx.chain.id} />
 
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
@@ -516,6 +569,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
                   setError(null);
                   rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
                   await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
+                  // Then publish the full reason, so anyone can check it against the hash the trade recorded.
+                  await publishReason(client as never, w, deployment.journal, vault, p.trade.rationale);
                 })}
               >
                 Run pilot (send planned trade)
@@ -612,6 +667,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         pilot={roles.pilot}
         pilotName={ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? null}
         feeBps={roles.feeBps}
+        journal={deployment.journal}
       />
       <StatementCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} state={state} owner={roles.owner} chainName={ctx.chain.name} />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
@@ -633,7 +689,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
-      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
+      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} journal={deployment.journal} />
     </>
   );
 }
@@ -705,4 +761,13 @@ function ShareButton({ chainId, vault }: { chainId: number; vault: Address }) {
       {copied ? "Link copied" : "Share"}
     </button>
   );
+}
+
+/** "12 min", "3 h", "2 days": how long ago, in the largest sensible unit. */
+function ago(seconds: number) {
+  const s = Math.max(0, seconds);
+  if (s < 90) return `${Math.round(s)} s`;
+  if (s < 90 * 60) return `${Math.round(s / 60)} min`;
+  if (s < 36 * 3600) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86_400)} days`;
 }

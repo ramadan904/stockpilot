@@ -1,6 +1,11 @@
 # StockPilot
 
 **An AI autopilot for tokenized stock portfolios that can only trade inside the rules you sign.**
+The AI does the work; the contract keeps it honest.
+
+**[Live app](https://stockpilot-six-virid.vercel.app)** ·
+**[Live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** (Robinhood Chain testnet, no wallet) ·
+**[100-second demo](media/live-demo.mp4)** · **[Submission](SUBMISSION.md)** · `npm test` · `npm run demo`
 
 Tokenized stocks trade around the clock and settle onchain, but managing a portfolio still means watching it.
 AI agents could do that, but today you either hand an agent your keys or let it make suggestions only.
@@ -12,7 +17,7 @@ the rules, and cannot concentrate your portfolio, because the contract won't let
 Built for [Crypto World's Fair](https://colosseum.com/worldsfair) (Colosseum), targeting the Ethereum ecosystem tracks
 (Robinhood Chain, Arbitrum). Judges: open the **[live app](https://stockpilot-six-virid.vercel.app)** (no wallet needed),
 the [live demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783),
-then [SUBMISSION.md](SUBMISSION.md) and the 53-second [demo video](media/simulator-demo.mp4).
+then [SUBMISSION.md](SUBMISSION.md) and the 100-second [demo video](media/live-demo.mp4) (recorded by `npm run video`).
 
 ```
 "I'm 30, I believe in AI and big tech, I can handle swings but want some cash."
@@ -32,6 +37,10 @@ then [SUBMISSION.md](SUBMISSION.md) and the 53-second [demo video](media/simulat
 | **Glide path** | Targets move on the owner's schedule toward an end mix by a date, like a target-date fund; bands, limits and the crash guard apply to the moving targets | Backtest with and without it, a card showing where the path stands, exact TypeScript mirror of the contract's arithmetic |
 | **Inheritance** | An heir takes over after the owner's long silence; every owner action restarts the clock | Check-in reminders by email and webhook |
 | **Pilot marketplace** | `PilotRegistry`: any agent lists itself with a fee; no rights granted | Track records computed from the chain, a leaderboard ranked by value added after fees against holding what each pilot took over (with worst falls and vault-days of evidence), a picker, MCP tools for agents to get hired |
+| **Pilot funds** | `PilotFund`: a vault many people own. Shares are bought at the vault's value at fresh prices; any holder leaves any time with their exact share of every holding, in kind, paused or not. The mandate, fee and venue can never change; a new pilot takes over only after three days' notice. Holders of a majority of the shares (as they stood a day before the vote) can fire the pilot at once. `buyFor` and signed `redeemWithSig` let a relay pay the gas | Try a fund free on testnets: the relay buys $100 of shares for any wallet, and leaving is a signature, so a visitor needs no testnet ETH at all;  Launch a fund from any drafted mandate, buy and redeem in the app, a demo fund flown by the house pilot |
+| **Verified Mandate** | `MandateCredential`: a soulbound token for a genuine vault that flew one mandate, unchanged, for a day; `isCurrent` says whether it still does | Fully onchain image and metadata, shown on every vault page |
+| **Letters from the pilot** | `PilotJournal`: only a genuine vault's current pilot can post, so each letter is an attributable public statement | About once a day, written from onchain figures (by Claude when configured), each text checked against its onchain hash |
+| **Every trade's reason, onchain** | A trade records only the hash of its reason; `PilotJournal.explain` publishes the full text, hashed by the contract itself, so it matches its trade word for word or matches none | The pilot (hourly run, fleet, MCP server, the app's Run pilot) publishes each reason right after the trade; the activity feed shows it on the trade, and Ask your vault cites it |
 | **Recurring investment** | Exactly the owner's amount, at most once per interval, within the owner's allowance | Fleet pulls it when due and invests it the same tick |
 | **Gasless safety** | Signed check-in and pause (EIP-712 / ERC-1271), one-time, with deadlines | A relay endpoint and "no gas" buttons |
 | **Fees** | At most 2% a year, in kind, paused with the vault, cancellable | Hosted fleet that serves only paying vaults |
@@ -46,7 +55,7 @@ then [SUBMISSION.md](SUBMISSION.md) and the 53-second [demo video](media/simulat
 
 ```bash
 npm install
-npm test          # 230 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
+npm test          # 293 tests: vault rules and fees, adapters, a randomized model check, planner, fleet, MCP, marketplace, inheritance, crash guard, taxes, Q&A, services, backtest
 npm run demo      # the whole story on a local chain
 ANTHROPIC_API_KEY=... GOAL="your own goal" npm run demo   # Claude drafts the mandate
 ```
@@ -66,6 +75,12 @@ the pilot rebalance, and then has a rogue pilot try five ways to break the rules
 No network, wallet, or API key needed. The compiler is the solc-js build pinned in `package.json`, so builds work
 offline.
 
+To see what an AI agent sees, run the MCP server against the live demo vault, read-only and without a key:
+
+```bash
+npm run mcp:demo  # lists the tools, reads the vault, asks the planner, then tries a hijacked agent's trade and shows the contract refuse it
+```
+
 ## The web app
 
 ```bash
@@ -82,6 +97,14 @@ npm run web       # http://localhost:5173
   concentrated each gets. Plus a **stress test** through five shaped crashes and rallies, left alone, piloted, and
   piloted with the crash guard. The simulated vault runs the same `check()` the real pilot uses, and
   the randomized test proves `check()` agrees with the contract trade for trade, so what you see is what the chain does.
+- **Network** (no wallet; `?view=network`): the whole deployment read from the chain, refreshed every minute: the
+  money under mandate and what it is invested in, drawn as light, the number of vaults, funds, pilots, letters and
+  Verified Mandates, all-time trades and volume, and the latest trades across every vault, each linking to its vault.
+  The **constellation** draws it all: each pilot a star, the vaults it flies in orbit around it, each sized by its
+  value, ringed with its holdings' colours and glowing with its mood (funds wear a dashed halo; a vault that traded
+  today pulses). Hover for details, click to open. Below it, a **code check** fetches every StockPilot contract from
+  the chain and compares it with this repository's build, instruction for instruction (`npm run check-code -- --network
+  robinhoodTestnet` does the same from a terminal).
 - **Live**: connect a wallet on Robinhood Chain testnet, Arbitrum Sepolia or a local node, create a vault with the
   drafted mandate (funded at targets, or in cash for the pilot to invest), set a pilot fee, run the pilot, pause it,
   change or revoke it, withdraw everything, get a written report, and follow an activity feed of every onchain event
@@ -334,6 +357,22 @@ mainnet, the vault takes real stock tokens, real feeds and a real venue adapter,
 To run the hosted pilot and the price relayer as services (Docker, health checks, metrics), see
 [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
+## Business model
+
+Owners pay their pilot, onchain, and nobody else. StockPilot earns the way any pilot does: by flying vaults well
+enough that owners hire it.
+
+| Who | Pays or earns | How it is enforced |
+|---|---|---|
+| Vault owner | A management fee they set, at most 2% a year (`PilotVault.MAX_FEE_BPS`) | Accrues by the second, paid in kind pro rata so it never moves the weights; stops while the vault is paused; the owner can change or cancel it at any time, and what was owed is settled at the old rate first |
+| Pilot (an AI agent or a person) | That fee | Listed in `PilotRegistry` with its asking fee; the fleet service can refuse vaults paying less (`MIN_FEE_BPS`) |
+| StockPilot | Runs the hosted House Pilot fleet, one pilot among many in the marketplace | The same mandate checks as every other pilot; owners compare it on a track record read from the chain |
+
+Example: a $10,000 vault at 0.5% a year pays its pilot about $50 a year, about $0.14 a day, and nothing during any
+paused day. The contracts take no protocol cut today. Pilots compete on the leaderboard (value added after fees
+against holding what they took over), and an agent can list itself and get hired through the MCP tools, so the
+marketplace is open to any agent, not only ours.
+
 ## Status and honest limits
 
 This is a hackathon build. The contracts are tested but **not audited**; do not put real money in them.
@@ -345,6 +384,9 @@ enforces.
 - Tokens dropped from a mandate stay in the vault, unpriced, until the owner withdraws them or lists them again.
 - Market hours: tokenized stocks may trade around the clock, but feeds for some may pause. The vault refuses to trade
   on a price older than `maxPriceAge`, and the pilot holds.
+- A pilot's letters are its own statements. The journal proves which pilot wrote each one and that its text is
+  unchanged; the figures in it are read from the chain, but the judgments are the pilot's.
+- The demo vault's testnet pilot runs hourly on GitHub Actions, which can start late or skip a run when busy.
 
 ## Roadmap
 

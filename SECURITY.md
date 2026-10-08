@@ -37,6 +37,7 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
 | Someone drains the operator's relay key | The relay pays only for genuine vaults (the address must run the exact EIP-1167 clone code of a deployment factory's implementation), dry-runs every call so invalid signatures cost nothing, and relays at most three actions per vault an hour | `test/recurring.test.ts` |
 | A new owner's wallet is pulled on the old owner's schedule | Any change of owner (a transfer or an inheritance) stops the recurring investment, as it clears the heir | `test/recurring.test.ts` |
 | A vault clone taken over by initialising it | Each vault is a minimal proxy created and initialised in one factory transaction; `initialize` runs once; the shared implementation is locked in its constructor and can never be initialised | `test/PilotVault.test.ts` (clones) |
+| A fund buyer, redeemer or donor takes value from other holders | Shares are sold at the vault's value at fresh prices, rounded down; redemptions pay a pro-rata slice in kind, rounded down, after settling the fee; a gift before the first purchase goes to the first buyer, and a $1 minimum keeps share prices meaningful | `test/fund.test.ts`, `test/fund-invariants.test.ts` (450 random purchases, redemptions, transfers, gifts, price moves, pilot trades and stale periods over three seeds: a purchase never lowers the value per share, a buyer never gets more than they paid, a redemption pays exactly its slice and never more, purchases at stale prices are refused, supply and votes always match the holders, and the fund itself never keeps money) |
 | Funds locked forever | `renounceOwnership` reverts; ownership moves in two steps; `withdraw` clamps to the balance | `test/PilotVault.test.ts`, `test/invariants.test.ts` (owner always withdraws everything) |
 
 ## Trust assumptions (out of scope)
@@ -47,8 +48,30 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
   hooks). The vault measures balances, so an unusual token can at worst make trades revert.
 - **The venue.** The owner chooses it. A malicious venue can make trades fail, but cannot take more than the amount
   approved for one trade, and cannot pass a bad fill (that is judged at oracle prices).
+- **Pilot funds.** Shares are bought at the vault's value at oracle prices no older than the mandate's `maxPriceAge`.
+  If the market has moved and the feed has not caught up yet, a buyer can pay the old price and later leave in kind at
+  the new one, at the other holders' expense. The window is the feed's lag, bounded by `maxPriceAge`; tight feeds and
+  a short `maxPriceAge` keep it small. Leaving never depends on prices.
+- **Gas-free fund actions.** The operator's relay (`/api/fund`, paid by `SIGNATURE_RELAY_KEY`) can buy trial shares
+  for a wallet on testnets and submit a holder's signed redemption. It cannot do anything else with a fund: a
+  redemption signature binds the holder, the number of shares, where the holdings go, a one-time nonce and a deadline,
+  and the fund checks it. Trials are rate-limited (one per wallet per fund a day, 30 an hour in all) so nobody can
+  drain the relay's gas; the limits live in memory, so a restarted relay forgets them.
+- **Firing the pilot.** Holders of a majority of a fund's shares, as they stood a day before a motion began, can
+  remove its pilot at once. Shares bought after that record time never vote, so votes cannot be bought for the
+  occasion; a holder who had the shares a day earlier may vote and then leave. A firing only removes the pilot: it
+  moves no funds, and the manager can announce a new one with the usual notice.
 - **Plain transfers.** Tokens sent to the vault with a plain transfer instead of `deposit` skip fee settlement, so they
   may be charged the fee for the period since the last settlement.
+
+## Is the deployed code this code?
+
+`npm run check-code -- --network <name>` (and the Code check on the app's Network tab) fetches every contract in
+`deployments/<network>.json` and compares its runtime code with this repository's build: immutables (addresses,
+EIP-712 domains) are blanked using the compiler's own map of where they sit, and the compiler's metadata trailer is
+left out (it hashes the sources, so line endings alone change it), so the comparison is instruction for instruction.
+Vaults are checked as exact EIP-1167 clones of the vault code. CI regenerates the prints (`web/src/codeprints.ts`) on
+every change and fails if they drift from the source.
 
 ## Static analysis
 
@@ -64,6 +87,13 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `calls-loop` | Loops over listed tokens call `balanceOf`, feeds and transfers | Bounded at 8 assets chosen by the owner; fee collection tolerates a failing token. |
 | `timestamp` | Cooldown, budget, fee, staleness, the inheritance deadline and the glide path (and so every target the vault judges trades by) use `block.timestamp` | Intended; validator timestamp drift is seconds against windows of minutes to days (30 days at least for inheritance). A glide path moves targets over days to years, so a few seconds of drift moves a target by a negligible fraction of a basis point. |
 | `missing-zero-check` | `setPilot(0)`, `setAdapter(0)`, and the same two in `initialize` | Zero is the documented way to revoke the pilot or stop trading, from creation onwards. |
+| `calls-loop` (credential) | `MandateCredential.mandateHash` reads each asset of the vault in a loop | View-only reads from a genuine StockPilot vault (its clone code hash is checked), bounded at 8 assets. |
+| `timestamp` (credential) | `MandateCredential.issue` compares `block.timestamp` with the enrollment time plus `minAge` | That is the point: how long a mandate stood. Drift of seconds against a minimum of a day or more is immaterial. |
+| `incorrect-equality`, `calls-loop` (fund) | `PilotFund` guards on exact zero (supply, shares, amounts, no pending pilot, no motion, no pilot to fire) and redeems by looping over the vault's tokens | Zero guards cannot be nudged into a wrong branch: a donation before the first purchase goes to the first buyer, and after it shares are priced by the value per share. The loop is bounded at 8 assets, and a token that will not move is skipped, so it can never trap a holder's other assets. |
+| `unused-return` (fund) | `PilotFund` reads only the total from `portfolio()` and only `maxPriceAge` from `limits()` | The other fields are not needed there. |
+| `missing-zero-check` (fund) | `proposePilot(0)` | As for the vault, zero removes the pilot, and the same three days' notice applies. |
+| `timestamp` (fund) | The pilot-change notice, the price-age check on purchases, holders' motions (the one-day vote record, the three-day window), and the deadline on a signed redemption | Intended; seconds of drift against windows of a day or more and the mandate's price age. Votes are counted from checkpoints by timestamp (`clock()` is `block.timestamp`). |
+| `reentrancy-benign`, `reentrancy-events` (fund factory) | `createFund` records the fund after `new PilotFund` | The only external code run is the fund's own constructor and the StockPilot vault factory, both ours. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |
 

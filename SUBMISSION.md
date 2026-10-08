@@ -1,6 +1,9 @@
 # StockPilot: Crypto World's Fair submission
 
 > **An AI autopilot for tokenized stock portfolios that can only trade inside the rules you sign.**
+>
+> The AI does the work. The contract keeps it honest. Proven live by the Attack Theater, and by 600 randomized
+> trades on which an exact model of the rules and the deployed contract agree.
 
 | | |
 |---|---|
@@ -9,15 +12,33 @@
 | **Live app** | https://stockpilot-six-virid.vercel.app (simulator, backtest, stress test and tour need no wallet) |
 | **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
 | **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), demo vault [`0xfFfEBea2C701CA2cfD406D89580aE984adb0a783`](https://explorer.testnet.chain.robinhood.com/address/0xfFfEBea2C701CA2cfD406D89580aE984adb0a783) |
-| **Demo** | [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s, captioned), or run `npm run demo` |
+| **Demo** | [`media/live-demo.mp4`](media/live-demo.mp4) (98 s, captioned): the live vault, the Attack Theater, a Verified Mandate, the pilot's letter, the demo fund, copying the rules into the simulator, a backtest, the Network tab. Recorded by `npm run video` against a local chain running the same contracts. Also [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
-## Judges: start here
+## Judges: start here (no wallet, under two minutes)
 
-1. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**: no wallet, no install.
-2. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet: its mandate, holdings, guard and activity,
-   read straight from the chain. Press **Copy this mandate** to make its rules your own draft and simulate them.
-3. In the simulator, press the **attack** buttons: a rogue pilot tries to break the rules and the contract stops it.
+1. **Watch the [100-second demo](media/live-demo.mp4)**, captioned, recorded straight from the running app.
+2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**. Then the
+   **[Network](https://stockpilot-six-virid.vercel.app/?view=network&chain=46630)** tab: every vault, fund, pilot and
+   trade on Robinhood Chain testnet, read straight from the chain, drawn as a constellation: pilots are stars, their
+   vaults orbit them, glowing with their mood. Below it, the **Code check** shows every live contract matching this
+   repository's code, instruction for instruction.
+3. **[Open the live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783)** on Robinhood Chain testnet, read
+   straight from the chain: its mood lamp, its last rebalance, its activity.
+4. On that page press **Simulate a compromised pilot**: the **Attack Theater** sends nine attacks to the live contract
+   from the pilot's own address and shows the contract's own refusals. Nothing is signed or spent.
+5. Below it, the vault's **Verified Mandate**: a soulbound credential, fully onchain, that it kept its rules.
+   Then **Letters from the pilot**: the pilot's daily letter to the owner, published onchain and signed by the key
+   that trades, its text checked against the hash the contract recorded.
+6. Press **Copy this mandate**: its rules become your draft in the simulator. Move the market, run the pilot, try the
+   attacks yourself, then open **Backtest**.
+7. Back on the Live tab, **Open the demo fund**: the same pilot flies a pooled vault anyone can buy into and leave at
+   any time with their share of every holding. Connect any wallet and press **Try it free**: $100 of shares, and
+   **Redeem without gas** to leave. No testnet ETH needed for either.
+8. Optional, in a terminal: `npm install && npm run mcp:demo` shows what an AI agent sees through our MCP server on
+   that same vault, read-only and without a key, ending with the contract refusing a hijacked agent's trade.
+
+Testnet software, unaudited: do not use real money.
 
 ## TL;DR for judges
 
@@ -27,14 +48,27 @@
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 230 tests, including 600 random trades on which an exact TypeScript model of the rules and
-  the deployed contract must agree to the second. In the demo, a rogue pilot tries eight attacks and the contract
-  stops all eight.
-- **A business, not just a contract:** a capped onchain management fee pays a hosted pilot fleet; an onchain pilot
+- **Proof, not promises:** 293 unit and contract tests, including 600 random trades on which an exact TypeScript model
+  of the rules and the deployed contract must agree to the second; 33 browser tests against a real local chain; 40
+  Rust tests for the Solana port; Slither in CI and stateful invariant fuzzing. On the live vault, the Attack Theater
+  lets anyone watch the contract refuse nine attacks from the pilot's own address.
+- **A business, not just a contract:** a management fee of up to 2% a year, taken onchain, paused with the vault and
+  cancellable by the owner, pays a hosted pilot fleet; an onchain pilot
   marketplace where any AI agent lists itself and owners hire by a track record read from the chain; any agent can fly
   a vault through our MCP server; Claude writes the owner's reports; a backtest shows what the mandate does to risk.
+  Owners pay their pilot onchain and nobody else; StockPilot earns as the House Pilot, one pilot among many
+  ([business model](README.md#business-model)).
 - **Try it in one click:** the web app's simulator needs no wallet. Live mode creates, funds, pilots, pauses and
   withdraws from a real vault on Robinhood Chain testnet.
+
+## For the submission form
+
+- **One line:** An AI autopilot for tokenized stocks that cannot drain you, because the contract won't let it.
+- **What's different:** other AI trading agents either hold your keys or only make suggestions. StockPilot's pilot can
+  only rebalance, inside a mandate the owner signed, and anyone can watch the live contract refuse a stolen pilot key.
+- **Why Robinhood Chain:** tokenized stocks trade around the clock, so they need a manager that never sleeps and never
+  needs your keys; every trade is checked against oracle prices and freshness onchain.
+- **Live:** https://stockpilot-six-virid.vercel.app · demo video `media/live-demo.mp4` · contracts linked above.
 
 ## The problem
 
@@ -101,6 +135,23 @@ Everything; the repository started empty.
   (for a vault) its mood, saved as PNG for social posts or SVG.
   **Copy-trading by mandate:** any live vault's targets, bands and limits (as shares of the vault, so they fit any
   size) become a visitor's draft in one click. The rules are copied; the funds, owner and pilot never are.
+  **Verified Mandate:** a soulbound credential (ERC-721, ERC-5192 locked) a vault's owner can mint once the vault has flown one
+  mandate, unchanged, for a day; fully onchain metadata and image, only for genuine StockPilot vaults, and `isCurrent`
+  tells any protocol or agent whether the vault still flies those exact rules.
+  **Pilot funds:** a vault many people own together (`PilotFund`, an ERC-20 share token). Buy in with any mandate
+  asset at the vault's value at fresh oracle prices; leave at any time with your exact share of every holding, in
+  kind, which needs no prices and works while paused. The mandate, fee and venue can never change, and a new pilot
+  takes over only after three days' notice, so holders can always leave first. And the holders can fire the AI:
+  a majority of the shares, as they stood a day before the motion (so votes can't be bought for it), removes the
+  pilot at once. An AI-managed fund whose rules are
+  enforced by the contract, not promised in a prospectus.
+  **Every AI decision explained, onchain:** each trade records the hash of the pilot's reason, and the pilot then
+  publishes the full text in the journal, which hashes it itself. The vault's activity feed shows each trade with
+  its reason, matched word for word; a reason can't be swapped or edited afterwards.
+  **Letters from the pilot:** about once a day the pilot writes to the owner (what it did, why, what to watch; in
+  Claude's words from figures read onchain) and publishes it in `PilotJournal`. Only the vault's current pilot can
+  post, only for a genuine vault, so every letter is a public, attributable statement by the agent that trades, and
+  the page checks each text against its onchain hash.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports
@@ -151,7 +202,7 @@ Everything; the repository started empty.
   Every cited transaction is checked against the vault's history (invented ones are removed and flagged), and a
   trade's explanation is shown as the pilot's own only when it hashes to the commitment stored with the trade.
 - **Security:** Slither in CI (fails on any untriaged finding), stateful invariant fuzzing (600 random owner, pilot,
-  heir and stranger actions over three seeds), and a threat model ([SECURITY.md](SECURITY.md)). This work found and
+  heir and stranger actions over three seeds, and 450 random actions on a fund by several holders), and a threat model ([SECURITY.md](SECURITY.md)). This work found and
   fixed two real issues: a token that freezes the vault could have blocked withdrawals of every other asset, and
   deposits could be charged fees for time before they arrived.
 - **For judges:** a one-click 60-second guided tour in the web app, a backtest tab, and an owner activity feed.
@@ -165,7 +216,7 @@ Everything; the repository started empty.
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 230 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 293 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -208,7 +259,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 230 tests
+npm test          # 293 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```

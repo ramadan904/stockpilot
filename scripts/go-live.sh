@@ -5,7 +5,7 @@
 #   ./scripts/go-live.sh   (asks for the deploy key and Vercel token, hidden, unless PRIVATE_KEY / VERCEL_TOKEN are set)
 #
 # Optional: NETWORKS (default "robinhoodTestnet arbitrumSepolia"), REDEPLOY=1 (deploy again even if
-# deployments/<network>.json exists), REDEMO=1 (seed a new demo vault), ANTHROPIC_API_KEY (Claude drafts the demo
+# deployments/<network>.json exists), REDEMO=1 (seed a new demo vault; DEMO_CASH=1 funds it in cash for the pilot to invest), ANTHROPIC_API_KEY (Claude drafts the demo
 # vault's mandate; without it, the offline preset does). Safe to re-run: finished steps are skipped.
 # Never use a key that holds real funds: this is a testnet deploy of unaudited contracts.
 set -euo pipefail
@@ -56,9 +56,17 @@ for net in $NETWORKS; do
   if [ -n "$(field "$net" demoVault)" ] && [ -z "${REDEMO:-}" ]; then
     echo "Demo vault already seeded: $(field "$net" demoVault); REDEMO=1 for a new one."
   else
-    DEMO=1 GOAL="${DEMO_GOAL:-Mostly the S&P 500, some big tech, and cash on hand.}" USD="${DEMO_USD:-10000}" \
+    DEMO=1 CASH="${DEMO_CASH:-}" GOAL="${DEMO_GOAL:-Mostly the S&P 500, some big tech, and cash on hand.}" USD="${DEMO_USD:-10000}" \
       npx hardhat run scripts/create-vault.ts --network "$net"
   fi
+  # Contracts added after a deployment went out (Verified Mandate, the pilot journal, pilot funds); a no-op once present.
+  npx hardhat run scripts/deploy-addons.ts --network "$net"
+  # The demo vault flies with a pilot of its own, never its owner (a no-op once it has one).
+  npx hardhat run scripts/demo-pilot.ts --network "$net"
+  # A pooled demo fund with the same mandate and pilot, for judges to buy into (a no-op once seeded).
+  npx hardhat run scripts/demo-fund.ts --network "$net"
+  # Start the demo vault's Verified Mandate clock; the hourly demo pilot mints it a day later.
+  npx hardhat run scripts/demo-credential.ts --network "$net"
 done
 
 npm run web:build
@@ -77,6 +85,8 @@ for net in $NETWORKS; do
   echo "$net (chain $chain): factory $(field "$net" factory), registry $(field "$net" registry)"
   vault=$(field "$net" demoVault)
   [ -n "$vault" ] && echo "  demo vault $vault${URL:+, read-only view: $URL/?chain=$chain&vault=$vault}"
+  fundVault=$(field "$net" demoFundVault)
+  [ -n "$fundVault" ] && echo "  demo fund vault $fundVault${URL:+, view: $URL/?chain=$chain&vault=$fundVault}"
 done
 echo
 echo "Next: commit deployments/*.json so every build carries these addresses; keep prices fresh and the pilot flying"

@@ -8,6 +8,7 @@ import { Live } from "./Live";
 import { Simulator } from "./Simulator";
 import { simUniverse } from "./sim";
 import { Strategist } from "./Strategist";
+import { Network } from "./Network";
 
 export interface Draft {
   proposal: Proposal;
@@ -66,8 +67,11 @@ async function requestDraft(goal: string, usd: number): Promise<{ proposal: Prop
 }
 
 export function App() {
-  // A shared vault link (?chain=…&vault=…) opens straight on the Live tab.
-  const [tab, setTab] = useState<"sim" | "backtest" | "live">(() => (new URLSearchParams(window.location.search).get("vault") ? "live" : "sim"));
+  // A shared vault link (?chain=…&vault=…) opens straight on the Live tab; ?view=network on the Network tab.
+  const [tab, setTab] = useState<"sim" | "backtest" | "live" | "network">(() => {
+    const q = new URLSearchParams(window.location.search);
+    return q.get("vault") ? "live" : q.get("view") === "network" ? "network" : "sim";
+  });
   const [tourRequest, setTourRequest] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(() => {
     // A shared strategy link (?strategy=…) opens with that draft, ready to simulate, stress-test or sign.
@@ -112,6 +116,9 @@ export function App() {
             <button role="tab" aria-selected={tab === "live"} onClick={() => setTab("live")}>
               Live (testnet)
             </button>
+            <button role="tab" aria-selected={tab === "network"} onClick={() => setTab("network")}>
+              Network
+            </button>
           </nav>
         </div>
       </header>
@@ -143,21 +150,24 @@ export function App() {
         </div>
 
         <main>
-          <Strategist
-            draft={draft}
-            busy={busy}
-            error={error}
-            onDraft={onDraft}
-            onImport={(proposal, usd) => setDraft(makeDraft(proposal, "imported", usd))}
-            onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
-            onRefine={async (instruction) => {
-              if (!draft) return;
-              const r = await requestRefine(draft.proposal, instruction, draft.usd);
-              setDraft(makeDraft(r.proposal, r.source, draft.usd, r.changes));
-            }}
-          />
+          {tab !== "network" && (
+            <Strategist
+              draft={draft}
+              busy={busy}
+              error={error}
+              onDraft={onDraft}
+              onImport={(proposal, usd) => setDraft(makeDraft(proposal, "imported", usd))}
+              onEdit={(p) => draft && setDraft(makeDraft(p, draft.source, draft.usd))}
+              onRefine={async (instruction) => {
+                if (!draft) return;
+                const r = await requestRefine(draft.proposal, instruction, draft.usd);
+                setDraft(makeDraft(r.proposal, r.source, draft.usd, r.changes));
+              }}
+            />
+          )}
           {tab === "sim" && mandate && draft && <Simulator mandate={mandate} usdSize={draft.usd} tourRequest={tourRequest} />}
           {tab === "backtest" && mandate && draft && <Backtest mandate={mandate} usdSize={draft.usd} />}
+          {tab === "network" && <Network />}
           {tab === "live" && (
             <Live
               draft={draft}

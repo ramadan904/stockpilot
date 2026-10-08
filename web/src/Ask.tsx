@@ -46,6 +46,7 @@ async function gatherFacts(p: {
   pilot: Address;
   pilotName: string | null;
   feeBps: number;
+  journal?: Address;
 }): Promise<VaultFacts> {
   const { client, vault, abi, state } = p;
   const total = totalUsd(state.assets);
@@ -54,7 +55,7 @@ async function gatherFacts(p: {
   const readGuard = <T,>(functionName: string) => client.readContract({ address: vault, abi, functionName }) as Promise<T>;
   const guardP = Promise.all([readGuard<number>("drawdownBps"), readGuard<boolean>("defensive"), readGuard<Address>("safeAsset"), readGuard<number>("safeTargetBps"), readGuard<bigint>("peakValueUsd")]).catch(() => null);
   const [activity, tradeLogs, heir, period, claimableAt, taxEvents] = await Promise.all([
-    loadActivity(client, vault, abi, state.assets, p.owner, p.pilot),
+    loadActivity(client, vault, abi, state.assets, p.owner, p.pilot, p.journal),
     logsInRange((fromBlock, toBlock) => client.getContractEvents({ address: vault, abi, eventName: "Rebalanced", fromBlock, toBlock }), start, head),
     client.readContract({ address: vault, abi, functionName: "heir" }) as Promise<Address>,
     client.readContract({ address: vault, abi, functionName: "inactivityPeriod" }) as Promise<number>,
@@ -122,7 +123,7 @@ async function gatherFacts(p: {
           bought: sym(a.tokenOut),
           valueUsd: usdNum(a.valueInUsd as bigint),
           rationaleHash: hash,
-          rationale: recalledReason(hash),
+          rationale: activity.reasons.get(hash.toLowerCase()) ?? recalledReason(hash),
         };
       }),
     events: activity.entries
@@ -156,6 +157,7 @@ export function AskCard(props: {
   pilot: Address;
   pilotName: string | null;
   feeBps: number;
+  journal?: Address;
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState("");

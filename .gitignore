@@ -4,6 +4,7 @@ cache/
 typechain-types/
 coverage/
 .env
+.secrets/
 deployments/localhost.json
 pilot-log/
 web/dist/

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, type Abi, type Address, type Hash, type PublicClient } from "viem";
 import type { AssetState } from "../../agent/model";
+import { pilotJournalAbi } from "./abi";
 import { explorerTx } from "./chains";
 import { historyStart } from "./rpc";
 import { logsInRange } from "../../agent/history";
@@ -17,6 +18,8 @@ export interface Entry {
   text: string;
   detail?: string;
   time?: number;
+  /** A trade's full reason, as the pilot published it in the journal; its hash is the one the trade recorded. */
+  reason?: string;
 }
 
 const FILTERS: [Kind | "all", string][] = [
@@ -27,8 +30,8 @@ const FILTERS: [Kind | "all", string][] = [
 ];
 
 /** Everything that happened to a vault, newest first: trades, deposits, withdrawals, fees and every setting change. */
-export function ActivityFeed(props: { client: PublicClient; vault: Address; abi: Abi; chainId: number; assets: AssetState[]; owner: Address; pilot: Address }) {
-  const { client, vault, abi, chainId, assets, owner, pilot } = props;
+export function ActivityFeed(props: { client: PublicClient; vault: Address; abi: Abi; chainId: number; assets: AssetState[]; owner: Address; pilot: Address; journal?: Address }) {
+  const { client, vault, abi, chainId, assets, owner, pilot, journal } = props;
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [filter, setFilter] = useState<Kind | "all">("all");
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +52,7 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
 
   useEffect(() => {
     (async () => {
-      const { head, entries: list } = await loadActivity(client, vault, abi, assets, owner, pilot);
+      const { head, entries: list } = await loadActivity(client, vault, abi, assets, owner, pilot, journal);
       setEntries(list);
       try {
         localStorage.setItem(seenKey, head.toString());
@@ -57,7 +60,7 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
         // Private mode or storage disabled: the "new" markers just won't persist.
       }
     })().catch((e) => setError((e as Error).message.split("\n")[0]));
-  }, [client, vault, abi, assets, owner, pilot, seenKey]);
+  }, [client, vault, abi, assets, owner, pilot, journal, seenKey]);
 
   const shown = useMemo(() => (entries ?? []).filter((e) => filter === "all" || e.kind === filter), [entries, filter]);
   const fresh = (entries ?? []).filter((e) => seenBlock > 0n && e.block > seenBlock).length;
@@ -95,6 +98,11 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
                       tx
                     </a>
                   )}
+                  {e.reason && (
+                    <span className="trade-reason" data-testid="trade-reason">
+                      <q>{e.reason}</q> <span className="pill ok">reason published onchain, matches the trade's hash</span>
+                    </span>
+                  )}
                 </span>
                 <span className="hash">
                   {e.time ? new Date(e.time * 1000).toLocaleString() : `block ${e.block}`}
@@ -110,14 +118,39 @@ export function ActivityFeed(props: { client: PublicClient; vault: Address; abi:
 }
 
 /** The vault's history as plain sentences, newest first; the most recent 40 carry their block time. */
-export async function loadActivity(client: PublicClient, vault: Address, abi: Abi, assets: AssetState[], owner: Address, pilot: Address) {
+export async function loadActivity(client: PublicClient, vault: Address, abi: Abi, assets: AssetState[], owner: Address, pilot: Address, journal?: Address) {
   const [head, start] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }), historyStart(client)]);
-  const logs = await logsInRange((fromBlock, toBlock) => client.getContractEvents({ address: vault, abi, fromBlock, toBlock }), start, head);
-  const list = logs.map((l, i) => describe(l as unknown as RawLog, i, assets, owner, pilot)).filter((e): e is Entry => e !== null).reverse();
+  const [logs, reasons] = await Promise.all([
+    logsInRange((fromBlock, toBlock) => client.getContractEvents({ address: vault, abi, fromBlock, toBlock }), start, head),
+    readReasons(client, journal, vault, start, head),
+  ]);
+  const list = logs
+    .map((l, i) => describe(l as unknown as RawLog, i, assets, owner, pilot, reasons))
+    .filter((e): e is Entry => e !== null)
+    .reverse();
   // Timestamps for the most recent blocks only, to keep this to a handful of requests.
   const blocks = [...new Set(list.slice(0, 40).map((e) => e.block))];
   const times = new Map(await Promise.all(blocks.map(async (b) => [b, Number((await client.getBlock({ blockNumber: b })).timestamp)] as const)));
-  return { head, entries: list.map((e) => ({ ...e, time: times.get(e.block) })) };
+  return { head, entries: list.map((e) => ({ ...e, time: times.get(e.block) })), reasons };
+}
+
+/**
+ * The trade reasons the pilot published in the journal for this vault, by hash. The journal computes each hash from
+ * the text itself, so a reason found under a trade's hash is, word for word, the reason the trade committed to.
+ */
+export async function readReasons(client: PublicClient, journal: Address | undefined, vault: Address, from: bigint, to: bigint) {
+  const reasons = new Map<string, string>();
+  if (!journal) return reasons;
+  const logs = await logsInRange(
+    (fromBlock, toBlock) => client.getContractEvents({ address: journal, abi: pilotJournalAbi, eventName: "Reason", args: { vault }, fromBlock, toBlock }),
+    from,
+    to,
+  ).catch(() => []);
+  for (const l of logs) {
+    const a = l.args as { rationale: Hash; text: string };
+    reasons.set(a.rationale.toLowerCase(), a.text);
+  }
+  return reasons;
 }
 
 interface RawLog {
@@ -128,7 +161,7 @@ interface RawLog {
   logIndex: number;
 }
 
-function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pilot: Address): Entry | null {
+function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pilot: Address, reasons: Map<string, string>): Entry | null {
   const a = l.args;
   const asset = (t: unknown) => assets.find((x) => x.token.toLowerCase() === String(t).toLowerCase());
   const sym = (t: unknown) => asset(t)?.symbol ?? short(String(t));
@@ -146,7 +179,13 @@ function describe(l: RawLog, i: number, assets: AssetState[], owner: Address, pi
   const base = { key: `${l.transactionHash}-${l.logIndex ?? i}`, block: l.blockNumber, tx: l.transactionHash };
   switch (l.eventName) {
     case "Rebalanced":
-      return { ...base, kind: "trade", text: `Pilot sold ${usd(a.valueInUsd as bigint)} of ${sym(a.tokenIn)} for ${sym(a.tokenOut)}`, detail: `reason hash ${String(a.rationale).slice(0, 18)}…` };
+      return {
+        ...base,
+        kind: "trade",
+        text: `Pilot sold ${usd(a.valueInUsd as bigint)} of ${sym(a.tokenIn)} for ${sym(a.tokenOut)}`,
+        detail: `reason hash ${String(a.rationale).slice(0, 18)}…`,
+        reason: reasons.get(String(a.rationale).toLowerCase()),
+      };
     case "Deposited":
       return { ...base, kind: "money", text: `Deposit of ${amount(a.token, a.amount)} from ${who(a.from)}` };
     case "Withdrawn":

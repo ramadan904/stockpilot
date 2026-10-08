@@ -245,6 +245,11 @@ test("live: create a cash vault, let the pilot invest, pause, and withdraw every
   await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
   const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
   await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
+  // The pilot published its reason in the journal: the feed shows it, matched to the trade's hash.
+  await expect(activity.getByTestId("trade-reason").first()).toContainText("reason published onchain, matches the trade's hash");
+  await expect(activity.getByTestId("trade-reason").first().locator("q")).toContainText(/Selling|USDG/);
+  await activity.locator(".log li").first().screenshot({ path: "test-results/reason.png" });
+  await expect(page.getByTestId("last-rebalance")).toContainText(/Last rebalance \d+ (s|min) ago, \d+ trades? in all/);
 
   await page.getByRole("button", { name: "Pause pilot" }).click();
   await expect(page.getByRole("button", { name: "Unpause" })).toBeVisible({ timeout: 30_000 });
@@ -459,6 +464,40 @@ test("crash guard: arm it, the market falls 40%, and the vault turns defensive s
   expect(errors).toEqual([]);
 });
 
+/** Move the local chain's clock forward, as days passing would. */
+async function travel(seconds: number) {
+  for (const [method, params] of [["evm_increaseTime", [seconds]], ["evm_mine", []]] as const) {
+    await fetch("http://127.0.0.1:8545", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  }
+}
+
+test("Verified Mandate: start the clock, wait a day, mint a soulbound credential the page can show and anyone can check", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("radio", { name: /Myself/ }).click();
+  await page.getByRole("button", { name: "Fund at targets" }).click();
+  await page.getByRole("button", { name: "Create and fund vault" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Deposit SPY: done." })).toBeVisible({ timeout: 90_000 });
+
+  const card = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) });
+  await card.getByRole("button", { name: "Start the clock" }).click();
+  await expect(card).toContainText(/The clock is running on mandate version 1 since/, { timeout: 30_000 });
+  await expect(card.getByRole("button", { name: "Mint the Verified Mandate" })).toBeDisabled();
+
+  // A day passes; any owner action re-reads the vault at the new time.
+  await travel(86_400 + 60);
+  await page.getByRole("button", { name: "Pause pilot" }).click();
+  await expect(card.getByRole("button", { name: "Mint the Verified Mandate" })).toBeEnabled({ timeout: 30_000 });
+  await card.getByRole("button", { name: "Mint the Verified Mandate" }).click();
+  await expect(card.getByRole("img")).toHaveAttribute("alt", /^Verified Mandate #\d+: .*Days under the mandate 1.*Status Current/, { timeout: 30_000 });
+  await expect(card.locator(".pill")).toHaveText("Still in force");
+  await expect(card).toContainText(/isCurrent\(\d+\)/);
+  expect(errors).toEqual([]);
+});
+
 test("glide path: set the vault to de-risk on a schedule, see where it stands, and stop it", async ({ page }) => {
   const errors = await pageErrors(page);
   await page.goto("/");
@@ -602,6 +641,86 @@ test("statements: a month's statement reconciles and is ready to print", async (
   expect(errors).toEqual([]);
 });
 
+test("pilot funds: launch one from the draft, a second person buys in, then leaves with their share in kind", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1); // fresh prices: earlier tests skip time ahead, and shares are only sold at fresh prices
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+
+  const funds = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) });
+  await funds.getByRole("button", { name: "Launch a fund with this mandate" }).click();
+  await funds.getByLabel("Fund name").fill("Judges Fund");
+  await funds.getByLabel("Ticker").fill("JUDGE");
+  await funds.getByLabel("First purchase (USD)").fill("1000");
+  await funds.getByRole("button", { name: "Launch fund" }).click();
+
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("Judges Fund", { timeout: 60_000 });
+  await expect(fund.getByTestId("fund-nav")).toHaveText("$1.00");
+  await expect(fund.getByTestId("fund-mine")).toHaveText("1,000");
+  await expect(funds.getByRole("list", { name: "Funds" })).toContainText("Judges Fund");
+  await expect(fund.getByRole("button", { name: "Pause fund" })).toBeVisible(); // the manager's brake
+
+  // Someone else buys in at the going rate, then leaves with their share of every holding.
+  await page.getByRole("button", { name: "Switch to dev account 2" }).click();
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
+  await expect(fund.getByRole("button", { name: "Pause fund" })).toHaveCount(0);
+  await fund.getByLabel("Amount (USD)").fill("500");
+  await fund.getByRole("button", { name: "Buy shares" }).click();
+  await expect(fund.getByTestId("fund-mine")).toHaveText("500", { timeout: 60_000 });
+  await fund.screenshot({ path: "test-results/fund.png" });
+  await fund.getByRole("button", { name: "All" }).click();
+  await fund.getByRole("button", { name: "Redeem in kind" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Redeem JUDGE: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+test("holders fire the pilot: a fund's majority votes, and the contract removes the pilot at once", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  const funds = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) });
+  await funds.getByRole("button", { name: "Launch a fund with this mandate" }).click();
+  await funds.getByLabel("Fund name").fill("Vote Fund");
+  await funds.getByLabel("Ticker").fill("VOTE");
+  await funds.getByRole("button", { name: "Launch fund" }).click();
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("Vote Fund", { timeout: 60_000 });
+  const vote = fund.getByTestId("holders-vote");
+  // Shares bought today can't move a motion yet: they vote only once they have a day's record.
+  await expect(vote).toContainText("held for a day");
+  await expect(vote.getByRole("button", { name: "Move to fire the pilot" })).toHaveCount(0);
+
+  await rpc("evm_increaseTime", [86_460]);
+  await rpc("evm_mine");
+  await movePrice("", 1);
+  // A day later: reopen the fund.
+  const vaultAddress = await page.locator("[data-address]").first().getAttribute("data-address");
+  await page.reload();
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByLabel("Vault address").fill(vaultAddress!);
+  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await vote.getByRole("button", { name: "Move to fire the pilot" }).click();
+  // The only holder is a majority: the motion passes as it starts, and the vault has no pilot.
+  await expect(fund.getByTestId("pilot-fired")).toContainText("Holders fired the pilot", { timeout: 60_000 });
+  await expect(fund.getByTestId("pilot-fired")).toContainText("100.0% of the shares");
+  await fund.screenshot({ path: "test-results/fired.png" });
+  await expect(page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "fee" })).toContainText("None");
+  expect(errors).toEqual([]);
+});
+
+async function rpc(method: string, params: unknown[] = []) {
+  await fetch("http://127.0.0.1:8545", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+}
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");
@@ -621,6 +740,45 @@ async function movePrice(symbol: string, factor: number) {
   }
 }
 
+test("network: the whole deployment read from the chain, with the latest trades across every vault", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.goto("/?view=network&chain=31337"); // the link judges get
+  await expect(page.getByRole("tab", { name: "Network" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Network")).toHaveValue("31337");
+  await expect(page.getByTestId("net-total")).toHaveText(/^\$[\d,]+$/, { timeout: 30_000 });
+  await expect(page.getByTestId("net-funds")).toHaveText(/^[1-9]\d*$/); // the demo fund at least
+  await expect(page.getByTestId("net-pilots")).toHaveText(/^[1-9]\d*$/); // the house pilot at least
+  await expect(page.getByTestId("net-letters")).toHaveText(/^[1-9]\d*$/); // the demo pilot's first letter
+  await expect(page.getByRole("img", { name: /^Invested in: USDG \$/ })).toBeVisible();
+  // The constellation: the house pilot is a star, and the demo vault and demo fund orbit it (the fund with its halo).
+  const sky = page.getByRole("figure", { name: "The network as a constellation" });
+  await expect(sky.getByRole("link", { name: /^Vault 0x.*flown by StockPilot House Pilot/ }).first()).toBeVisible();
+  await expect(sky.getByRole("link", { name: /^Fund vault 0x.*flown by StockPilot House Pilot/ }).first()).toBeVisible();
+  await sky.locator("svg").hover({ position: { x: 5, y: 5 } }); // the orbits hold still under the pointer
+  await sky.getByRole("link", { name: /^Fund vault 0x.*flown by StockPilot House Pilot/ }).first().hover();
+  await expect(sky.locator("figcaption")).toContainText(/^Fund vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}: \$[\d,]+, (on target|drifting|outside a band|paused), flown by StockPilot House Pilot/);
+  await sky.screenshot({ path: "test-results/constellation.png" });
+  // Code check: every contract on the chain is this repository's code, and the demo vaults are genuine clones.
+  await expect(page.getByTestId("code-summary")).toHaveText(/^(\d+) of \1 match this repository$/, { timeout: 30_000 });
+  const code = page.getByRole("list", { name: "Code check" });
+  await expect(code.locator("li")).toHaveCount(9);
+  await expect(code.locator("li").filter({ hasText: "Vault code (every vault runs it)" })).toContainText("✓ match");
+  await code.screenshot({ path: "test-results/codecheck.png" });
+  await page.locator("main").screenshot({ path: "test-results/network.png" });
+  const trades = Number((await page.getByTestId("net-trades").innerText()).replace(/,/g, ""));
+  const latest = page.getByRole("list", { name: "Latest trades" }).locator("li");
+  if (trades > 0) {
+    await expect(latest.first()).toContainText(/ago · vault 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4} sold \$[\d,.]+ of [A-Z]+ for [A-Z]+/);
+    // Each trade links to its vault, which opens read-only on the Live tab.
+    await latest.first().getByRole("link").first().click();
+    await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
+  } else {
+    await expect(page.getByText(/No trades yet on/)).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});
+
 test("judges can open the demo vault from the Live tab, read-only, without a wallet", async ({ page }) => {
   const errors = await pageErrors(page);
   await page.goto("/");
@@ -630,6 +788,66 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Pilot's next move")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Withdraw everything" })).toHaveCount(0);
+  // A visitor sees whether the pilot is flying, and the pilot is listed in the marketplace under its own name.
+  await expect(page.getByTestId("last-rebalance")).toContainText(/No trades yet|Last rebalance/);
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot marketplace" }) })).toContainText("StockPilot House Pilot", { timeout: 30_000 });
+  // The Verified Mandate card is there for visitors too, read-only.
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) })).toContainText(/soulbound/);
+  // The pilot's letter to the owner, read from the journal and checked against the hash recorded onchain.
+  const letters = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Letters from the pilot" }) });
+  await expect(letters).toContainText("Dear owner,", { timeout: 30_000 });
+  await expect(letters).toContainText("Text matches onchain hash");
+  await expect(letters).toContainText("StockPilot House Pilot");
+  // Attack Theater: nine attacks on the live contract from the pilot's own address, judged by the contract itself.
+  await page.getByRole("button", { name: "Simulate a compromised pilot" }).click();
+  await expect(page.getByTestId("theater-summary")).toContainText(/^9 of 9 blocked by the vault contract at block \d+/, { timeout: 30_000 });
+  const rows = page.getByRole("list", { name: "Attack results" }).locator("li");
+  await expect(rows).toHaveCount(9);
+  await expect(rows.filter({ hasText: "Withdraw to its own wallet" })).toContainText("OwnableUnauthorizedAccount");
+  await expect(rows.filter({ hasText: "A stranger trades" })).toContainText("NotPilot");
+  await expect(rows.filter({ hasText: "A stranger claims the vault" })).toContainText("NotHeir");
+  expect(errors).toEqual([]);
+});
+
+test("judges can open the demo fund without a wallet: a pooled vault, open to anyone", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("link", { name: "Open the demo fund" }).click();
+  await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("StockPilot House Fund", { timeout: 30_000 });
+  await expect(fund).toContainText("SPHF");
+  await expect(fund.getByTestId("fund-nav")).toHaveText(/^\$\d+\.\d\d$/);
+  await expect(fund).toContainText("Connect a wallet to buy shares, or to try it free: $100 of shares with no gas");
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) }).getByRole("list", { name: "Funds" })).toContainText("StockPilot House Fund");
+  // Flown by the same house pilot, under the same contract checks.
+  await expect(page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "fee" })).toContainText("StockPilot House Pilot");
+  expect(errors).toEqual([]);
+});
+
+test("try a fund free: no gas to buy in, no gas to leave", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1);
+  const { readFileSync } = await import("node:fs");
+  const d = JSON.parse(readFileSync(`${__dirname}/../deployments/localhost.json`, "utf8"));
+  // A judge opens the demo fund, then connects a wallet (here a local dev account) that holds no shares.
+  await page.goto(`/?chain=31337&vault=${d.demoFundVault}`);
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+  await page.getByRole("button", { name: "Switch to dev account 2" }).click();
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("StockPilot House Fund", { timeout: 30_000 });
+  const before = Number((await fund.getByTestId("fund-mine").innerText()).replace(/,/g, ""));
+
+  await fund.getByRole("button", { name: "Try it free: $100, no gas" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Free trial: $100 of shares: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).not.toHaveText(String(before), { timeout: 30_000 });
+  // Leaving is a signature too: the relay pays the gas, the holdings come to the holder's wallet.
+  await fund.getByRole("button", { name: "All" }).click();
+  await fund.getByRole("button", { name: "Redeem without gas" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Redeem SPHF without gas: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
   expect(errors).toEqual([]);
 });
 
