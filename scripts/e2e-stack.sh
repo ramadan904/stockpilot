@@ -14,6 +14,8 @@ npx hardhat run scripts/deploy.ts --network localhost
 # A funded demo vault, as scripts/go-live.sh seeds on the testnets, so the "Open the demo vault" path is tested too.
 DEMO=1 npx hardhat run scripts/create-vault.ts --network localhost
 npx hardhat run scripts/demo-pilot.ts --network localhost
+# A demo fund flown by the same pilot, so the "Open the demo fund" path is tested too.
+npx hardhat run scripts/demo-fund.ts --network localhost
 # The demo pilot's first letter to the owner, so the journal card is tested with real content.
 PRIVATE_KEY=$(cat .secrets/demo-pilot-localhost.key) npx hardhat run scripts/pilot-letter.ts --network localhost
 # The relay for gasless signed actions uses Hardhat's public dev account #3; it exists only on this local chain.

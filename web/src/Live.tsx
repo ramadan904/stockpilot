@@ -53,6 +53,7 @@ import { historyStart, rpcTransport } from "./rpc";
 import { AttackTheater } from "./Theater";
 import { CredentialCard } from "./Credential";
 import { LettersCard } from "./Letters";
+import { FundCard, FundsCard } from "./Funds";
 import { logsInRange } from "../../agent/history";
 
 declare global {
@@ -203,6 +204,11 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
                   Open the demo vault
                 </a>
               )}
+              {deployment?.demoFundVault && (
+                <a className="btn" style={{ alignSelf: "end" }} href={`?chain=${chain.id}&vault=${deployment.demoFundVault}`}>
+                  Open the demo fund
+                </a>
+              )}
             </>
           )}
           {wallet?.kind === "dev" && (
@@ -248,6 +254,18 @@ export function Live({ draft, onCopy }: { draft: Draft | null; onCopy?: (proposa
               <HouseholdCard client={client as never} abi={pilotVaultAbi as Abi} chainId={chain.id} vaults={vaults} me={wallet!.address} selected={selected} onOpen={setSelected} refresh={refresh} />
             )}
             <OpenVault onOpen={(v) => setSelected(v)} />
+            <FundsCard
+              client={client as never}
+              me={wallet!}
+              chain={chain}
+              deployment={deployment!}
+              proposal={draft?.proposal ?? null}
+              market={market}
+              refresh={refresh}
+              send={send}
+              run={run}
+              onOpen={(v) => { setSelected(v); setRefresh((r) => r + 1); }}
+            />
             {deployment?.registry && (
               <MarketplaceCard
                 // Re-mounted when your own listing appears (to show it), not when others' load, which would close an open form.
@@ -528,6 +546,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
           </div>
         )}
       </Card>
+
+      <FundCard client={client as never} me={wallet} chain={ctx.chain} deployment={deployment} owner={roles.owner} pilot={roles.pilot} state={state} market={ctx.market} send={send} run={run} />
 
       <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
 

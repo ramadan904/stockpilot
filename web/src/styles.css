@@ -1567,3 +1567,7 @@ tr.muted td {
   font-size: 14px;
   line-height: 1.55;
 }
+
+/* Pilot funds */
+.fund-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.fund-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }

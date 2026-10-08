@@ -61,7 +61,8 @@ deploys to production. Delete the token afterwards.
 The demo vault is meant to be watched, so it should be flying. `.github/workflows/demo-pilot.yml` does that without a
 server: every hour it pushes real stock prices onto the testnet feeds, then runs one check by the demo vault's own
 pilot, which makes the one trade (if any) its planner and the contract allow. About once a day the same pilot also
-publishes a letter to the owner in the pilot journal (`scripts/pilot-letter.ts`).
+publishes a letter to the owner in the pilot journal (`scripts/pilot-letter.ts`). The same pilot flies the demo fund
+(`scripts/demo-fund.ts`, seeded by go-live), a pooled vault with the demo vault's mandate.
 
 1. Start the demo in cash, so there is something to watch: `REDEMO=1 DEMO_CASH=1 NETWORKS=robinhoodTestnet ./scripts/go-live.sh`.
    The pilot then invests it over the following days, a capped, explained trade at a time.

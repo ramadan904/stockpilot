@@ -45,15 +45,24 @@ jobs:
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping."; exit 0; fi
           npx hardhat run scripts/demo-credential.ts --network "$NETWORK" || echo "Verified Mandate step failed; the pilot still flies."
-      - name: One check by the demo vault's pilot
+      - name: The demo fund's first purchase, if it is still waiting for fresh prices
+        env:
+          PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping."; exit 0; fi
+          npx hardhat run scripts/demo-fund.ts --network "$NETWORK" || echo "Demo fund step failed; the pilot still flies."
+      - name: One check by the demo pilot, on the demo vault and the demo fund
         env:
           PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}
           ONCE: "1"
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No DEMO_PILOT_KEY secret: skipping the pilot."; exit 0; fi
-          VAULT=$(node -p "require('./deployments/$NETWORK.json').demoVault || ''")
-          if [ -z "$VAULT" ]; then echo "No demo vault in deployments/$NETWORK.json."; exit 0; fi
-          VAULT="$VAULT" npx hardhat run agent/run.ts --network "$NETWORK"
+          # The demo vault, and the demo fund's vault if there is one: the same pilot flies both.
+          for field in demoVault demoFundVault; do
+            VAULT=$(node -p "require('./deployments/$NETWORK.json').$field || ''")
+            if [ -z "$VAULT" ]; then echo "No $field in deployments/$NETWORK.json."; continue; fi
+            VAULT="$VAULT" npx hardhat run agent/run.ts --network "$NETWORK" || echo "The pilot's check on $field failed."
+          done
       - name: The pilot's letter to the owner (about once a day)
         env:
           PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}

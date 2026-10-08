@@ -637,6 +637,43 @@ test("statements: a month's statement reconciles and is ready to print", async (
   expect(errors).toEqual([]);
 });
 
+test("pilot funds: launch one from the draft, a second person buys in, then leaves with their share in kind", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await movePrice("", 1); // fresh prices: earlier tests skip time ahead, and shares are only sold at fresh prices
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("button", { name: "Use local dev account" }).click();
+
+  const funds = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) });
+  await funds.getByRole("button", { name: "Launch a fund with this mandate" }).click();
+  await funds.getByLabel("Fund name").fill("Judges Fund");
+  await funds.getByLabel("Ticker").fill("JUDGE");
+  await funds.getByLabel("First purchase (USD)").fill("1000");
+  await funds.getByRole("button", { name: "Launch fund" }).click();
+
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("Judges Fund", { timeout: 60_000 });
+  await expect(fund.getByTestId("fund-nav")).toHaveText("$1.00");
+  await expect(fund.getByTestId("fund-mine")).toHaveText("1,000");
+  await expect(funds.getByRole("list", { name: "Funds" })).toContainText("Judges Fund");
+  await expect(fund.getByRole("button", { name: "Pause fund" })).toBeVisible(); // the manager's brake
+
+  // Someone else buys in at the going rate, then leaves with their share of every holding.
+  await page.getByRole("button", { name: "Switch to dev account 2" }).click();
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
+  await expect(fund.getByRole("button", { name: "Pause fund" })).toHaveCount(0);
+  await fund.getByLabel("Amount (USD)").fill("500");
+  await fund.getByRole("button", { name: "Buy shares" }).click();
+  await expect(fund.getByTestId("fund-mine")).toHaveText("500", { timeout: 60_000 });
+  await fund.screenshot({ path: "test-results/fund.png" });
+  await fund.getByRole("button", { name: "All" }).click();
+  await fund.getByRole("button", { name: "Redeem in kind" }).click();
+  await expect(page.locator(".notice").filter({ hasText: "Redeem JUDGE: done." })).toBeVisible({ timeout: 60_000 });
+  await expect(fund.getByTestId("fund-mine")).toHaveText("0", { timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
 async function movePrice(symbol: string, factor: number) {
   const { createWalletClient, createPublicClient, http, parseAbi } = await import("viem");
   const { privateKeyToAccount } = await import("viem/accounts");
@@ -683,6 +720,24 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(rows.filter({ hasText: "Withdraw to its own wallet" })).toContainText("OwnableUnauthorizedAccount");
   await expect(rows.filter({ hasText: "A stranger trades" })).toContainText("NotPilot");
   await expect(rows.filter({ hasText: "A stranger claims the vault" })).toContainText("NotHeir");
+  expect(errors).toEqual([]);
+});
+
+test("judges can open the demo fund without a wallet: a pooled vault, open to anyone", async ({ page }) => {
+  const errors = await pageErrors(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Live (testnet)" }).click();
+  await page.getByLabel("Network").selectOption("31337");
+  await page.getByRole("link", { name: "Open the demo fund" }).click();
+  await expect(page.getByText("Read-only view")).toBeVisible({ timeout: 30_000 });
+  const fund = page.locator(".card").filter({ has: page.getByRole("heading", { name: /^Fund/ }) });
+  await expect(fund).toContainText("StockPilot House Fund", { timeout: 30_000 });
+  await expect(fund).toContainText("SPHF");
+  await expect(fund.getByTestId("fund-nav")).toHaveText(/^\$\d+\.\d\d$/);
+  await expect(fund).toContainText("Connect a wallet to buy shares.");
+  await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot funds" }) }).getByRole("list", { name: "Funds" })).toContainText("StockPilot House Fund");
+  // Flown by the same house pilot, under the same contract checks.
+  await expect(page.locator(".stat").filter({ hasText: "Pilot" }).filter({ hasText: "fee" })).toContainText("StockPilot House Pilot");
   expect(errors).toEqual([]);
 });
 

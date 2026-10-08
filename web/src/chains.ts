@@ -32,6 +32,8 @@ export interface Deployment {
   startBlock?: number;
   /** A funded vault anyone can open read-only (scripts/create-vault.ts with DEMO=1). */
   demoVault?: Address;
+  /** The demo fund's vault: a pooled vault anyone can buy into (scripts/demo-fund.ts). */
+  demoFundVault?: Address;
   tokens: Record<string, Address>;
   feeds: Record<string, Address>;
 }

@@ -28,7 +28,9 @@
    that trades, its text checked against the hash the contract recorded.
 6. Press **Copy this mandate**: its rules become your draft in the simulator. Move the market, run the pilot, try the
    attacks yourself, then open **Backtest**.
-7. Optional, in a terminal: `npm install && npm run mcp:demo` shows what an AI agent sees through our MCP server on
+7. Back on the Live tab, **Open the demo fund**: the same pilot flies a pooled vault anyone can buy into with a
+   testnet wallet and leave at any time with their share of every holding.
+8. Optional, in a terminal: `npm install && npm run mcp:demo` shows what an AI agent sees through our MCP server on
    that same vault, read-only and without a key, ending with the contract refusing a hijacked agent's trade.
 
 Testnet software, unaudited: do not use real money.
@@ -131,6 +133,11 @@ Everything; the repository started empty.
   **Verified Mandate:** a soulbound credential (ERC-721, ERC-5192 locked) a vault's owner can mint once the vault has flown one
   mandate, unchanged, for a day; fully onchain metadata and image, only for genuine StockPilot vaults, and `isCurrent`
   tells any protocol or agent whether the vault still flies those exact rules.
+  **Pilot funds:** a vault many people own together (`PilotFund`, an ERC-20 share token). Buy in with any mandate
+  asset at the vault's value at fresh oracle prices; leave at any time with your exact share of every holding, in
+  kind, which needs no prices and works while paused. The mandate, fee and venue can never change, and a new pilot
+  takes over only after three days' notice, so holders can always leave first. An AI-managed fund whose rules are
+  enforced by the contract, not promised in a prospectus.
   **Letters from the pilot:** about once a day the pilot writes to the owner (what it did, why, what to watch; in
   Claude's words from figures read onchain) and publishes it in `PilotJournal`. Only the vault's current pilot can
   post, only for a genuine vault, so every letter is a public, attributable statement by the agent that trades, and
@@ -199,7 +206,7 @@ Everything; the repository started empty.
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 266 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 275 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -242,7 +249,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 266 tests
+npm test          # 275 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```

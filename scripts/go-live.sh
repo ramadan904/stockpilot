@@ -63,6 +63,8 @@ for net in $NETWORKS; do
   npx hardhat run scripts/deploy-addons.ts --network "$net"
   # The demo vault flies with a pilot of its own, never its owner (a no-op once it has one).
   npx hardhat run scripts/demo-pilot.ts --network "$net"
+  # A pooled demo fund with the same mandate and pilot, for judges to buy into (a no-op once seeded).
+  npx hardhat run scripts/demo-fund.ts --network "$net"
   # Start the demo vault's Verified Mandate clock; the hourly demo pilot mints it a day later.
   npx hardhat run scripts/demo-credential.ts --network "$net"
 done
@@ -83,6 +85,8 @@ for net in $NETWORKS; do
   echo "$net (chain $chain): factory $(field "$net" factory), registry $(field "$net" registry)"
   vault=$(field "$net" demoVault)
   [ -n "$vault" ] && echo "  demo vault $vault${URL:+, read-only view: $URL/?chain=$chain&vault=$vault}"
+  fundVault=$(field "$net" demoFundVault)
+  [ -n "$fundVault" ] && echo "  demo fund vault $fundVault${URL:+, view: $URL/?chain=$chain&vault=$fundVault}"
 done
 echo
 echo "Next: commit deployments/*.json so every build carries these addresses; keep prices fresh and the pilot flying"
