@@ -12,12 +12,12 @@
 | **Live app** | https://stockpilot-six-virid.vercel.app (simulator, backtest, stress test and tour need no wallet) |
 | **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
 | **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), demo vault [`0xfFfEBea2C701CA2cfD406D89580aE984adb0a783`](https://explorer.testnet.chain.robinhood.com/address/0xfFfEBea2C701CA2cfD406D89580aE984adb0a783) |
-| **Demo** | [`media/live-demo.mp4`](media/live-demo.mp4) (80 s, captioned): the live vault, the Attack Theater, a Verified Mandate, copying the rules into the simulator, a backtest. Recorded by `npm run video` against a local chain running the same contracts. Also [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s), or run `npm run demo` |
+| **Demo** | [`media/live-demo.mp4`](media/live-demo.mp4) (98 s, captioned): the live vault, the Attack Theater, a Verified Mandate, the pilot's letter, the demo fund, copying the rules into the simulator, a backtest, the Network tab. Recorded by `npm run video` against a local chain running the same contracts. Also [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
 ## Judges: start here (no wallet, under two minutes)
 
-1. **Watch the [80-second demo](media/live-demo.mp4)**, captioned, recorded straight from the running app.
+1. **Watch the [100-second demo](media/live-demo.mp4)**, captioned, recorded straight from the running app.
 2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**. Then the
    **[Network](https://stockpilot-six-virid.vercel.app/?view=network&chain=46630)** tab: every vault, fund, pilot and
    trade on Robinhood Chain testnet, read straight from the chain.
