@@ -2,7 +2,7 @@ import { expect } from "chai";
 import hre from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { keccak256, toBytes } from "viem";
-import { deployStockPilot } from "./fixture";
+import { deployStockPilot, px } from "./fixture";
 
 async function withJournal() {
   const f = await deployStockPilot();
@@ -50,5 +50,45 @@ describe("PilotJournal: letters from the pilot, onchain", () => {
     await expect(asPilot.write.post([vault.address, 5n, 4n, LETTER])).to.be.rejectedWith("BadRange");
     await expect(asPilot.write.post([vault.address, 0n, head + 100n, LETTER])).to.be.rejectedWith("BadRange");
     await asPilot.write.post([vault.address, 0n, 0n, "x".repeat(4_000)]);
+  });
+
+  it("publishes the full reason for a trade, which matches the hash the trade recorded, word for word", async () => {
+    const f = await loadFixture(withJournal);
+    const { asPilot, asStranger, journal, vault, vaultAsPilot, usdg, nvda } = f;
+    const { rationaleHash } = await import("../agent/chain");
+    const reason = "NVDA is 3.1 points under its 25% target; selling $200 of USDG brings it back inside its band.";
+    await vaultAsPilot.write.rebalance([usdg.address, nvda.address, 200_000_000n, 0n, "0x", rationaleHash(reason)]);
+    const [trade] = await vault.getEvents.Rebalanced({}, { fromBlock: 0n });
+
+    await expect(asStranger.write.explain([vault.address, reason])).to.be.rejectedWith("NotPilot");
+    await expect(asPilot.write.explain([vault.address, ""])).to.be.rejectedWith("EmptyLetter");
+    await asPilot.write.explain([vault.address, reason]);
+    const [published] = await journal.getEvents.Reason({ vault: vault.address }, { fromBlock: 0n });
+    expect(published.args.rationale).to.equal(trade.args.rationale); // the published text is the one the trade committed to
+    expect(published.args.text).to.equal(reason);
+    // Any other wording has another hash, so it matches no trade.
+    await asPilot.write.explain([vault.address, reason + " "]);
+    const [, other] = await journal.getEvents.Reason({ vault: vault.address }, { fromBlock: 0n });
+    expect(other.args.rationale).to.not.equal(trade.args.rationale);
+  });
+
+  it("the fleet publishes each trade's reason right after the trade, so the feed can show it", async () => {
+    const f = await loadFixture(withJournal);
+    const { fleetTick } = await import("../agent/fleet");
+    await f.nvdaFeed.write.setPrice([px(200)]); // NVDA rallies: the vault drifts
+    const [event] = await fleetTick({
+      client: f.publicClient as never,
+      wallet: f.pilot as never,
+      vaultAbi: f.vault.abi,
+      factoryAbi: f.factory.abi,
+      factory: f.factory.address,
+      journal: f.journal.address,
+    });
+    expect(event.kind).to.equal("trade");
+    const [trade] = await f.vault.getEvents.Rebalanced({}, { fromBlock: 0n });
+    const [reason] = await f.journal.getEvents.Reason({ vault: f.vault.address }, { fromBlock: 0n });
+    expect(reason.args.rationale).to.equal(trade.args.rationale);
+    expect(reason.args.text).to.equal(event.kind === "trade" ? event.rationale : "");
+    expect(reason.args.text).to.match(/NVDA/);
   });
 });

@@ -19,7 +19,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 import { LISTINGS } from "../../agent/listings";
 import { toMandate } from "../../agent/mandate";
-import { rationaleHash, readVault, sendTrade } from "../../agent/chain";
+import { publishReason, rationaleHash, readVault, sendTrade } from "../../agent/chain";
 import { available, type VaultState } from "../../agent/model";
 import { drift, plan } from "../../agent/planner";
 import { mockErc20Abi, pilotVaultAbi, pilotVaultFactoryAbi } from "./abi";
@@ -569,6 +569,8 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
                   setError(null);
                   rememberReason(rationaleHash(p.trade.rationale), p.trade.rationale);
                   await sendTrade(client as never, w, pilotVaultAbi as Abi, vault, p.trade);
+                  // Then publish the full reason, so anyone can check it against the hash the trade recorded.
+                  await publishReason(client as never, w, deployment.journal, vault, p.trade.rationale);
                 })}
               >
                 Run pilot (send planned trade)
@@ -665,6 +667,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         pilot={roles.pilot}
         pilotName={ctx.market.byAddress.get(roles.pilot.toLowerCase())?.name ?? null}
         feeBps={roles.feeBps}
+        journal={deployment.journal}
       />
       <StatementCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} state={state} owner={roles.owner} chainName={ctx.chain.name} />
       <TaxCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
@@ -686,7 +689,7 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />
       {isOwner && <AlertsCard client={client as never} wallet={w} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} symbolOf={symbolOf} />}
 
-      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} />
+      <ActivityFeed client={client as never} vault={vault} abi={pilotVaultAbi as Abi} chainId={ctx.chain.id} assets={state.assets} owner={roles.owner} pilot={roles.pilot} journal={deployment.journal} />
     </>
   );
 }

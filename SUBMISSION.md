@@ -47,7 +47,7 @@ Testnet software, unaudited: do not use real money.
   drift, how much may trade per trade and per day). You sign it into a vault you own. A pilot keeps the portfolio on
   target, and **the vault contract checks every trade against your mandate**, so even a fully compromised pilot
   cannot withdraw, change the rules, concentrate your portfolio or take a bad price.
-- **Proof, not promises:** 287 unit and contract tests, including 600 random trades on which an exact TypeScript model
+- **Proof, not promises:** 289 unit and contract tests, including 600 random trades on which an exact TypeScript model
   of the rules and the deployed contract must agree to the second; 33 browser tests against a real local chain; 40
   Rust tests for the Solana port; Slither in CI and stateful invariant fuzzing. On the live vault, the Attack Theater
   lets anyone watch the contract refuse nine attacks from the pilot's own address.
@@ -144,6 +144,9 @@ Everything; the repository started empty.
   a majority of the shares, as they stood a day before the motion (so votes can't be bought for it), removes the
   pilot at once. An AI-managed fund whose rules are
   enforced by the contract, not promised in a prospectus.
+  **Every AI decision explained, onchain:** each trade records the hash of the pilot's reason, and the pilot then
+  publishes the full text in the journal, which hashes it itself. The vault's activity feed shows each trade with
+  its reason, matched word for word; a reason can't be swapped or edited afterwards.
   **Letters from the pilot:** about once a day the pilot writes to the owner (what it did, why, what to watch; in
   Claude's words from figures read onchain) and publishes it in `PilotJournal`. Only the vault's current pilot can
   post, only for a genuine vault, so every letter is a public, attributable statement by the agent that trades, and
@@ -212,7 +215,7 @@ Everything; the repository started empty.
   A proof of concept, tested natively ([solana/README.md](solana/README.md)).
 - **Mainnet path:** a Uniswap V3 venue adapter (pilot-chosen multi-hop routes, path-checked), a Pyth price adapter
   that refuses wide confidence intervals, and a config-driven production deploy.
-- **Testing:** 287 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
+- **Testing:** 289 tests. Vault rules, fees, custody, pause and ownership; a hostile venue that lies or re-enters; 600
   randomized trades where the model and the contract must agree on success *and* on the exact revert reason; planner
   convergence after market shocks; strategist repair of malformed drafts. CI also builds the site, checks the web
   ABIs match the contracts, and runs the end-to-end demo.
@@ -255,7 +258,7 @@ The open contracts are the trust anchor; the hosted pilot, strategist and UX are
 
 ```bash
 npm install
-npm test          # 287 tests
+npm test          # 289 tests
 npm run demo      # the whole story on a local chain, about ten seconds
 npm run web       # the web app at http://localhost:5173
 ```

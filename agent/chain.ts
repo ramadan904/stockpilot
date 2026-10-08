@@ -1,6 +1,6 @@
 // Reads a PilotVault into the planner's VaultState and sends the pilot's trades.
 
-import { BaseError, ContractFunctionRevertedError, decodeErrorResult, isHex, keccak256, toHex, type Abi, type PublicClient, type WalletClient } from "viem";
+import { BaseError, ContractFunctionRevertedError, decodeErrorResult, isHex, keccak256, toHex, type Abi, type Hash, type PublicClient, type WalletClient } from "viem";
 import type { Address, VaultState } from "./model";
 import type { PlannedTrade } from "./planner";
 
@@ -93,6 +93,26 @@ export async function sendTrade(
   const hash = await wallet.writeContract(request);
   const receipt = await client.waitForTransactionReceipt({ hash });
   return { hash, receipt };
+}
+
+const journalExplainAbi = [
+  { type: "function", name: "explain", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "string" }], outputs: [{ type: "bytes32" }] },
+] as const;
+
+/**
+ * Publish a trade's full reason in the pilot journal once the trade has landed, so anyone can read it and check it
+ * against the hash the trade recorded. Best effort: the trade stands either way, so this never throws.
+ */
+export async function publishReason(client: PublicClient, wallet: WalletClient, journal: Address | undefined, vault: Address, rationale: string): Promise<Hash | null> {
+  if (!journal) return null;
+  try {
+    const { request } = await client.simulateContract({ account: wallet.account!, address: journal, abi: journalExplainAbi, functionName: "explain", args: [vault, rationale] });
+    const hash = await wallet.writeContract(request);
+    await client.waitForTransactionReceipt({ hash });
+    return hash;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -5,8 +5,9 @@
 // INTERVAL=60 sets seconds between checks; ONCE=1 runs a single check and exits.
 
 import hre from "hardhat";
+import { existsSync, readFileSync } from "node:fs";
 import type { Address } from "viem";
-import { readVault, rationaleHash, sendTrade } from "./chain";
+import { publishReason, readVault, rationaleHash, sendTrade } from "./chain";
 import { appendLog } from "./log";
 import { drift, pct, plan } from "./planner";
 
@@ -23,6 +24,9 @@ async function main() {
     throw new Error(`This key (${pilot.account.address}) is not the vault's pilot (${assigned}).`);
   }
   console.log(`Piloting ${vaultAddress} on ${hre.network.name} as ${pilot.account.address}`);
+  // Each trade's full reason goes to the pilot journal, where anyone can check it against the trade's hash.
+  const file = `deployments/${hre.network.name}.json`;
+  const journal = (process.env.JOURNAL ?? (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).journal : undefined)) as Address | undefined;
 
   for (;;) {
     try {
@@ -39,6 +43,7 @@ async function main() {
         const { hash } = await sendTrade(client, pilot, vault.abi, vault.address, p.trade);
         appendLog(vault.address, { tx: hash, rationale: p.trade.rationale, rationaleHash: rationaleHash(p.trade.rationale) });
         console.log(`  sent: ${hash}`);
+        if (await publishReason(client, pilot, journal, vault.address, p.trade.rationale)) console.log("  reason published in the pilot journal");
       }
     } catch (e) {
       // A failed simulation or RPC hiccup must not kill the pilot; the next tick re-reads everything.

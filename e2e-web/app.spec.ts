@@ -245,6 +245,10 @@ test("live: create a cash vault, let the pilot invest, pause, and withdraw every
   await page.getByRole("button", { name: "Run pilot (send planned trade)" }).click();
   const activity = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Activity" }) });
   await expect(activity.locator(".log li").first()).toContainText("Pilot sold", { timeout: 30_000 });
+  // The pilot published its reason in the journal: the feed shows it, matched to the trade's hash.
+  await expect(activity.getByTestId("trade-reason").first()).toContainText("reason published onchain, matches the trade's hash");
+  await expect(activity.getByTestId("trade-reason").first().locator("q")).toContainText(/Selling|USDG/);
+  await activity.locator(".log li").first().screenshot({ path: "test-results/reason.png" });
   await expect(page.getByTestId("last-rebalance")).toContainText(/Last rebalance \d+ (s|min) ago, \d+ trades? in all/);
 
   await page.getByRole("button", { name: "Pause pilot" }).click();
