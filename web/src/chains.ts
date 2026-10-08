@@ -20,6 +20,8 @@ export interface Deployment {
   credential?: Address;
   /** Letters from pilots. Older deployment files predate it. */
   journal?: Address;
+  /** Pilot funds: vaults many people own together. Older deployment files predate it. */
+  funds?: Address;
   /** The pilot directory. Older deployment files predate it. */
   registry?: Address;
   /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */

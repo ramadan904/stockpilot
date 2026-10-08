@@ -1,0 +1,211 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {PilotVault} from "./PilotVault.sol";
+import {PilotVaultFactory} from "./PilotVaultFactory.sol";
+
+/// @title PilotFund
+/// @notice A StockPilot vault many people own together. Anyone buys shares with any asset in the mandate, valued at
+/// fresh oracle prices; any holder leaves at any time with their exact share of every holding, in kind, which needs no
+/// price at all, so it works while the vault is paused, the oracle is down or the pilot is gone.
+/// @dev The fund owns one vault created by the StockPilot factory, so the vault enforces the mandate on every trade as
+/// it does for anyone. The fund never exposes the vault's owner powers that could hurt holders: the mandate, fee,
+/// venue, heir and owner can never change. Its manager can pause and unpause, and replace the pilot only after a
+/// notice period long enough for any holder to leave first.
+contract PilotFund is ERC20, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    /// @notice The smallest purchase, in USD (18 decimals). Keeps share prices meaningful from the first purchase on.
+    uint256 public constant MIN_PURCHASE_USD = 1e18;
+    /// @notice How long holders have to leave before a new pilot takes over.
+    uint256 public constant PILOT_NOTICE = 3 days;
+
+    /// @notice The vault this fund owns.
+    PilotVault public immutable vault;
+    /// @notice Who may pause the fund's vault and propose a new pilot. Set at creation; it can never move funds.
+    address public immutable manager;
+
+    address public pendingPilot;
+    uint64 public pilotChangeAt;
+
+    /// @notice The vault a fund is created with: its pilot, venue, mandate (fixed for the fund's life) and fee.
+    struct VaultConfig {
+        address pilot;
+        address adapter;
+        PilotVault.AssetConfig[] assets;
+        PilotVault.Limits limits;
+        address feeRecipient;
+        uint16 feeBps;
+    }
+
+    event Bought(address indexed buyer, address indexed token, uint256 amount, uint256 valueUsd, uint256 shares);
+    event Redeemed(address indexed holder, address indexed to, uint256 shares);
+    /// @notice A holding the vault would not release (a frozen or reverting token); it stays with the other holders.
+    event RedemptionSkipped(address indexed holder, address indexed token, uint256 amount);
+    event PilotChangeProposed(address indexed pilot, uint256 effectiveAt);
+    event PilotChangeCancelled(address indexed pilot);
+    event PilotChanged(address indexed pilot);
+
+    error NotManager();
+    error ZeroAddress();
+    error ZeroAmount();
+    error FundPaused();
+    error NotInMandate(address token);
+    error StalePrice(address token, uint256 updatedAt);
+    error PurchaseTooSmall(uint256 valueUsd);
+    error TooFewShares(uint256 shares, uint256 minShares);
+    error WipedOut();
+    error NoPilotChange();
+    error NoticeRunning(uint256 effectiveAt);
+
+    modifier onlyManager() {
+        if (msg.sender != manager) revert NotManager();
+        _;
+    }
+
+    /// @dev Called by PilotFundFactory, which records the fund; the vault is created here so the fund is its owner.
+    constructor(string memory name_, string memory symbol_, address manager_, PilotVaultFactory factory, VaultConfig memory cfg)
+        ERC20(name_, symbol_)
+    {
+        if (manager_ == address(0)) revert ZeroAddress();
+        manager = manager_;
+        vault = factory.createVault(cfg.pilot, cfg.adapter, cfg.assets, cfg.limits, cfg.feeRecipient, cfg.feeBps);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Holders
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @notice Buy shares with `amount` of `token` (any asset in the mandate), at the vault's value at fresh prices.
+    /// @param minShares The fewest shares to accept; the purchase reverts below it. Use `quote` and allow for prices.
+    function buy(address token, uint256 amount, uint256 minShares) external nonReentrant returns (uint256 shares) {
+        if (amount == 0) revert ZeroAmount();
+        if (vault.paused()) revert FundPaused();
+        vault.collectFee(); // the fee owed so far is the existing holders' cost, not the buyer's
+        (uint256 price, uint256 nav) = _prices(token);
+
+        IERC20 t = IERC20(token);
+        uint256 before = t.balanceOf(address(this));
+        t.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = t.balanceOf(address(this)) - before;
+
+        uint256 valueUsd = Math.mulDiv(received, price, 10 ** IERC20Metadata(token).decimals());
+        shares = _sharesFor(valueUsd, nav);
+        if (shares == 0 || shares < minShares) revert TooFewShares(shares, minShares);
+        _mint(msg.sender, shares);
+        emit Bought(msg.sender, token, received, valueUsd, shares);
+
+        t.forceApprove(address(vault), received);
+        vault.deposit(token, received);
+    }
+
+    /// @notice Burn `shares` and receive the same fraction of every holding in the vault, sent to `to`. Works at any
+    /// time, paused or not, and needs no prices.
+    function redeem(uint256 shares, address to) external nonReentrant {
+        if (shares == 0) revert ZeroAmount();
+        if (to == address(0)) revert ZeroAddress();
+        uint256 supply = totalSupply();
+        _burn(msg.sender, shares);
+        emit Redeemed(msg.sender, to, shares);
+
+        vault.collectFee(); // settle first, so every holder bears the fee up to now
+        address[] memory list = vault.tokens();
+        for (uint256 i; i < list.length; ++i) {
+            uint256 amount = Math.mulDiv(IERC20(list[i]).balanceOf(address(vault)), shares, supply);
+            if (amount == 0) continue;
+            // One token that will not move must never trap the rest.
+            try vault.withdraw(list[i], amount, to) {}
+            catch {
+                emit RedemptionSkipped(msg.sender, list[i], amount);
+            }
+        }
+    }
+
+    /// @notice Shares `amount` of `token` would buy now, and its value in USD (18 decimals). Paying the fee owed first
+    /// lowers the vault's value, so a purchase gets at least this many shares at unchanged prices.
+    function quote(address token, uint256 amount) external view returns (uint256 shares, uint256 valueUsd) {
+        (uint256 price, uint256 nav) = _prices(token);
+        valueUsd = Math.mulDiv(amount, price, 10 ** IERC20Metadata(token).decimals());
+        shares = _sharesFor(valueUsd, nav);
+    }
+
+    /// @notice The vault's value per share, in USD (18 decimals), at the prices it reads now (fresh or not).
+    function navPerShare() external view returns (uint256) {
+        (, uint256 nav) = vault.portfolio();
+        uint256 supply = totalSupply();
+        return supply == 0 ? 1e18 : Math.mulDiv(nav, 1e18, supply);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Manager
+    // ------------------------------------------------------------------------------------------------------------
+
+    function pause() external onlyManager {
+        vault.pause();
+    }
+
+    function unpause() external onlyManager {
+        vault.unpause();
+    }
+
+    /// @notice Announce a new pilot. It takes over after `PILOT_NOTICE`, when anyone may apply the change.
+    function proposePilot(address pilot) external onlyManager {
+        pendingPilot = pilot;
+        uint256 at = block.timestamp + PILOT_NOTICE;
+        pilotChangeAt = uint64(at);
+        emit PilotChangeProposed(pilot, at);
+    }
+
+    function cancelPilotChange() external onlyManager {
+        if (pilotChangeAt == 0) revert NoPilotChange();
+        emit PilotChangeCancelled(pendingPilot);
+        delete pendingPilot;
+        delete pilotChangeAt;
+    }
+
+    /// @notice Hand the vault to the announced pilot once the notice has run. Anyone can call it.
+    function applyPilotChange() external {
+        uint256 at = pilotChangeAt;
+        if (at == 0) revert NoPilotChange();
+        if (block.timestamp < at) revert NoticeRunning(at);
+        address pilot = pendingPilot;
+        delete pendingPilot;
+        delete pilotChangeAt;
+        emit PilotChanged(pilot);
+        vault.setPilot(pilot);
+    }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // Internal
+    // ------------------------------------------------------------------------------------------------------------
+
+    /// @dev The price of `token` and the vault's value, refusing any price older than the mandate allows: a purchase
+    /// at a stale price would let a buyer take value from the holders.
+    function _prices(address token) internal view returns (uint256 price, uint256 nav) {
+        PilotVault.Holding[] memory holdings;
+        (holdings, nav) = vault.portfolio();
+        (,,, uint32 maxPriceAge,) = vault.limits();
+        bool listed = false;
+        for (uint256 i; i < holdings.length; ++i) {
+            if (holdings[i].priceUpdatedAt + maxPriceAge < block.timestamp) revert StalePrice(holdings[i].token, holdings[i].priceUpdatedAt);
+            if (holdings[i].token == token) (price, listed) = (holdings[i].priceUsd, true);
+        }
+        if (!listed) revert NotInMandate(token);
+    }
+
+    /// @dev The first purchase sets one share to one dollar, and takes anything already in the vault with it. After
+    /// that, shares are issued at the vault's value per share, rounded down, so buyers never dilute holders.
+    function _sharesFor(uint256 valueUsd, uint256 nav) internal view returns (uint256) {
+        if (valueUsd < MIN_PURCHASE_USD) revert PurchaseTooSmall(valueUsd);
+        uint256 supply = totalSupply();
+        if (supply == 0) return valueUsd;
+        if (nav == 0) revert WipedOut();
+        return Math.mulDiv(valueUsd, supply, nav);
+    }
+}

@@ -47,6 +47,10 @@ what the vault is meant to guarantee, against whom, how that is checked, and wha
   hooks). The vault measures balances, so an unusual token can at worst make trades revert.
 - **The venue.** The owner chooses it. A malicious venue can make trades fail, but cannot take more than the amount
   approved for one trade, and cannot pass a bad fill (that is judged at oracle prices).
+- **Pilot funds.** Shares are bought at the vault's value at oracle prices no older than the mandate's `maxPriceAge`.
+  If the market has moved and the feed has not caught up yet, a buyer can pay the old price and later leave in kind at
+  the new one, at the other holders' expense. The window is the feed's lag, bounded by `maxPriceAge`; tight feeds and
+  a short `maxPriceAge` keep it small. Leaving never depends on prices.
 - **Plain transfers.** Tokens sent to the vault with a plain transfer instead of `deposit` skip fee settlement, so they
   may be charged the fee for the period since the last settlement.
 
@@ -66,6 +70,11 @@ finding not recorded in `slither.db.json`. The recorded findings, and why each i
 | `missing-zero-check` | `setPilot(0)`, `setAdapter(0)`, and the same two in `initialize` | Zero is the documented way to revoke the pilot or stop trading, from creation onwards. |
 | `calls-loop` (credential) | `MandateCredential.mandateHash` reads each asset of the vault in a loop | View-only reads from a genuine StockPilot vault (its clone code hash is checked), bounded at 8 assets. |
 | `timestamp` (credential) | `MandateCredential.issue` compares `block.timestamp` with the enrollment time plus `minAge` | That is the point: how long a mandate stood. Drift of seconds against a minimum of a day or more is immaterial. |
+| `incorrect-equality`, `calls-loop` (fund) | `PilotFund` guards on exact zero (supply, shares, amounts, no pending pilot) and redeems by looping over the vault's tokens | Zero guards cannot be nudged into a wrong branch: a donation before the first purchase goes to the first buyer, and after it shares are priced by the value per share. The loop is bounded at 8 assets, and a token that will not move is skipped, so it can never trap a holder's other assets. |
+| `unused-return` (fund) | `PilotFund` reads only the total from `portfolio()` and only `maxPriceAge` from `limits()` | The other fields are not needed there. |
+| `missing-zero-check` (fund) | `proposePilot(0)` | As for the vault, zero removes the pilot, and the same three days' notice applies. |
+| `timestamp` (fund) | The pilot-change notice and the price-age check on purchases | Intended; seconds of drift against a three-day notice and the mandate's price age. |
+| `reentrancy-benign`, `reentrancy-events` (fund factory) | `createFund` records the fund after `new PilotFund` | The only external code run is the fund's own constructor and the StockPilot vault factory, both ours. |
 | `pyth-unchecked-publishtime` | `PythPriceFeed` does not check the publish time | The vault checks every price's age against the mandate's `maxPriceAge`; a second, different limit in the adapter would only confuse. |
 | `pyth-unchecked-confidence` | Reported although the adapter does check confidence | False positive: `latestRoundData` reverts when `conf` exceeds `maxConfBps` of the price. |
 

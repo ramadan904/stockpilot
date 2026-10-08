@@ -1,4 +1,4 @@
-// Bring a deployment up to date with contracts added after it went out (Verified Mandate, the pilot journal), and
+// Bring a deployment up to date with contracts added after it went out (Verified Mandate, the pilot journal, pilot funds), and
 // record them in deployments/<network>.json. Each one is deployed only if missing, so this is safe to run every time.
 //
 //   npx hardhat run scripts/deploy-addons.ts --network robinhoodTestnet   (PRIVATE_KEY = any funded testnet key)
@@ -15,6 +15,7 @@ async function main() {
   const addons: [field: string, name: string, deploy: () => Promise<{ address: Address }>][] = [
     ["credential", "Verified Mandate", () => hre.viem.deployContract("MandateCredential", [factory, CREDENTIAL_MIN_AGE])],
     ["journal", "Pilot journal", () => hre.viem.deployContract("PilotJournal", [factory])],
+    ["funds", "Pilot funds", () => hre.viem.deployContract("PilotFundFactory", [factory])],
   ];
   for (const [field, name, deploy] of addons) {
     if (d[field]) {

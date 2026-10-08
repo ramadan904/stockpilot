@@ -36,7 +36,17 @@ export async function deployStack(hre: HardhatRuntimeEnvironment) {
   // Verified Mandate: a mandate must stand a day, unchanged, on testnets.
   const credential = await v.deployContract("MandateCredential", [factory.address, CREDENTIAL_MIN_AGE]);
   const journal = await v.deployContract("PilotJournal", [factory.address]);
-  return { tokens, feeds, marketMaker: mm.address, factory: factory.address, registry: registry.address, credential: credential.address, journal: journal.address };
+  const funds = await v.deployContract("PilotFundFactory", [factory.address]);
+  return {
+    tokens,
+    feeds,
+    marketMaker: mm.address,
+    factory: factory.address,
+    registry: registry.address,
+    credential: credential.address,
+    journal: journal.address,
+    funds: funds.address,
+  };
 }
 
 export type Stack = Awaited<ReturnType<typeof deployStack>>;
