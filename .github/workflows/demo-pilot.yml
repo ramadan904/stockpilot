@@ -1,7 +1,9 @@
 # Keeps the public demo vault alive without a server: every hour, push real stock prices onto the testnet feeds,
 # then let the demo vault's own pilot make the one trade (if any) its planner and the contract allow. The keys are
 # repository secrets (Settings > Secrets and variables > Actions): RELAYER_KEY, the key that deployed the feeds, and
-# DEMO_PILOT_KEY, the demo vault's pilot (.secrets/demo-pilot-<network>.key). Without them the job does nothing.
+# DEMO_PILOT_KEY, the demo vault's pilot (.secrets/demo-pilot-robinhoodTestnet.key). Arbitrum Sepolia runs alongside
+# with DEMO_PILOT_KEY_ARBITRUM (.secrets/demo-pilot-arbitrumSepolia.key); RELAYER_KEY serves both, since the same key
+# deployed both. Without them the job does nothing.
 # About once a day the pilot also publishes a letter to the owner in the pilot journal (in Claude's words when the
 # optional ANTHROPIC_API_KEY secret is set).
 name: Demo pilot
@@ -11,9 +13,6 @@ on:
     - cron: "17 * * * *"
   workflow_dispatch:
 
-concurrency:
-  group: demo-pilot
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -22,14 +21,26 @@ jobs:
   fly:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false # one chain's slow RPC never stops the other's pilot
+      matrix:
+        network: [robinhoodTestnet, arbitrumSepolia]
+    concurrency:
+      group: demo-pilot-${{ matrix.network }}
+      cancel-in-progress: false
     env:
-      NETWORK: robinhoodTestnet
+      NETWORK: ${{ matrix.network }}
+      # Each chain's demo vault has its own pilot key; never another chain's.
+      DEMO_KEY: ${{ matrix.network == 'arbitrumSepolia' && secrets.DEMO_PILOT_KEY_ARBITRUM || matrix.network != 'arbitrumSepolia' && secrets.DEMO_PILOT_KEY || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Is StockPilot deployed on this chain?
+        run: |
+          test -f "deployments/$NETWORK.json" || { echo "No deployments/$NETWORK.json, so nothing to fly."; exit 1; }
       - run: npm ci
       - run: npx hardhat compile --quiet
       - name: Real stock prices onto the feeds
@@ -54,10 +65,10 @@ jobs:
           npx hardhat run scripts/demo-fund.ts --network "$NETWORK" || echo "Demo fund step failed; the pilot still flies."
       - name: One check by the demo pilot, on the demo vault and the demo fund
         env:
-          PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}
+          PRIVATE_KEY: ${{ env.DEMO_KEY }}
           ONCE: "1"
         run: |
-          if [ -z "$PRIVATE_KEY" ]; then echo "No DEMO_PILOT_KEY secret: skipping the pilot."; exit 0; fi
+          if [ -z "$PRIVATE_KEY" ]; then echo "No demo pilot key for $NETWORK: skipping the pilot."; exit 0; fi
           # The demo vault, and the demo fund's vault if there is one: the same pilot flies both.
           for field in demoVault demoFundVault; do
             VAULT=$(node -p "require('./deployments/$NETWORK.json').$field || ''")
@@ -66,8 +77,8 @@ jobs:
           done
       - name: The pilot's letter to the owner (about once a day)
         env:
-          PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}
+          PRIVATE_KEY: ${{ env.DEMO_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          if [ -z "$PRIVATE_KEY" ]; then echo "No DEMO_PILOT_KEY secret: skipping the letter."; exit 0; fi
+          if [ -z "$PRIVATE_KEY" ]; then echo "No demo pilot key for $NETWORK: skipping the letter."; exit 0; fi
           npx hardhat run scripts/pilot-letter.ts --network "$NETWORK" || echo "Letter step failed; the pilot still flies."

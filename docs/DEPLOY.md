@@ -70,6 +70,8 @@ publishes a letter to the owner in the pilot journal (`scripts/pilot-letter.ts`)
    - `RELAYER_KEY`: the key that deployed the contracts (it owns the price feeds).
    - `DEMO_PILOT_KEY`: the demo vault's pilot, from `.secrets/demo-pilot-robinhoodTestnet.key` (created by go-live,
      never committed). On Windows, `clip < .secrets/demo-pilot-robinhoodTestnet.key` copies it without showing it.
+   - `DEMO_PILOT_KEY_ARBITRUM`: the Arbitrum Sepolia demo vault's pilot, from `.secrets/demo-pilot-arbitrumSepolia.key`.
+     The workflow flies each chain in its own job, so one chain's slow RPC never holds up the other.
 3. Run the workflow once from the Actions tab (Demo pilot > Run workflow) to check it; after that it runs hourly
    from the default branch.
 

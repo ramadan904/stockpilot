@@ -51,4 +51,18 @@ describe("Code check: deployed code is this repository's code", () => {
     expect(codeHash(flip(code, bytes - 10), print.immutables)).to.equal(print.hash); // inside the metadata trailer
     expect(codeHash(flip(code, 5), print.immutables)).to.not.equal(print.hash); // an instruction
   });
+
+  it("ignores a child's metadata inside a factory too (the fund factory carries the fund's creation code)", async () => {
+    const f = await deployStockPilot();
+    const funds = await hre.viem.deployContract("PilotFundFactory", [f.factory.address]);
+    const code = (await f.publicClient.getCode({ address: funds.address }))!;
+    const print = CODE_PRINTS.PilotFundFactory;
+    const embedded = code.indexOf("a264697066735822"); // the fund's metadata block, before the factory's own
+    expect(embedded).to.be.greaterThan(2);
+    expect(embedded).to.be.lessThan(code.lastIndexOf("a264697066735822"));
+    const byte = (embedded - 2) / 2 + 8 + 5; // inside the fund's 34-byte source hash
+    const flipped = (code.slice(0, 2 + byte * 2) + (code.slice(2 + byte * 2, 4 + byte * 2) === "ff" ? "00" : "ff") + code.slice(4 + byte * 2)) as `0x${string}`;
+    expect(codeHash(flipped, print.immutables)).to.equal(print.hash); // a CRLF build of the fund
+    expect(await checkCode(f.publicClient, funds.address, print)).to.equal("match");
+  });
 });
