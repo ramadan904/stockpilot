@@ -1550,3 +1550,20 @@ tr.muted td {
     animation: none;
   }
 }
+
+/* Letters from the pilot: plain text, as published onchain. */
+.letter {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.letter-text {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+}

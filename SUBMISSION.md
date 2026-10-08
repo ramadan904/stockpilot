@@ -24,6 +24,8 @@
 4. On that page press **Simulate a compromised pilot**: the **Attack Theater** sends nine attacks to the live contract
    from the pilot's own address and shows the contract's own refusals. Nothing is signed or spent.
 5. Below it, the vault's **Verified Mandate**: a soulbound credential, fully onchain, that it kept its rules.
+   Then **Letters from the pilot**: the pilot's daily letter to the owner, published onchain and signed by the key
+   that trades, its text checked against the hash the contract recorded.
 6. Press **Copy this mandate**: its rules become your draft in the simulator. Move the market, run the pilot, try the
    attacks yourself, then open **Backtest**.
 
@@ -125,6 +127,10 @@ Everything; the repository started empty.
   **Verified Mandate:** a soulbound credential (ERC-721, ERC-5192 locked) a vault's owner can mint once the vault has flown one
   mandate, unchanged, for a day; fully onchain metadata and image, only for genuine StockPilot vaults, and `isCurrent`
   tells any protocol or agent whether the vault still flies those exact rules.
+  **Letters from the pilot:** about once a day the pilot writes to the owner (what it did, why, what to watch; in
+  Claude's words from figures read onchain) and publishes it in `PilotJournal`. Only the vault's current pilot can
+  post, only for a genuine vault, so every letter is a public, attributable statement by the agent that trades, and
+  the page checks each text against its onchain hash.
 - **Business and services:** an onchain management fee (max 2%/yr, pro-rata in kind, paused with the vault,
   cancellable); a hosted fleet pilot that flies every vault naming it, can require a fee, collects it and posts to
   Slack/Discord; an MCP server so any AI agent can pilot a vault under the same limits; Claude-written owner reports

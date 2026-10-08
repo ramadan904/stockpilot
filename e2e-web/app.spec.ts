@@ -670,6 +670,11 @@ test("judges can open the demo vault from the Live tab, read-only, without a wal
   await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Pilot marketplace" }) })).toContainText("StockPilot House Pilot", { timeout: 30_000 });
   // The Verified Mandate card is there for visitors too, read-only.
   await expect(page.locator(".card").filter({ has: page.getByRole("heading", { name: "Verified Mandate" }) })).toContainText(/soulbound/);
+  // The pilot's letter to the owner, read from the journal and checked against the hash recorded onchain.
+  const letters = page.locator(".card").filter({ has: page.getByRole("heading", { name: "Letters from the pilot" }) });
+  await expect(letters).toContainText("Dear owner,", { timeout: 30_000 });
+  await expect(letters).toContainText("Text matches onchain hash");
+  await expect(letters).toContainText("StockPilot House Pilot");
   // Attack Theater: nine attacks on the live contract from the pilot's own address, judged by the contract itself.
   await page.getByRole("button", { name: "Simulate a compromised pilot" }).click();
   await expect(page.getByTestId("theater-summary")).toContainText(/^9 of 9 blocked by the vault contract at block \d+/, { timeout: 30_000 });

@@ -2,6 +2,8 @@
 # then let the demo vault's own pilot make the one trade (if any) its planner and the contract allow. The keys are
 # repository secrets (Settings > Secrets and variables > Actions): RELAYER_KEY, the key that deployed the feeds, and
 # DEMO_PILOT_KEY, the demo vault's pilot (.secrets/demo-pilot-<network>.key). Without them the job does nothing.
+# About once a day the pilot also publishes a letter to the owner in the pilot journal (in Claude's words when the
+# optional ANTHROPIC_API_KEY secret is set).
 name: Demo pilot
 
 on:
@@ -52,3 +54,10 @@ jobs:
           VAULT=$(node -p "require('./deployments/$NETWORK.json').demoVault || ''")
           if [ -z "$VAULT" ]; then echo "No demo vault in deployments/$NETWORK.json."; exit 0; fi
           VAULT="$VAULT" npx hardhat run agent/run.ts --network "$NETWORK"
+      - name: The pilot's letter to the owner (about once a day)
+        env:
+          PRIVATE_KEY: ${{ secrets.DEMO_PILOT_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$PRIVATE_KEY" ]; then echo "No DEMO_PILOT_KEY secret: skipping the letter."; exit 0; fi
+          npx hardhat run scripts/pilot-letter.ts --network "$NETWORK" || echo "Letter step failed; the pilot still flies."

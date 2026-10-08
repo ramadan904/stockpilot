@@ -52,6 +52,7 @@ import { AskCard, rememberReason } from "./Ask";
 import { historyStart, rpcTransport } from "./rpc";
 import { AttackTheater } from "./Theater";
 import { CredentialCard } from "./Credential";
+import { LettersCard } from "./Letters";
 import { logsInRange } from "../../agent/history";
 
 declare global {
@@ -530,6 +531,10 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
 
       <AttackTheater client={client as never} abi={pilotVaultAbi as Abi} vault={vault} owner={roles.owner} pilot={roles.pilot} assets={state.assets} chainName={ctx.chain.name} />
 
+      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
+
+      <LettersCard client={client as never} journal={ctx.deployment.journal} vault={vault} chainId={ctx.chain.id} />
+
       <PerformanceCard client={client as never} vault={vault} abi={pilotVaultAbi as Abi} assets={state.assets} />
 
       {(isOwner || isPilot) && (
@@ -656,7 +661,6 @@ function VaultPanel({ ctx, vault, draft, onCopy }: { ctx: Ctx; vault: Address; d
         send={send}
         run={run}
       />
-      <CredentialCard client={client as never} wallet={w} chain={ctx.chain} credential={ctx.deployment.credential} vault={vault} now={Number(state.now)} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <GlidePathCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <CrashGuardCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} state={state} isOwner={isOwner} canWrite={wallet.kind !== "watch"} send={send} run={run} />
       <InheritanceCard client={client as never} wallet={w} chain={ctx.chain} vault={vault} me={wallet.address} isOwner={isOwner} send={send} run={run} />

@@ -18,6 +18,8 @@ export interface Deployment {
   factory: Address;
   /** Verified Mandate credentials. Older deployment files predate it. */
   credential?: Address;
+  /** Letters from pilots. Older deployment files predate it. */
+  journal?: Address;
   /** The pilot directory. Older deployment files predate it. */
   registry?: Address;
   /** The venue adapter vaults trade through. Older testnet files only have marketMaker. */
