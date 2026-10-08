@@ -20,8 +20,8 @@ async function main() {
   const wait = async (hash: `0x${string}`) => void (await client.waitForTransactionReceipt({ hash }));
 
   let fundAddress = d.demoFund as Address | undefined;
-  // The hourly workflow only finishes a seeding; creating a fund there would give it a pilot key no one keeps.
-  if (!fundAddress && process.env.CI) return console.log("No demo fund recorded; go-live creates it.");
+  // The hourly workflow (FINISH_ONLY=1) only finishes a seeding; creating a fund there would give it a pilot key no one keeps.
+  if (!fundAddress && process.env.FINISH_ONLY) return console.log("No demo fund recorded; go-live creates it.");
   if (!fundAddress || process.env.REDEMO) {
     // The demo vault's mandate, as it stands.
     const demo = await hre.viem.getContractAt("PilotVault", d.demoVault as Address);

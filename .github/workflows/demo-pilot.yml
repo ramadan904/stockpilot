@@ -48,6 +48,7 @@ jobs:
       - name: The demo fund's first purchase, if it is still waiting for fresh prices
         env:
           PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+          FINISH_ONLY: "1"
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping."; exit 0; fi
           npx hardhat run scripts/demo-fund.ts --network "$NETWORK" || echo "Demo fund step failed; the pilot still flies."
