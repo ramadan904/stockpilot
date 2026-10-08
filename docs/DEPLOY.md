@@ -17,7 +17,8 @@ For each network it:
 2. **Deploys** the vault implementation and factory, the pilot registry, the testnet stand-ins (stock tokens,
    Chainlink-shaped feeds, the oracle market maker) and writes `deployments/<network>.json`. Skipped if that file
    exists (`REDEPLOY=1` to deploy again).
-3. **Pushes real stock prices** from Pyth's Hermes API onto the feeds, once.
+3. **Pushes real stock prices** onto the feeds, once: from Yahoo Finance (no key needed), or from Pyth's Hermes if
+   `PYTH_API_KEY` is set (Hermes has required a paid key since Pyth's August 2026 upgrade).
 4. **Seeds a funded demo vault**, recorded as `demoVault` in the deployment file (`REDEMO=1` for a new one). The app's
    Live tab then offers judges **Open the demo vault**: a read-only view, no wallet needed.
 

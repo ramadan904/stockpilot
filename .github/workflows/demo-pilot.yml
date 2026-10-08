@@ -3,7 +3,8 @@
 # repository secrets (Settings > Secrets and variables > Actions): RELAYER_KEY, the key that deployed the feeds, and
 # DEMO_PILOT_KEY, the demo vault's pilot (.secrets/demo-pilot-robinhoodTestnet.key). Arbitrum Sepolia runs alongside
 # with DEMO_PILOT_KEY_ARBITRUM (.secrets/demo-pilot-arbitrumSepolia.key); RELAYER_KEY serves both, since the same key
-# deployed both. Without them the job does nothing.
+# deployed both. Without them the job does nothing. Prices come from Yahoo Finance (no key), or from Pyth's Hermes
+# when the optional PYTH_API_KEY secret is set.
 # About once a day the pilot also publishes a letter to the owner in the pilot journal (in Claude's words when the
 # optional ANTHROPIC_API_KEY secret is set).
 name: Demo pilot
@@ -46,6 +47,7 @@ jobs:
       - name: Real stock prices onto the feeds
         env:
           PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+          PYTH_API_KEY: ${{ secrets.PYTH_API_KEY }}
           ONCE: "1"
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No RELAYER_KEY secret: skipping prices."; exit 0; fi

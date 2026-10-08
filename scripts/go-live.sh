@@ -51,7 +51,7 @@ for net in $NETWORKS; do
   else
     npx hardhat run scripts/deploy.ts --network "$net"
   fi
-  # Real stock prices from Pyth's Hermes API, once; the relayer service keeps them fresh afterwards.
+  # Real stock prices (Yahoo Finance, or Pyth with PYTH_API_KEY), once; the relayer service keeps them fresh afterwards.
   ONCE=1 npx hardhat run agent/relayer-run.ts --network "$net" || echo "warning: could not push prices on $net; the demo vault uses the listing prices until the relayer runs."
   if [ -n "$(field "$net" demoVault)" ] && [ -z "${REDEMO:-}" ]; then
     echo "Demo vault already seeded: $(field "$net" demoVault); REDEMO=1 for a new one."

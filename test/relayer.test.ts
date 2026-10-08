@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { DEFAULT_POLICY, decide, fetchQuotes, resolveEquityIds, toEightDecimals } from "../agent/relayer";
+import { DEFAULT_POLICY, decide, fetchQuotes, fetchYahooQuotes, resolveEquityIds, toEightDecimals } from "../agent/relayer";
 
 const quote = (answer: bigint, publishTime: number, conf = 1_000_000n) => ({ id: "0xabc", answer, conf, publishTime });
 const NOW = 1_800_000_000;
@@ -71,5 +71,37 @@ describe("agent/relayer", () => {
     let err = "";
     await resolveEquityIds(["XYZ"], fake).catch((e) => (err = (e as Error).message));
     expect(err).to.include("Equity.US.XYZ/USD").and.include("PYTH_IDS");
+  });
+
+  it("sends the Pyth API key as a bearer token, and explains a 401 without one", async () => {
+    const auth: (string | undefined)[] = [];
+    const fake = (async (_url: string, init?: RequestInit) => {
+      const a = (init?.headers as Record<string, string> | undefined)?.Authorization;
+      auth.push(a);
+      return a ? Response.json({ parsed: [] }) : new Response("", { status: 401 });
+    }) as unknown as typeof fetch;
+    expect(await fetchQuotes(["0xbbbb"], fake, "https://hermes.test", "k3y")).to.deep.equal([]);
+    expect(auth[0]).to.equal("Bearer k3y");
+    let err = "";
+    await fetchQuotes(["0xbbbb"], fake, "https://hermes.test").catch((e) => (err = (e as Error).message));
+    expect(err).to.include("401").and.include("PYTH_API_KEY");
+  });
+
+  it("reads Yahoo's chart response: the last trade's price and time, in USD only", async () => {
+    const calls: string[] = [];
+    const fake = (async (url: string) => {
+      calls.push(url);
+      const currency = url.includes("/BAD?") ? "EUR" : "USD";
+      return Response.json({ chart: { result: [{ meta: { currency, regularMarketPrice: 262.4, regularMarketTime: NOW - 4 } }], error: null } });
+    }) as unknown as typeof fetch;
+    const quotes = await fetchYahooQuotes(["TSLA", "SPY"], fake, "https://yahoo.test");
+    expect(quotes.TSLA).to.deep.equal({ answer: 26_240_000_000n, conf: 0n, publishTime: NOW - 4 });
+    expect(Object.keys(quotes)).to.deep.equal(["TSLA", "SPY"]);
+    expect(calls[0]).to.equal("https://yahoo.test/v8/finance/chart/TSLA?interval=1m&range=1d");
+    // A quote with no confidence interval still passes the confidence check, and the age rule still applies.
+    expect(decide({ answer: 25_000_000_000n, updatedAt: NOW - 600 }, quotes.TSLA, NOW).push).to.equal(true);
+    let err = "";
+    await fetchYahooQuotes(["BAD"], fake, "https://yahoo.test").catch((e) => (err = (e as Error).message));
+    expect(err).to.equal("Yahoo has no USD price for BAD");
   });
 });
