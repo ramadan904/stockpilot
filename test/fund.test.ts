@@ -263,6 +263,16 @@ describe("PilotFund: one vault, many owners", () => {
     expect(await f.usdg.read.balanceOf([carol.account.address])).to.equal(parseUnits("200", 6));
   });
 
+  it("the relay takes its key as MetaMask shows it: no 0x, stray spaces, or with 0x", async () => {
+    const { relayKey } = await import("../agent/api");
+    const hex = "ab".repeat(32);
+    expect(relayKey(hex)).to.equal(`0x${hex}`);
+    expect(relayKey(` 0x${hex}\n`)).to.equal(`0x${hex}`);
+    expect(relayKey(`0X${hex.toUpperCase()}`)).to.equal(`0x${hex.toUpperCase()}`);
+    expect(relayKey(undefined)).to.equal(undefined);
+    expect(relayKey("not a key")).to.equal(undefined); // no relay, not a crash
+  });
+
   describe("holders can fire the pilot", () => {
     const DAY = 24 * 3600;
     /** Let time pass, with the stock feeds updated as a live relayer would keep them. */
