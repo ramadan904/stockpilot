@@ -1,7 +1,8 @@
 {
-  "network": "robinhoodTestnet",
-  "chainId": 46630,
-  "deployedAt": "2026-10-07T14:29:24.232Z",
+  "network": "arbitrumSepolia",
+  "chainId": 421614,
+  "deployedAt": "2026-10-08T13:24:46.720Z",
+  "startBlock": 317067708,
   "tokens": {
     "USDG": "0x44f8be24fd5bb7c421780aaa4721a5de333fdb0a",
     "TSLA": "0x561bd16f3e17981e2a4ba70bba95f10bd1800661",
@@ -19,10 +20,10 @@
   "marketMaker": "0xe7680f261c0543b13b1c0ac1dbec29ad65b124f3",
   "factory": "0x318259c1153aa118733b5914e45bd53caf984664",
   "registry": "0x12e02f0b852274948859c8ed8e10a414f5febeeb",
-  "demoVault": "0xDBc0d40a791eEefB7E210c889F465b855DafD303",
-  "credential": "0x68f5d170de04e0d6459e05f3099c7d20e7eb70cb",
-  "journal": "0x7986aaabae001b36e4ad8e56fa7429d0cea17574",
-  "funds": "0x9da047114924f48d5351f11b5704fbd2cc48a61d",
-  "demoFund": "0xe314456Fc476bF48d605a703D102edc75B2231e7",
-  "demoFundVault": "0xB0Ba256d27902611c4A6C2f9f6df5CCd1F7c8362"
+  "credential": "0xc0a3ebbdff9dd6bcac87cde83d3d0ea31975656a",
+  "journal": "0x86b30739a115074f9f49455ac273da316d0ba295",
+  "funds": "0x8a03e482f0408ec9f1bcd7480d6069741fc46918",
+  "demoVault": "0xfFfEBea2C701CA2cfD406D89580aE984adb0a783",
+  "demoFund": "0x3E87cA2496cc9cd8d8Ada7868D2ea3a5d10A5D5D",
+  "demoFundVault": "0xDBc0d40a791eEefB7E210c889F465b855DafD303"
 }
