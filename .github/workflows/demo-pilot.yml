@@ -185,6 +185,7 @@ jobs:
       - name: Lay the voice over the video
         run: |
           webm=$(find e2e-web/test-results/narrated -name '*.webm' | head -n 1)
+          cat e2e-web/test-results/narration-timeline.json
           python scripts/mix-narration.py --video "$webm" --timeline e2e-web/test-results/narration-timeline.json --narration media/narration --out media/narrated-demo.mp4
           du -h media/narrated-demo.mp4
       - uses: actions/upload-artifact@v4

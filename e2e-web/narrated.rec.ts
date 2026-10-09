@@ -249,7 +249,7 @@ test("StockPilot, narrated", async ({ page }) => {
         await next.waitFor({ timeout: 60_000 });
         await show(card(page, /^Vault 0x/), 300);
         created = true;
-      }),
+      }, 30),
     );
     if (created) {
       await scene("controls", () =>

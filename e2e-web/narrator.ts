@@ -39,15 +39,21 @@ export class Narrator {
     await this.page.waitForTimeout(300);
   }
 
-  /** Say a line, its caption following the voice word by word, while `during` runs underneath. */
-  async say(id: string, during?: () => Promise<unknown>) {
+  /**
+   * Say a line, its caption following the voice word by word, while `during` runs underneath. The action may run at
+   * most `overrun` seconds past the voice; a slower one fails the scene, so the video never stalls on a slow chain.
+   */
+  async say(id: string, during?: () => Promise<unknown>, overrun = 8) {
     const t = this.timings[id];
     if (!t) throw new Error(`No narration for "${id}": run scripts/narrate.py`);
     this.said.push({ id, at: this.now() });
     await this.page.evaluate(showCaption, t.words);
     const speaking = this.page.waitForTimeout(t.duration * 1000 + 450);
     // Always let the line finish, even if the action under it fails, so two lines never overlap.
-    const [, action] = await Promise.allSettled([speaking, during?.()]);
+    const capped = during
+      ? Promise.race([during(), new Promise((_, reject) => setTimeout(() => reject(new Error(`"${id}" ran past its line`)), (t.duration + overrun) * 1000))])
+      : undefined;
+    const [, action] = await Promise.allSettled([speaking, capped]);
     if (action.status === "rejected") throw action.reason;
   }
 
