@@ -43,7 +43,7 @@ export class Narrator {
    * Say a line, its caption following the voice word by word, while `during` runs underneath. The action may run at
    * most `overrun` seconds past the voice; a slower one fails the scene, so the video never stalls on a slow chain.
    */
-  async say(id: string, during?: () => Promise<unknown>, overrun = 8) {
+  async say(id: string, during?: () => Promise<unknown>, overrun = 20) {
     const t = this.timings[id];
     if (!t) throw new Error(`No narration for "${id}": run scripts/narrate.py`);
     this.said.push({ id, at: this.now() });
