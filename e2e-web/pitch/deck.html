@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>StockPilot pitch</title>
+<!-- The pitch video's slides (e2e-web/pitch.rec.ts plays them; scripts/pitch-video.sh records and voices them).
+     Live-site shots are cut from media/narrated-demo.mp4 into media/pitch/clips. -->
+<style>
+  @font-face { font-family: "Inter"; src: url("inter.woff2") format("woff2"); font-weight: 100 900; }
+  :root {
+    --bg: #0b1016; --surface: #121922; --surface-2: #19222d; --border: #253141; --text: #e6edf5; --muted: #8b9bb0;
+    --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, .14); --bad: #f87171; --bad-soft: rgba(248, 113, 113, .13);
+    --ok: #4ade80;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--text);
+    font-family: Inter, "Liberation Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(700px 420px at 82% 8%, rgba(45,212,191,.13), transparent 70%),
+                radial-gradient(620px 420px at 6% 96%, rgba(129,140,248,.10), transparent 70%); }
+
+  .slide { position: absolute; inset: 0; padding: 96px 84px 140px; display: flex; flex-direction: column; justify-content: center;
+    opacity: 0; transition: opacity .45s ease; }
+  .slide.on { opacity: 1; }
+  .brand { position: absolute; top: 30px; left: 40px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+  .kicker { color: var(--accent); font-weight: 700; font-size: 17px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 18px; }
+  h1 { font-size: 64px; line-height: 1.08; letter-spacing: -.025em; font-weight: 800; max-width: 1060px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  h2 { font-size: 46px; line-height: 1.12; letter-spacing: -.02em; font-weight: 800; max-width: 1080px; }
+  h2 em { font-style: normal; color: var(--accent); }
+  h2 .bad { color: var(--bad); }
+  .sub { color: var(--muted); font-size: 24px; line-height: 1.45; margin-top: 22px; max-width: 980px; }
+
+  /* things that appear as the voice reaches them */
+  .rv { opacity: 0; transform: translateY(14px); transition: opacity .45s ease, transform .45s ease; }
+  .rv.on { opacity: 1; transform: none; }
+
+  .chips { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 34px; }
+  .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 11px 20px; font-size: 21px;
+    font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .chip b { color: var(--accent); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+
+  .row { display: flex; gap: 22px; margin-top: 36px; }
+  .card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 24px 26px; }
+  .card h3 { font-size: 23px; margin-bottom: 10px; }
+  .card p { color: var(--muted); font-size: 19px; line-height: 1.45; }
+  .card .n { color: var(--accent); font-weight: 800; font-size: 15px; letter-spacing: .12em; margin-bottom: 12px; }
+  .card.bad { border-color: rgba(248,113,113,.45); background: linear-gradient(180deg, var(--bad-soft), var(--surface)); }
+  .card.good { border-color: rgba(45,212,191,.45); background: linear-gradient(180deg, var(--accent-soft), var(--surface)); }
+
+  /* the risk */
+  .chain { display: flex; align-items: center; gap: 18px; margin-top: 40px; font-size: 24px; font-weight: 700; }
+  .chain .box { padding: 16px 22px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+  .chain .box.bad { border-color: rgba(248,113,113,.55); color: var(--bad); background: var(--bad-soft); }
+  .chain .arrow { color: var(--muted); font-size: 28px; }
+
+  /* split: list + shot */
+  .split { display: grid; grid-template-columns: 500px 1fr; gap: 36px; align-items: center; padding: 84px 50px 150px 70px; }
+  .cant { list-style: none; margin-top: 22px; display: grid; gap: 12px; }
+  .cant li { display: flex; align-items: center; gap: 14px; font-size: 25px; font-weight: 650; padding: 12px 18px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--border); }
+  .x { width: 30px; height: 30px; border-radius: 8px; background: var(--bad-soft); color: var(--bad); display: grid; place-items: center;
+    font-weight: 900; font-size: 18px; flex: none; }
+  .worst { margin-top: 18px; color: var(--muted); font-size: 20px; line-height: 1.45; }
+  .worst b { color: var(--text); }
+  .shot { border-radius: 14px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+  .shot video { display: block; width: 100%; }
+  .stamp { position: absolute; right: 70px; top: 104px; transform: rotate(-8deg); border: 4px solid var(--bad); color: var(--bad);
+    font-weight: 900; font-size: 30px; letter-spacing: .08em; padding: 6px 16px; border-radius: 10px; background: rgba(11,16,22,.75); }
+
+  /* full-frame shots of the live site */
+  .slide.clip { padding: 0; }
+  .slide.clip video { position: absolute; inset: 0; width: 1280px; height: 720px; }
+  .tag { position: absolute; top: 15px; left: 228px; display: flex; align-items: center; gap: 10px; padding: 7px 16px; border-radius: 999px;
+    background: rgba(5,8,12,.9); border: 1px solid rgba(45,212,191,.45); font-size: 16px; font-weight: 700; }
+  .tag .dot { background: #ef4444; box-shadow: 0 0 10px #ef4444; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  /* covers the demo's own caption, under the pitch's */
+  .cover { position: absolute; left: 90px; right: 90px; bottom: 18px; height: 106px; border-radius: 16px;
+    background: #05080c; border: 1px solid rgba(45,212,191,.4); box-shadow: 0 12px 44px rgba(0,0,0,.55); }
+  #narration { font-family: Inter, "Liberation Sans", sans-serif !important; font-size: 22px !important; }
+  body.clip #narration { background: transparent !important; border-color: transparent !important; box-shadow: none !important; bottom: 34px !important; }
+
+  /* business */
+  .flow { display: flex; align-items: stretch; gap: 16px; margin-top: 34px; }
+  .flow .card { flex: 1; }
+  .flow .arrow { align-self: center; color: var(--accent); font-size: 30px; font-weight: 800; }
+  .big { font-size: 40px; font-weight: 800; color: var(--accent); letter-spacing: -.02em; }
+
+  /* built */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 30px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px 22px; }
+  .tile .big { font-size: 34px; }
+  .tile p { color: var(--muted); font-size: 18px; margin-top: 6px; line-height: 1.4; }
+
+  /* roadmap */
+  .steps { display: flex; gap: 0; margin-top: 44px; position: relative; }
+  .steps::before { content: ""; position: absolute; left: 30px; right: 30px; top: 22px; height: 3px; background: var(--border); }
+  .step { flex: 1; position: relative; padding-right: 26px; }
+  .step .num { width: 46px; height: 46px; border-radius: 50%; background: var(--surface-2); border: 3px solid var(--accent); display: grid;
+    place-items: center; font-weight: 800; font-size: 19px; color: var(--accent); margin-bottom: 18px; position: relative; }
+  .step h3 { font-size: 26px; margin-bottom: 8px; }
+  .step p { color: var(--muted); font-size: 19px; line-height: 1.45; }
+
+  /* close */
+  .center { align-items: center; text-align: center; }
+  .center h1 { max-width: none; }
+  .logo-big { display: flex; align-items: center; gap: 18px; font-size: 58px; font-weight: 800; letter-spacing: -.02em; margin: 26px 0 12px; }
+  .logo-big .mark { width: 64px; height: 64px; border-radius: 16px; }
+  .links { margin-top: 28px; display: flex; gap: 14px; justify-content: center; }
+  .links .chip { font-size: 19px; font-family: "DejaVu Sans Mono", monospace; font-weight: 500; }
+
+  .tick { display: flex; gap: 12px; margin-top: 30px; }
+  .tick span { font-weight: 800; font-size: 22px; padding: 10px 18px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+  .tick span:nth-child(odd) { color: var(--accent); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><symbol id="m" viewBox="0 0 32 32"><path d="M5 23l7-7 5 5 10-11" stroke="#04201d" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" /></symbol></svg>
+
+<section class="slide" id="hook">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">Tokenized stocks</div>
+  <h1 class="rv">Stocks are coming <em>onchain.</em></h1>
+  <div class="tick">
+    <span class="rv" data-cue="around">24/7 markets</span><span class="rv" data-cue="clock">Settle in seconds</span>
+    <span class="rv" data-cue="nobody">Nobody watching</span>
+  </div>
+</section>
+
+<section class="slide" id="risk">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">The problem</div>
+  <h2 class="rv" data-cue="but">To trade for you, an AI needs <span class="bad">your keys.</span></h2>
+  <div class="chain">
+    <div class="box rv" data-cue="ai" data-nth="3">AI agent + your keys</div>
+    <div class="arrow rv" data-cue="one">→</div>
+    <div class="box rv" data-cue="bug">one bug</div>
+    <div class="box rv" data-cue="prompt">one prompt injection</div>
+    <div class="arrow rv" data-cue="away">→</div>
+    <div class="box bad rv" data-cue="emptying">account emptied</div>
+  </div>
+</section>
+
+<section class="slide" id="idea">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">StockPilot</div>
+  <h1 class="rv">An AI autopilot for tokenized stocks that can only trade <em>inside the rules you sign.</em></h1>
+  <div class="row">
+    <div class="card rv" data-cue="does"><div class="n">THE AI</div><h3>Does the work</h3><p>Drafts the plan, watches prices, rebalances.</p></div>
+    <div class="card good rv" data-cue="contract"><div class="n">A CONTRACT YOU OWN</div><h3>Keeps it honest</h3><p>Checks every trade against your mandate, onchain.</p></div>
+  </div>
+</section>
+
+<section class="slide clip" id="mandate" data-clip="mandate"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live site · goal → mandate</div></section>
+<section class="slide clip" id="pilot" data-clip="pilot"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live site · simulator</div></section>
+
+<section class="slide split" id="guard">
+  <div>
+    <div class="kicker rv">Assume the pilot is hacked</div>
+    <h2 class="rv" style="font-size:40px">It still <em>can't</em>:</h2>
+    <ul class="cant">
+      <li class="rv" data-cue="withdraw"><span class="x">✕</span>withdraw your money</li>
+      <li class="rv" data-cue="change"><span class="x">✕</span>change your rules</li>
+      <li class="rv" data-cue="pile"><span class="x">✕</span>pile into one stock</li>
+      <li class="rv" data-cue="bad"><span class="x">✕</span>take a bad or stale price</li>
+    </ul>
+    <p class="worst rv" data-cue="worst">Worst case: <b>trades inside your bands, under your daily cap, at a fair price.</b></p>
+  </div>
+  <div class="shot rv" data-cue="hacked" data-clip="guard"><video muted playsinline preload="auto"></video></div>
+  <div class="stamp rv" data-cue="change">BLOCKED</div>
+</section>
+
+<section class="slide clip" id="live" data-clip="live"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live · Robinhood Chain testnet</div></section>
+<section class="slide clip" id="theater" data-clip="theater"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live · Attack Theater</div></section>
+<section class="slide clip" id="trust" data-clip="trust"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live · Verified Mandate, letters, reasons</div></section>
+<section class="slide clip" id="proof" data-clip="proof"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live · Network and code check</div></section>
+
+<section class="slide" id="why">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">Why it has to be onchain</div>
+  <h2 class="rv">The rules live in a contract you own, so they hold even if…</h2>
+  <div class="row">
+    <div class="card rv" data-cue="leaks"><h3>The pilot's key leaks</h3><p>A stolen key can only trade inside the mandate.</p></div>
+    <div class="card rv" data-cue="tricked"><h3>The model is tricked</h3><p>Prompt injection can't move funds out.</p></div>
+    <div class="card rv" data-cue="disappear"><h3>We disappear</h3><p>No server in the loop for your money.</p></div>
+  </div>
+  <div class="chips">
+    <div class="chip rv" data-cue="pause"><span class="dot"></span>Pause any time</div>
+    <div class="chip rv" data-cue="withdraw"><span class="dot"></span>Withdraw any time</div>
+  </div>
+</section>
+
+<section class="slide" id="business">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">Business model</div>
+  <h2 class="rv">Owners pay their pilot, <em>onchain.</em></h2>
+  <div class="flow">
+    <div class="card rv" data-cue="fee"><div class="n">MANAGEMENT FEE</div><div class="big">≤ 2% / yr</div><p>Set by the owner, taken by the vault, cancellable any time. $10,000 at 0.5% ≈ $50 a year.</p></div>
+    <div class="arrow rv" data-cue="pilots">→</div>
+    <div class="card rv" data-cue="marketplace"><div class="n">OPEN MARKETPLACE</div><h3>Pilots compete</h3><p>Any AI agent can list; owners compare results read from the chain.</p></div>
+    <div class="arrow rv" data-cue="earn">→</div>
+    <div class="card good rv" data-cue="earn"><div class="n">STOCKPILOT EARNS</div><h3>House Pilot fees</h3><p class="rv" data-cue="licensing">+ licensing autopilot to wallets and brokerages.</p></div>
+  </div>
+</section>
+
+<section class="slide" id="built">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">Built for this hackathon</div>
+  <h2 class="rv">Working, open source, and live.</h2>
+  <div class="grid">
+    <div class="tile rv" data-cue="vaults"><div class="big">Vaults</div><p>Mandate rules enforced in every trade</p></div>
+    <div class="tile rv" data-cue="pilot"><div class="big">Pilot</div><p>Rebalances, explains, writes letters</p></div>
+    <div class="tile rv" data-cue="strategist"><div class="big">Strategist</div><p>Claude turns a goal into a mandate</p></div>
+    <div class="tile rv" data-cue="pooled"><div class="big">Funds</div><p>Many owners, one vault, vote out the pilot</p></div>
+    <div class="tile rv" data-cue="mcp"><div class="big">MCP</div><p>Any AI agent can fly a vault, same limits</p></div>
+    <div class="tile rv" data-cue="tests"><div class="big">~300 tests</div><p>Incl. randomized model-vs-contract checks</p></div>
+  </div>
+  <div class="chips">
+    <div class="chip rv" data-cue="robinhood"><span class="dot"></span>Live on <b>Robinhood Chain testnet</b></div>
+    <div class="chip rv" data-cue="arbitrum"><span class="dot"></span>Live on <b>Arbitrum Sepolia</b></div>
+  </div>
+</section>
+
+<section class="slide" id="next">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">What's next</div>
+  <div class="steps">
+    <div class="step rv" data-cue="audit"><div class="num">1</div><h3>Audit</h3><p>An independent review of the vault contracts.</p></div>
+    <div class="step rv" data-cue="mainnet"><div class="num">2</div><h3>Mainnet</h3><p>Robinhood Chain, with real stock tokens, feeds and pools.</p></div>
+    <div class="step rv" data-cue="built"><div class="num">3</div><h3>Embedded</h3><p>Autopilot inside the wallets and apps people already use.</p></div>
+  </div>
+</section>
+
+<section class="slide center" id="close">
+  <h1 class="rv">Give an AI your portfolio, <em>not your keys.</em></h1>
+  <div class="logo-big rv" data-cue="stockpilot"><span class="mark"><svg width="38" height="38"><use href="#m" /></svg></span>StockPilot</div>
+  <p class="sub rv" data-cue="rules" style="margin-top:4px">Your rules, enforced onchain.</p>
+  <div class="links rv" data-cue="enforced">
+    <div class="chip">stockpilot-six-virid.vercel.app</div>
+    <div class="chip">github.com/ramadan904/stockpilot</div>
+  </div>
+</section>
+
+<script>
+  const CLIPS = "../../media/pitch/clips/";
+  const norm = (w) => w.toLowerCase().replace(/[^a-z0-9]/g, "");
+  let timers = [];
+
+  /** Load every shot before recording starts, so none stutters on its first frame. */
+  window.ready = () =>
+    Promise.all([...document.querySelectorAll("[data-clip]")].map((el) => {
+      const v = el.querySelector("video");
+      v.src = CLIPS + el.dataset.clip + ".webm";
+      return new Promise((ok, fail) => { v.oncanplaythrough = ok; v.onerror = () => fail(new Error("missing clip " + el.dataset.clip)); v.load(); });
+    }));
+
+  /** Show a slide for one line: things without a cue appear in turn, the rest as the voice says their word. */
+  window.play = (id, words, duration) => {
+    timers.forEach(clearTimeout);
+    timers = [];
+    const slide = document.getElementById(id);
+    document.querySelectorAll(".slide.on").forEach((s) => s !== slide && s.classList.remove("on"));
+    slide.classList.add("on");
+    document.body.classList.toggle("clip", slide.classList.contains("clip"));
+    const said = words.map(([w, start]) => [norm(w), start]);
+    let lead = 0;
+    for (const el of slide.querySelectorAll(".rv")) {
+      let at = null;
+      if (el.dataset.cue) {
+        const hits = said.filter(([w]) => w === el.dataset.cue);
+        const hit = hits[Number(el.dataset.nth || 1) - 1] ?? hits[0];
+        at = hit ? hit[1] : null;
+      }
+      if (at === null) { at = lead; lead += 0.25; }
+      timers.push(setTimeout(() => el.classList.add("on"), Math.max(0, at * 1000 - 120)));
+    }
+    for (const v of slide.querySelectorAll("video")) {
+      v.currentTime = 0;
+      // Fit the shot to the line: speed it up (never slow it down) so it ends as the voice does.
+      v.playbackRate = Math.min(1.8, Math.max(1, v.duration / (duration + 0.4)));
+      v.play();
+    }
+  };
+</script>
+</body>
+</html>

@@ -19,3 +19,4 @@ docker-smoke.log
 # Narrated demo: generated speech and the TTS model (scripts/narrate.py)
 media/narration/
 .kokoro/
+media/pitch/

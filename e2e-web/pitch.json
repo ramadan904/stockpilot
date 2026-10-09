@@ -1,0 +1,17 @@
+{
+  "hook": "Stocks are coming onchain. They trade around the clock, and nobody has time to watch them.",
+  "risk": "AI could manage them for you. But to trade, an AI needs your keys, and an AI with your keys is one bug or one prompt injection away from emptying your account.",
+  "idea": "StockPilot is an AI autopilot for tokenized stocks that can only trade inside the rules you sign. The AI does the work. A contract you own keeps it honest.",
+  "mandate": "Describe your goal in plain words, and Claude drafts a mandate: target weights, drift bands and trading limits. You sign it into a vault that only you control.",
+  "pilot": "When prices move and the portfolio drifts, the pilot rebalances, and the vault checks every trade against oracle prices before it settles.",
+  "guard": "A hacked pilot can't withdraw, can't change your rules, can't pile into one stock, and can't take a bad or stale price. The worst it can do is trade inside your bands, under your daily cap, at a fair price.",
+  "live": "And it's live. On Robinhood Chain testnet, real stock prices go onchain every hour, and our house pilot flies a real vault.",
+  "theater": "Anyone can fire nine attacks at that live contract, signed with the pilot's own key. Every one is refused.",
+  "trust": "Vaults that keep their rules earn a soulbound Verified Mandate, the pilot writes its owner a signed letter, and every trade publishes its reason onchain.",
+  "proof": "The network page reads it all from the chain, and the code check proves the deployed contracts are exactly our open source code.",
+  "why": "That's why it has to be onchain. The rules hold even if the pilot's key leaks, the model is tricked, or we disappear. You can always pause, and you can always withdraw.",
+  "business": "Owners pay their pilot a fee, capped at two percent a year and taken onchain. Pilots compete in an open marketplace, ranked by results read from the chain. We earn by flying the house pilot, and by licensing autopilot to wallets and brokerages.",
+  "built": "All built for this hackathon: the vaults, the pilot, the strategist, pooled funds, an MCP server so any AI agent can fly a vault, nearly three hundred tests, and live deployments on Robinhood Chain and Arbitrum.",
+  "next": "Next: an audit, mainnet on Robinhood Chain with real stock tokens, and autopilot built into the apps people already use.",
+  "close": "Give an AI your portfolio, not your keys. StockPilot. Your rules, enforced onchain."
+}
