@@ -53,9 +53,6 @@ async function top(page: Page) {
   await page.waitForTimeout(500);
 }
 
-/** Wait for the app's "<label>: done." notice after a transaction. */
-const done = (page: Page, label: string | RegExp, timeout = 90_000) =>
-  page.locator(".notice").filter({ hasText: typeof label === "string" ? `${label}: done.` : label }).first().waitFor({ timeout });
 
 test("StockPilot, narrated", async ({ page }) => {
   test.setTimeout(900_000);
@@ -244,12 +241,22 @@ test("StockPilot, narrated", async ({ page }) => {
         const house = page.getByRole("radio", { name: /StockPilot House Pilot/ });
         await ((await house.count()) ? house : page.getByRole("radio", { name: /Myself/ })).click();
         await page.getByRole("button", { name: "Cash only" }).click();
+        // Done when the app opens the new vault: its address differs from whichever vault was open before.
+        const shownVault = () => page.locator("h3 [data-address]").first().getAttribute("data-address", { timeout: 1_000 }).catch(() => null);
+        const before = await shownVault();
         await page.getByRole("button", { name: "Create and fund vault" }).click();
-        await done(page, /Deposit USDG: done\./, 120_000);
+        await page.waitForFunction(
+          (prev) => {
+            const now = document.querySelector("h3 [data-address]")?.getAttribute("data-address");
+            return !!now && now !== prev;
+          },
+          before,
+          { timeout: 150_000 },
+        );
         await next.waitFor({ timeout: 60_000 });
         await show(card(page, /^Vault 0x/), 300);
         created = true;
-      }, 120),
+      }, 170),
     );
     if (created) {
       await scene("controls", () =>
