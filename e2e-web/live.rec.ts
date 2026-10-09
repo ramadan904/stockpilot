@@ -64,6 +64,7 @@ test("StockPilot, live", async ({ page }) => {
   await page.goto(`/?chain=${ROBINHOOD}&vault=${rh.demoVault}`);
   await page.getByText("Pilot's next move").waitFor({ timeout: 60_000 });
   await page.waitForTimeout(1200);
+  await show(card(page, /^Vault 0x/).first(), 400);
   await caption(page, "A live vault on Robinhood Chain, read straight from the chain. No wallet needed.", 3000);
   await scene("mood lamp", async () => {
     await show(page.locator(".mood-lamp").first(), 600);
@@ -100,13 +101,16 @@ test("StockPilot, live", async ({ page }) => {
 
   // Arbitrum: the same contracts, the same pilot, and today's trades with their reasons.
   await page.goto(`/?chain=${ARBITRUM}&vault=${arb.demoVault}`);
-  await page.getByText("Pilot's next move").waitFor({ timeout: 60_000 });
+  const next = page.getByText("Pilot's next move");
+  await next.waitFor({ timeout: 60_000 });
   await page.waitForTimeout(1200);
+  await show(page.locator(".mood-lamp").first(), 400);
   await caption(page, "The same contracts on Arbitrum Sepolia, flown by the same pilot.", 2600);
+  await show(next, 400);
+  await caption(page, `Its pilot, right now: "${(await next.innerText()).replace(/^Pilot's next move:\s*/, "").slice(0, 110)}"`, 3400);
   await scene("trade with its reason", async () => {
-    const activity = card(page, "Activity");
-    const reason = activity.getByTestId("trade-reason").first();
-    await reason.waitFor({ timeout: 45_000 });
+    const reason = card(page, "Activity").getByTestId("trade-reason").first();
+    await reason.waitFor({ timeout: 30_000 });
     await show(reason, 600);
     await caption(page, "Today's trade, made at real market prices. Its reason is published onchain and matches the hash the trade recorded.", 4000);
   });
