@@ -122,7 +122,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get install -y -q ffmpeg
+      - name: ffmpeg
+        timeout-minutes: 6
+        run: sudo apt-get -o DPkg::Lock::Timeout=180 install -y -q ffmpeg
       - name: Record the live site
         run: npx playwright test -c e2e-web/live-video.config.ts --output e2e-web/test-results/live-video
       - name: Encode media/live-demo.mp4
@@ -161,7 +163,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get install -y -q ffmpeg
+      - name: ffmpeg
+        timeout-minutes: 6
+        run: sudo apt-get -o DPkg::Lock::Timeout=180 install -y -q ffmpeg
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
