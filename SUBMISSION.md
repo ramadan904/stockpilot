@@ -5,6 +5,10 @@
 > The AI does the work. The contract keeps it honest. Proven live by the Attack Theater, and by 600 randomized
 > trades on which an exact model of the rules and the deployed contract agree.
 
+**[Pitch, 72 s](media/pitch-90s.mp4)** · **[Narrated demo, 2 min 24 s](media/narrated-demo.mp4)** · **30 seconds, no
+wallet:** open the [live demo vault](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303) and press **Simulate a compromised pilot**: nine attacks sent to the real
+contract with the pilot's own key, nine refusals.
+
 | | |
 |---|---|
 | **Track** | Ethereum ecosystem: Robinhood Chain (primary), Arbitrum |
@@ -13,12 +17,13 @@
 | **Live vault** | [A funded demo vault on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303) and [one on Arbitrum Sepolia](https://stockpilot-six-virid.vercel.app/?chain=421614&vault=0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), read-only, no wallet needed |
 | **Live fund** | [The demo fund on Robinhood Chain testnet](https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xB0Ba256d27902611c4A6C2f9f6df5CCd1F7c8362) and [on Arbitrum Sepolia](https://stockpilot-six-virid.vercel.app/?chain=421614&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303): buy in free, no gas |
 | **Contracts** | Robinhood Chain testnet (chain 46630): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://explorer.testnet.chain.robinhood.com/address/0x318259c1153aa118733b5914e45bd53caf984664), pilot registry [`0x12e02f0b852274948859c8ed8e10a414f5febeeb`](https://explorer.testnet.chain.robinhood.com/address/0x12e02f0b852274948859c8ed8e10a414f5febeeb), fund factory [`0x9da047114924f48d5351f11b5704fbd2cc48a61d`](https://explorer.testnet.chain.robinhood.com/address/0x9da047114924f48d5351f11b5704fbd2cc48a61d), pilot journal [`0x8d165798dfd3a9fade85a3d6defcf61f0b7b4475`](https://explorer.testnet.chain.robinhood.com/address/0x8d165798dfd3a9fade85a3d6defcf61f0b7b4475), Verified Mandate [`0x68f5d170de04e0d6459e05f3099c7d20e7eb70cb`](https://explorer.testnet.chain.robinhood.com/address/0x68f5d170de04e0d6459e05f3099c7d20e7eb70cb), demo vault [`0xDBc0d40a791eEefB7E210c889F465b855DafD303`](https://explorer.testnet.chain.robinhood.com/address/0xDBc0d40a791eEefB7E210c889F465b855DafD303), demo fund [`0xe314456Fc476bF48d605a703D102edc75B2231e7`](https://explorer.testnet.chain.robinhood.com/address/0xe314456Fc476bF48d605a703D102edc75B2231e7). Arbitrum Sepolia (chain 421614): factory [`0x318259c1153aa118733b5914e45bd53caf984664`](https://sepolia.arbiscan.io/address/0x318259c1153aa118733b5914e45bd53caf984664), fund factory [`0x8a03e482f0408ec9f1bcd7480d6069741fc46918`](https://sepolia.arbiscan.io/address/0x8a03e482f0408ec9f1bcd7480d6069741fc46918), pilot journal [`0xe146f77054d48fdffd4e42dcc04f152f3b749dd9`](https://sepolia.arbiscan.io/address/0xe146f77054d48fdffd4e42dcc04f152f3b749dd9), demo vault [`0xfFfEBea2C701CA2cfD406D89580aE984adb0a783`](https://sepolia.arbiscan.io/address/0xfFfEBea2C701CA2cfD406D89580aE984adb0a783), demo fund [`0x3E87cA2496cc9cd8d8Ada7868D2ea3a5d10A5D5D`](https://sepolia.arbiscan.io/address/0x3E87cA2496cc9cd8d8Ada7868D2ea3a5d10A5D5D). Every address and its source: `deployments/*.json`; check the live code against this repository with the app's Code check or `npm run check-code` |
+| **Pitch** | [`media/pitch-90s.mp4`](media/pitch-90s.mp4) (72 s): the problem, the guarantee shown live, why now, who pays. Longer cut: [`media/pitch-video.mp4`](media/pitch-video.mp4) (2 min 26 s). Script `e2e-web/pitch-90.json`, built by `scripts/pitch-video.sh` |
 | **Demo** | [`media/narrated-demo.mp4`](media/narrated-demo.mp4) (2 min 24 s, narrated, word-by-word captions): every part of the site on the live chains during US market hours, including an owner connecting a wallet and creating a vault with real testnet transactions. Voice by Kokoro, an open neural TTS model (`scripts/narrate.py`); recorded by `e2e-web/narrated.rec.ts`. Also [`media/live-demo.mp4`](media/live-demo.mp4) (90 s, captioned), recorded on the live site during US market hours, nothing staged: the Robinhood Chain demo vault at real stock prices, nine attacks refused by the live contract, its Verified Mandate, the pilot's onchain letter, today's trade on Arbitrum Sepolia with its reason published onchain, the demo fund, the network constellation and the code check (9 of 9 match). Recorded by the Demo pilot workflow (`video: true`, script `e2e-web/live.rec.ts`). Also [`media/simulator-demo.mp4`](media/simulator-demo.mp4) (53 s), or run `npm run demo` |
 | **Built** | From an empty repository during the hackathon (first commit 5 October 2026) |
 
 ## Judges: start here (no wallet, under two minutes)
 
-1. **Watch the [narrated demo](media/narrated-demo.mp4)** (2½ min), recorded on the live site during US market hours: real prices, real trades, every feature.
+1. **Watch the [72-second pitch](media/pitch-90s.mp4)**, then the **[narrated demo](media/narrated-demo.mp4)** (2½ min), recorded on the live site during US market hours: real prices, real trades, every feature.
 2. **[Open the live app](https://stockpilot-six-virid.vercel.app)** and press **Take the 60-second tour**. Then the
    **[Network](https://stockpilot-six-virid.vercel.app/?view=network&chain=46630)** tab: every vault, fund, pilot and
    trade on Robinhood Chain testnet, read straight from the chain, drawn as a constellation: pilots are stars, their
@@ -64,12 +69,18 @@ Testnet software, unaudited: do not use real money.
 
 ## For the submission form
 
-- **One line:** An AI autopilot for tokenized stocks that cannot drain you, because the contract won't let it.
+- **One line:** AI autopilot for tokenized stocks that can only trade inside the rules you sign.
+- **Blurb:** To trade for you, an AI needs your keys, and one bug or prompt injection can drain you. StockPilot's AI
+  rebalances your tokenized stocks, but a vault you own checks every trade against the mandate you signed, so even a
+  hijacked pilot can't withdraw, change the rules or take a bad price. Watch it live: the demo vault on Robinhood Chain
+  testnet refuses nine attacks sent with the pilot's own key, no wallet needed.
+- **Pitch video:** `media/pitch-90s.mp4` (72 s). **Demo video:** `media/narrated-demo.mp4` (2 min 24 s).
+- **Judges start here:** https://stockpilot-six-virid.vercel.app/?chain=46630&vault=0xDBc0d40a791eEefB7E210c889F465b855DafD303 then press **Simulate a compromised pilot**.
 - **What's different:** other AI trading agents either hold your keys or only make suggestions. StockPilot's pilot can
   only rebalance, inside a mandate the owner signed, and anyone can watch the live contract refuse a stolen pilot key.
 - **Why Robinhood Chain:** tokenized stocks trade around the clock, so they need a manager that never sleeps and never
   needs your keys; every trade is checked against oracle prices and freshness onchain.
-- **Live:** https://stockpilot-six-virid.vercel.app · demo video `media/live-demo.mp4` · contracts linked above.
+- **Live:** https://stockpilot-six-virid.vercel.app · contracts linked above.
 
 ## The problem
 

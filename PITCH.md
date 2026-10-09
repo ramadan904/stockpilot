@@ -1,8 +1,9 @@
 # Pitch video script (about 2:30)
 
-**Recorded:** [`media/pitch-video.mp4`](media/pitch-video.mp4) (2 min 26 s): slides and live-site shots, voiced with
-the demo's narrator and word-by-word captions. Its script is [`e2e-web/pitch.json`](e2e-web/pitch.json); rebuild it with
-`bash scripts/pitch-video.sh`. The outline below is the original script for recording it yourself.
+**Recorded:** [`media/pitch-90s.mp4`](media/pitch-90s.mp4) (72 s, script [`e2e-web/pitch-90.json`](e2e-web/pitch-90.json))
+and the longer [`media/pitch-video.mp4`](media/pitch-video.mp4) (2 min 26 s, script [`e2e-web/pitch.json`](e2e-web/pitch.json)):
+slides and live-site shots, voiced with the demo's narrator and word-by-word captions. Rebuild with
+`bash scripts/pitch-video.sh` (or `… full`). The outline below is the original script for recording it yourself.
 
 Record the screen with the web app's simulator, or reuse [`media/simulator-demo.mp4`](media/simulator-demo.mp4)
 (53 s, already captioned, same order as below) as the B-roll for 0:35–1:55 and narrate over it. Speak slowly; judges

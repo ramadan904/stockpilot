@@ -1,0 +1,10 @@
+{
+  "problem": "Tokenized stocks trade around the clock. An AI could manage them, but to trade, it needs your keys, and one bug or one prompt injection can drain you.",
+  "idea": "StockPilot is an AI autopilot that can only trade inside the rules you sign. Claude drafts the mandate from your goal. A vault you own enforces it, on every trade.",
+  "guard": "Here's the guarantee. Assume the pilot is hacked. It still can't withdraw, can't change your rules, can't pile into one stock, and can't take a bad price.",
+  "theater": "And you can test that live. The Attack Theater fires nine attacks at the real contract on Robinhood Chain testnet, from the pilot's own key. Every one is refused.",
+  "rebalance": "Inside the rules, the pilot does the work. It rebalances as prices move, and publishes the reason for every trade onchain.",
+  "whynow": "Stocks are moving onchain, starting with Robinhood Chain, and every holder will need someone minding the portfolio, without handing over their keys.",
+  "business": "Owners pay their pilot up to two percent a year, onchain. Pilots compete in an open marketplace, and wallets and brokerages can embed StockPilot for their users.",
+  "cta": "Try it live, right now, no wallet needed. Give an AI your portfolio, not your keys."
+}

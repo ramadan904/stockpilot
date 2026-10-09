@@ -1,13 +1,14 @@
-// The narrated pitch: the slides in e2e-web/pitch/deck.html, with shots of the live site, each shown for one line of
-// e2e-web/pitch.json in the same voice and word-by-word captions as the demo. scripts/pitch-video.sh runs it all.
+// The narrated pitch: the slides in e2e-web/pitch/deck.html, with shots of the live site, each shown for one line of the
+// script (e2e-web/pitch.json, or pitch-90.json for the 90-second cut) in the same voice and word-by-word captions as the
+// demo. Each line shows the slide with its id. scripts/pitch-video.sh runs it all.
 
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { test } from "@playwright/test";
 import { Narrator } from "./narrator";
 
-const OUT = `${__dirname}/../media/pitch`;
-const LINES: Record<string, string> = JSON.parse(readFileSync(`${__dirname}/pitch.json`, "utf8"));
+const OUT = process.env.PITCH_OUT ?? `${__dirname}/../media/pitch`;
+const LINES: Record<string, string> = JSON.parse(readFileSync(process.env.PITCH_LINES ?? `${__dirname}/pitch.json`, "utf8"));
 
 test("StockPilot, the pitch", async ({ page }) => {
   test.setTimeout(400_000);

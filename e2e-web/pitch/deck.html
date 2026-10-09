@@ -109,6 +109,7 @@
   .center h1 { max-width: none; }
   .logo-big { display: flex; align-items: center; gap: 18px; font-size: 58px; font-weight: 800; letter-spacing: -.02em; margin: 26px 0 12px; }
   .logo-big .mark { width: 64px; height: 64px; border-radius: 16px; }
+  .url { font-size: 44px; font-weight: 800; color: var(--accent); letter-spacing: -.01em; margin: 6px 0 4px; }
   .links { margin-top: 28px; display: flex; gap: 14px; justify-content: center; }
   .links .chip { font-size: 19px; font-family: "DejaVu Sans Mono", monospace; font-weight: 500; }
 
@@ -119,6 +120,21 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute"><symbol id="m" viewBox="0 0 32 32"><path d="M5 23l7-7 5 5 10-11" stroke="#04201d" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round" /></symbol></svg>
+
+<section class="slide" id="problem">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">The problem</div>
+  <h1 class="rv">Tokenized stocks trade <em>24/7.</em></h1>
+  <h2 class="rv" data-cue="ai" style="margin-top:14px">To manage them, an AI needs <span class="bad">your keys.</span></h2>
+  <div class="chain">
+    <div class="box rv" data-cue="keys">AI + your keys</div>
+    <div class="arrow rv" data-cue="bug">→</div>
+    <div class="box rv" data-cue="bug">one bug</div>
+    <div class="box rv" data-cue="prompt">one prompt injection</div>
+    <div class="arrow rv" data-cue="drain">→</div>
+    <div class="box bad rv" data-cue="drain">drained</div>
+  </div>
+</section>
 
 <section class="slide" id="hook">
   <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
@@ -149,8 +165,8 @@
   <div class="kicker rv">StockPilot</div>
   <h1 class="rv">An AI autopilot for tokenized stocks that can only trade <em>inside the rules you sign.</em></h1>
   <div class="row">
-    <div class="card rv" data-cue="does"><div class="n">THE AI</div><h3>Does the work</h3><p>Drafts the plan, watches prices, rebalances.</p></div>
-    <div class="card good rv" data-cue="contract"><div class="n">A CONTRACT YOU OWN</div><h3>Keeps it honest</h3><p>Checks every trade against your mandate, onchain.</p></div>
+    <div class="card rv" data-cue="does|claude"><div class="n">THE AI</div><h3>Does the work</h3><p>Drafts the plan, watches prices, rebalances.</p></div>
+    <div class="card good rv" data-cue="contract|vault"><div class="n">A CONTRACT YOU OWN</div><h3>Keeps it honest</h3><p>Checks every trade against your mandate, onchain.</p></div>
   </div>
 </section>
 
@@ -169,12 +185,14 @@
       <li class="rv" data-cue="pile"><span class="x">✕</span>pile into one stock</li>
       <li class="rv" data-cue="bad"><span class="x">✕</span>take a bad or stale price</li>
     </ul>
-    <p class="worst rv" data-cue="worst">Worst case: <b>trades inside your bands, under your daily cap, at a fair price.</b></p>
+    <p class="worst rv" data-cue="worst|price">Worst case: <b>trades inside your bands, under your daily cap, at a fair price.</b></p>
   </div>
   <div class="shot rv" data-cue="hacked" data-clip="guard"><video muted playsinline preload="auto"></video></div>
   <div class="stamp rv" data-cue="change">BLOCKED</div>
 </section>
 
+<section class="slide clip" id="rebalance" data-clip="rebalance"><video muted playsinline preload="auto"></video><div class="cover"></div>
+  <div class="tag"><span class="dot"></span>Live · rebalances, with reasons onchain</div></section>
 <section class="slide clip" id="live" data-clip="live"><video muted playsinline preload="auto"></video><div class="cover"></div>
   <div class="tag"><span class="dot"></span>Live · Robinhood Chain testnet</div></section>
 <section class="slide clip" id="theater" data-clip="theater"><video muted playsinline preload="auto"></video><div class="cover"></div>
@@ -199,16 +217,26 @@
   </div>
 </section>
 
+<section class="slide" id="whynow">
+  <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="kicker rv">Why now</div>
+  <h1 class="rv">Stocks are moving onchain, starting with <em>Robinhood Chain.</em></h1>
+  <div class="row">
+    <div class="card rv" data-cue="holder"><div class="n">EVERY HOLDER</div><h3>Needs a portfolio minded</h3><p>Around the clock: drift, rebalancing, risk.</p></div>
+    <div class="card good rv" data-cue="without"><div class="n">WITHOUT</div><h3>Handing over their keys</h3><p>The rules live in a contract the owner holds.</p></div>
+  </div>
+</section>
+
 <section class="slide" id="business">
   <div class="brand"><span class="mark"><svg width="18" height="18"><use href="#m" /></svg></span>StockPilot</div>
   <div class="kicker rv">Business model</div>
   <h2 class="rv">Owners pay their pilot, <em>onchain.</em></h2>
   <div class="flow">
-    <div class="card rv" data-cue="fee"><div class="n">MANAGEMENT FEE</div><div class="big">≤ 2% / yr</div><p>Set by the owner, taken by the vault, cancellable any time. $10,000 at 0.5% ≈ $50 a year.</p></div>
+    <div class="card rv" data-cue="fee|pay"><div class="n">MANAGEMENT FEE</div><div class="big">≤ 2% / yr</div><p>Set by the owner, taken by the vault, cancellable any time. $10,000 at 0.5% ≈ $50 a year.</p></div>
     <div class="arrow rv" data-cue="pilots">→</div>
     <div class="card rv" data-cue="marketplace"><div class="n">OPEN MARKETPLACE</div><h3>Pilots compete</h3><p>Any AI agent can list; owners compare results read from the chain.</p></div>
-    <div class="arrow rv" data-cue="earn">→</div>
-    <div class="card good rv" data-cue="earn"><div class="n">STOCKPILOT EARNS</div><h3>House Pilot fees</h3><p class="rv" data-cue="licensing">+ licensing autopilot to wallets and brokerages.</p></div>
+    <div class="arrow rv" data-cue="earn|embed">→</div>
+    <div class="card good rv" data-cue="earn|embed"><div class="n">STOCKPILOT EARNS</div><h3>House Pilot fees</h3><p class="rv" data-cue="licensing|brokerages">+ licensing autopilot to wallets and brokerages.</p></div>
   </div>
 </section>
 
@@ -250,6 +278,16 @@
   </div>
 </section>
 
+<section class="slide center" id="cta">
+  <div class="logo-big rv"><span class="mark"><svg width="38" height="38"><use href="#m" /></svg></span>StockPilot</div>
+  <div class="url rv" data-cue="try">stockpilot-six-virid.vercel.app</div>
+  <div class="chips" style="justify-content:center">
+    <div class="chip rv" data-cue="wallet"><span class="dot"></span>No wallet needed</div>
+    <div class="chip rv" data-cue="wallet"><span class="dot"></span>Open the demo vault → <b>Simulate a compromised pilot</b></div>
+  </div>
+  <h2 class="rv" data-cue="give" style="margin-top:34px">Give an AI your portfolio, <em>not your keys.</em></h2>
+</section>
+
 <script>
   const CLIPS = "../../media/pitch/clips/";
   const norm = (w) => w.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -276,7 +314,8 @@
     for (const el of slide.querySelectorAll(".rv")) {
       let at = null;
       if (el.dataset.cue) {
-        const hits = said.filter(([w]) => w === el.dataset.cue);
+        const alts = el.dataset.cue.split("|");
+        const hits = said.filter(([w]) => alts.includes(w));
         const hit = hits[Number(el.dataset.nth || 1) - 1] ?? hits[0];
         at = hit ? hit[1] : null;
       }
