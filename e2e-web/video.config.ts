@@ -1,11 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 import base from "./playwright.config";
 
-// Records the captioned demo video: `npm run video` (then scripts/video.sh turns it into media/live-demo.mp4).
+// Records the captioned demo video: `npm run video` (then scripts/video.sh turns it into media/local-demo.mp4).
 // Same local stack as the browser tests; only *.rec.ts files, so the normal test run never picks this up.
 export default defineConfig({
   ...base,
-  testMatch: /\.rec\.ts$/,
+  testMatch: /demo\.rec\.ts$/,
   timeout: 300_000,
   retries: 0,
   reporter: "list",

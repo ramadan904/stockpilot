@@ -15,3 +15,7 @@ test-results/
 e2e-web/test-results/
 docker-smoke.log
 .vercel
+
+# Narrated demo: generated speech and the TTS model (scripts/narrate.py)
+media/narration/
+.kokoro/
