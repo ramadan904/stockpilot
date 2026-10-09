@@ -21,8 +21,12 @@
   "registry": "0x12e02f0b852274948859c8ed8e10a414f5febeeb",
   "demoVault": "0xDBc0d40a791eEefB7E210c889F465b855DafD303",
   "credential": "0x68f5d170de04e0d6459e05f3099c7d20e7eb70cb",
-  "journal": "0x7986aaabae001b36e4ad8e56fa7429d0cea17574",
   "funds": "0x9da047114924f48d5351f11b5704fbd2cc48a61d",
   "demoFund": "0xe314456Fc476bF48d605a703D102edc75B2231e7",
-  "demoFundVault": "0xB0Ba256d27902611c4A6C2f9f6df5CCd1F7c8362"
+  "demoFundVault": "0xB0Ba256d27902611c4A6C2f9f6df5CCd1F7c8362",
+  "startBlock": 130523777,
+  "pastJournals": [
+    "0x7986aaabae001b36e4ad8e56fa7429d0cea17574"
+  ],
+  "journal": "0x8d165798dfd3a9fade85a3d6defcf61f0b7b4475"
 }
