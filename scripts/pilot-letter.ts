@@ -9,7 +9,7 @@ import hre from "hardhat";
 import { readFileSync } from "node:fs";
 import type { Abi, Address } from "viem";
 import { digestFacts } from "../agent/digest";
-import { logsInRange } from "../agent/history";
+import { blockAtOrBefore, logsInRange } from "../agent/history";
 import { composeLetter } from "../agent/letter";
 import { writeReport } from "../agent/reporter";
 
@@ -28,9 +28,10 @@ async function main() {
   const now = Number((await client.getBlock()).timestamp);
   if (last && now - last < minHours * 3600) return console.log(`Last letter ${Math.round((now - last) / 3600)} h ago; the next one is due after ${minHours} h.`);
 
-  // Cover the blocks since the last letter, or since the deployment went out.
+  // Cover the blocks since the last letter, or since the deployment went out (found by time in older deployment files).
   const head = await client.getBlockNumber();
-  const start = BigInt(d.startBlock ?? 0);
+  const start =
+    d.startBlock !== undefined ? BigInt(d.startBlock) : d.deployedAt ? await blockAtOrBefore(client, Date.parse(d.deployedAt) / 1000 - 3_600) : 0n;
   const letters = await logsInRange((fromBlock, toBlock) => journal.getEvents.Letter({ vault: vault.address }, { fromBlock, toBlock }), start, head);
   const fromBlock = letters.length ? letters[letters.length - 1].args.toBlock! + 1n : start;
 

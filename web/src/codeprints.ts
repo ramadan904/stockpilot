@@ -21,8 +21,8 @@ export const CODE_PRINTS = {
     immutables: [[594, 32], [647, 32], [1828, 32], [1892, 32], [4323, 32]],
   },
   PilotJournal: {
-    hash: "0xa2219b7ae080a4f3560ab5d374c5a9687b7f0d2afc8d6180e9a2ef8734df3a60",
-    immutables: [[657, 32]],
+    hash: "0xe2fe66870ee862bcb5d7f1023e9aa754892c7ab15d4e188054694e161f0c7a49",
+    immutables: [[637, 32]],
   },
   PilotFundFactory: {
     hash: "0x7f7d2f0dc59040980389cdf8d3d669fd523e70654cfa04f36740a18a2dcf3082",

@@ -33,6 +33,7 @@ services:
     environment:
       HARDHAT_NETWORK: ${NETWORK:-robinhoodTestnet}
       PRIVATE_KEY: ${RELAYER_PRIVATE_KEY:-}
+      PYTH_API_KEY: ${PYTH_API_KEY:-}
     ports: ["${RELAYER_PORT:-8081}:8080"]
 
   # --- local demo: `docker compose --profile local up -d` ---

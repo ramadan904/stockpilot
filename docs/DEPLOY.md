@@ -17,7 +17,8 @@ For each network it:
 2. **Deploys** the vault implementation and factory, the pilot registry, the testnet stand-ins (stock tokens,
    Chainlink-shaped feeds, the oracle market maker) and writes `deployments/<network>.json`. Skipped if that file
    exists (`REDEPLOY=1` to deploy again).
-3. **Pushes real stock prices** from Pyth's Hermes API onto the feeds, once.
+3. **Pushes real stock prices** onto the feeds, once: from Yahoo Finance (no key needed), or from Pyth's Hermes if
+   `PYTH_API_KEY` is set (Hermes has required a paid key since Pyth's August 2026 upgrade).
 4. **Seeds a funded demo vault**, recorded as `demoVault` in the deployment file (`REDEMO=1` for a new one). The app's
    Live tab then offers judges **Open the demo vault**: a read-only view, no wallet needed.
 
@@ -77,5 +78,10 @@ publishes a letter to the owner in the pilot journal (`scripts/pilot-letter.ts`)
 
 Optionally add `ANTHROPIC_API_KEY` too, so Claude writes the letters; without it they are written plainly from the
 same onchain figures.
+
+When a contract added after the first deploy changes (the pilot journal, say), tick **Bring the add-on contracts up to
+date** when running the workflow: it runs `scripts/deploy-addons.ts` with `RELAYER_KEY` and prints each updated
+`deployments/<network>.json` to commit. Optionally add `PYTH_API_KEY` to take prices from Pyth's Hermes instead of
+Yahoo Finance.
 
 Both keys are testnet keys. Without the secrets the workflow skips its steps and succeeds.
