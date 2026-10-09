@@ -5,7 +5,7 @@ import base from "./playwright.config";
 // Same local stack as the browser tests; only *.rec.ts files, so the normal test run never picks this up.
 export default defineConfig({
   ...base,
-  testMatch: /\.rec\.ts$/,
+  testMatch: /demo\.rec\.ts$/,
   timeout: 300_000,
   retries: 0,
   reporter: "list",

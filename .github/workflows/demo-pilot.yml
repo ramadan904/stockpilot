@@ -18,6 +18,10 @@ on:
         description: "First bring the add-on contracts up to date (scripts/deploy-addons.ts) and print each deployment file to commit"
         type: boolean
         default: false
+      video:
+        description: "Then record the demo video on the live site (best while the US market is open); committed to the branch unless it is the default one"
+        type: boolean
+        default: false
 
 
 permissions:
@@ -97,3 +101,41 @@ jobs:
         run: |
           if [ -z "$PRIVATE_KEY" ]; then echo "No demo pilot key for $NETWORK: skipping the letter."; exit 0; fi
           npx hardhat run scripts/pilot-letter.ts --network "$NETWORK" || echo "Letter step failed; the pilot still flies."
+
+  # The demo video, recorded on the live site right after the pilot flies, so prices are fresh and today's trades show.
+  video:
+    needs: fly
+    if: ${{ inputs.video && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get install -y -q ffmpeg
+      - name: Record the live site
+        run: npx playwright test -c e2e-web/live-video.config.ts --output e2e-web/test-results/live-video
+      - name: Encode media/live-demo.mp4
+        run: |
+          webm=$(find e2e-web/test-results/live-video -name '*.webm' | head -n 1)
+          mkdir -p media
+          ffmpeg -y -loglevel error -i "$webm" -c:v libx264 -preset slow -crf 24 -pix_fmt yuv420p -movflags +faststart -an media/live-demo.mp4
+          du -h media/live-demo.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: live-demo
+          path: media/live-demo.mp4
+      - name: Commit the video to this branch (never the default one)
+        if: ${{ github.ref_name != github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add media/live-demo.mp4
+          git commit -m "Demo video recorded on the live site during market hours" || exit 0
+          git push origin "HEAD:${{ github.ref_name }}"
