@@ -76,6 +76,7 @@ function showCaption(words: [string, number, number][]) {
         box-shadow: 0 12px 44px rgba(0,0,0,.55); font: 600 21px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; text-align: center;
         color: rgba(230,237,245,.42); text-wrap: balance; pointer-events: none; }
       body:has(.tour-panel) #narration { bottom: auto; top: 64px; }
+      #narration { transition: opacity .3s; }
       #narration span { transition: color .12s, text-shadow .12s; }
       #narration span.said { color: #e6edf5; }
       #narration span.now { color: #5eead4; text-shadow: 0 0 14px rgba(45,212,191,.55); }`;
@@ -101,4 +102,6 @@ function showCaption(words: [string, number, number][]) {
   });
   const end = words.length ? words[words.length - 1][2] : 0;
   w.__narrationTimers.push(window.setTimeout(() => spans.forEach((s) => (s.className = "said")), end * 1000));
+  // Gone shortly after the voice stops, so a caption never sits over the next scene in silence.
+  w.__narrationTimers.push(window.setTimeout(() => (bar.style.opacity = "0"), end * 1000 + 500));
 }
