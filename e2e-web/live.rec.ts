@@ -110,7 +110,7 @@ test("StockPilot, live", async ({ page }) => {
   await caption(page, `Its pilot, right now: "${(await next.innerText()).replace(/^Pilot's next move:\s*/, "").slice(0, 110)}"`, 3400);
   await scene("trade with its reason", async () => {
     const reason = card(page, "Activity").getByTestId("trade-reason").first();
-    await reason.waitFor({ timeout: 30_000 });
+    await reason.waitFor({ timeout: 12_000 });
     await show(reason, 600);
     await caption(page, "Today's trade, made at real market prices. Its reason is published onchain and matches the hash the trade recorded.", 4000);
   });
