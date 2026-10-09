@@ -22,6 +22,10 @@ on:
         description: "Then record the demo video on the live site (best while the US market is open); committed to the branch unless it is the default one"
         type: boolean
         default: false
+      narrated:
+        description: "Then record the narrated tour of the whole site (voice + captions; owner scenes sign testnet transactions with RELAYER_KEY)"
+        type: boolean
+        default: false
 
 
 permissions:
@@ -138,4 +142,61 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add media/live-demo.mp4
           git commit -m "Demo video recorded on the live site during market hours" || exit 0
+          git push origin "HEAD:${{ github.ref_name }}"
+
+  # The narrated tour: every part of the site with a voice (Kokoro, an open neural TTS model) and word-by-word
+  # captions. Owner scenes sign real testnet transactions with the testnet deployer key.
+  narrated:
+    needs: fly
+    if: ${{ inputs.narrated && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get install -y -q ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q kokoro-onnx==0.6.1 soundfile
+      - uses: actions/cache@v4
+        with:
+          path: .kokoro
+          key: kokoro-model-files-v1.0
+      - name: Kokoro model files
+        run: |
+          mkdir -p .kokoro
+          for f in kokoro-v1.0.onnx voices-v1.0.bin; do
+            test -s ".kokoro/$f" || curl -sSfL -o ".kokoro/$f" "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/$f"
+          done
+      - name: The voice
+        run: python scripts/narrate.py --model .kokoro --lines e2e-web/narration.json --out media/narration
+      - name: Record the tour on the live site
+        env:
+          OWNER_KEY: ${{ secrets.RELAYER_KEY }}
+        run: npx playwright test -c e2e-web/narrated-video.config.ts --output e2e-web/test-results/narrated
+      - name: Lay the voice over the video
+        run: |
+          webm=$(find e2e-web/test-results/narrated -name '*.webm' | head -n 1)
+          python scripts/mix-narration.py --video "$webm" --timeline e2e-web/test-results/narration-timeline.json --narration media/narration --out media/narrated-demo.mp4
+          du -h media/narrated-demo.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: narrated-demo
+          path: media/narrated-demo.mp4
+      - name: Commit the video to this branch (never the default one)
+        if: ${{ github.ref_name != github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add media/narrated-demo.mp4
+          git commit -m "Narrated demo video, recorded on the live site" || exit 0
+          git pull --rebase -q origin "${{ github.ref_name }}" || true
           git push origin "HEAD:${{ github.ref_name }}"

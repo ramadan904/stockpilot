@@ -1,0 +1,20 @@
+{
+  "intro": "This is StockPilot: an AI autopilot for tokenized stocks that can only trade inside the rules you sign.",
+  "draft": "Describe your goal in plain words, or paste what you already own, and the strategist drafts a mandate: target weights, drift bands and trading limits.",
+  "tune": "Adjust it in your own words, tune it by hand, and share it as a link or a card.",
+  "simulate": "In the simulator, move the market. NVDA rallies, the vault drifts, and the pilot shows its math before it rebalances, inside the rules.",
+  "break": "Try to break it, and every rogue trade is blocked by the vault. Arm the crash guard, and a crash sends it to cash. Every decision is logged and explained.",
+  "backtest": "Backtest it across two hundred markets against buying and holding, add a glide path, compare after tax, and stress test five kinds of crash before you sign.",
+  "live": "Now, live on Robinhood Chain testnet. Real stock prices go onchain every hour, and the house pilot trades only when the rules allow.",
+  "theater": "The Attack Theater fires nine attacks at the live contract from the pilot's own key. Every one is refused.",
+  "trust": "Vaults that keep their rules earn a soulbound Verified Mandate, and every day the pilot writes the owner a signed letter, onchain.",
+  "reports": "Weekly reports, ask the vault anything, monthly statements, a tax report lot by lot, and a tax aware pilot.",
+  "activity": "Every trade carries its reason, published onchain, matching the hash the trade recorded.",
+  "arbitrum": "The same contracts run on Arbitrum Sepolia, with the same pilot.",
+  "fund": "Funds let many people own one vault: buy in, redeem your exact share, and vote to fire the pilot. Pilots compete in an open marketplace.",
+  "owner": "As an owner, connect a wallet, pick a pilot, and create a vault, with real transactions on the testnet.",
+  "controls": "Then pause it any time, review changes before you sign, and add recurring buys, a glide path into cash, a crash guard, an heir, and alerts.",
+  "network": "The network page reads it all from the chain: money under mandate, every pilot as a star with its vaults in orbit, and the latest trades.",
+  "codecheck": "And the code check proves the deployed contracts are exactly this code. Every one matches.",
+  "outro": "StockPilot. Your rules, enforced onchain. Live on Robinhood Chain and Arbitrum."
+}
