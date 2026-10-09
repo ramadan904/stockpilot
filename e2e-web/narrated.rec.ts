@@ -261,11 +261,16 @@ test("StockPilot, narrated", async ({ page }) => {
     if (created) {
       await scene("controls", () =>
         n.say("controls", async () => {
-          await show(card(page, "Controls"), 900);
-          await page.getByRole("button", { name: "Review drafted mandate" }).click();
-          const diff = card(page, "Review the new mandate");
-          await show(diff, 1100);
-          await diff.getByRole("button", { name: "Cancel" }).click();
+          // Each card on its own: one that isn't there for this vault never hides the rest.
+          const tryStep = (step: () => Promise<unknown>) => step().catch((e) => skipped.push(`controls step: ${(e as Error).message.split("\n")[0]}`));
+          await tryStep(() => show(card(page, "Controls"), 900));
+          await tryStep(async () => {
+            await page.getByRole("button", { name: "Review drafted mandate" }).click({ timeout: 4_000 });
+            const diff = card(page, "Review the new mandate");
+            await diff.waitFor({ timeout: 6_000 });
+            await show(diff, 1100);
+            await diff.getByRole("button", { name: "Cancel" }).click({ timeout: 4_000 });
+          });
           for (const [title, open] of [
             ["Recurring investment", "Set up recurring investment"],
             ["Glide path", ""],
@@ -273,10 +278,13 @@ test("StockPilot, narrated", async ({ page }) => {
             ["Inheritance", "Name an heir"],
             ["Alerts", ""],
           ]) {
-            const c = card(page, title);
-            await show(c, 150);
-            if (open) await c.getByRole("button", { name: open }).click();
-            await beat(450);
+            await tryStep(async () => {
+              const c = card(page, title);
+              await c.waitFor({ timeout: 4_000 });
+              await show(c, 150);
+              if (open) await c.getByRole("button", { name: open }).click({ timeout: 4_000 });
+              await beat(450);
+            });
           }
         }),
       );
@@ -287,7 +295,7 @@ test("StockPilot, narrated", async ({ page }) => {
   await n.quiet();
   await page.goto(`/?view=network&chain=${MAIN}`);
   await scene("network", async () => {
-    await page.getByTestId("net-total").waitFor({ timeout: 60_000 });
+    await page.getByTestId("net-total").waitFor({ timeout: 120_000 });
     await n.say("network", async () => {
       await show(card(page, /StockPilot onchain/), 1600);
       const sky = page.locator(".constellation");
