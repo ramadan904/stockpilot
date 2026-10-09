@@ -13,6 +13,11 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      addons:
+        description: "First bring the add-on contracts up to date (scripts/deploy-addons.ts) and print each deployment file to commit"
+        type: boolean
+        default: false
 
 
 permissions:
@@ -44,6 +49,14 @@ jobs:
           test -f "deployments/$NETWORK.json" || { echo "No deployments/$NETWORK.json, so nothing to fly."; exit 1; }
       - run: npm ci
       - run: npx hardhat compile --quiet
+      - name: Add-on contracts up to date (only when asked)
+        if: ${{ inputs.addons }}
+        env:
+          PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}
+        run: |
+          npx hardhat run scripts/deploy-addons.ts --network "$NETWORK"
+          echo "Commit this as deployments/$NETWORK.json:"
+          cat "deployments/$NETWORK.json"
       - name: Real stock prices onto the feeds
         env:
           PRIVATE_KEY: ${{ secrets.RELAYER_KEY }}

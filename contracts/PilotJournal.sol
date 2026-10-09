@@ -42,9 +42,12 @@ contract PilotJournal {
     }
 
     /// @notice Publish a letter about `vault`, covering blocks `fromBlock` to `toBlock`. Only its current pilot may.
+    /// @dev The range is in the chain's own block numbers, as its RPC reports them. It is not checked against
+    /// `block.number`: on Arbitrum chains (Robinhood Chain among them) that is the parent chain's block number, far
+    /// below the chain's own, so the check would refuse every honest letter.
     function post(PilotVault vault, uint64 fromBlock, uint64 toBlock, string calldata text) external returns (uint256 number) {
         _checkPilotAndText(vault, text);
-        if (fromBlock > toBlock || toBlock > block.number) revert BadRange();
+        if (fromBlock > toBlock) revert BadRange();
 
         number = ++letterCount[address(vault)];
         lastLetterAt[address(vault)] = uint64(block.timestamp);

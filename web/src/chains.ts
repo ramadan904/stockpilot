@@ -20,6 +20,8 @@ export interface Deployment {
   credential?: Address;
   /** Letters from pilots. Older deployment files predate it. */
   journal?: Address;
+  /** Journals this one replaced (scripts/deploy-addons.ts): trade reasons published there still count. */
+  pastJournals?: Address[];
   /** Pilot funds: vaults many people own together. Older deployment files predate it. */
   funds?: Address;
   /** The pilot directory. Older deployment files predate it. */

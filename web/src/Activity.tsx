@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatUnits, type Abi, type Address, type Hash, type PublicClient } from "viem";
 import type { AssetState } from "../../agent/model";
 import { pilotJournalAbi } from "./abi";
-import { explorerTx } from "./chains";
+import { DEPLOYMENTS, explorerTx } from "./chains";
 import { historyStart } from "./rpc";
 import { logsInRange } from "../../agent/history";
 import { Card, usd } from "./ui";
@@ -137,12 +137,14 @@ export async function loadActivity(client: PublicClient, vault: Address, abi: Ab
 /**
  * The trade reasons the pilot published in the journal for this vault, by hash. The journal computes each hash from
  * the text itself, so a reason found under a trade's hash is, word for word, the reason the trade committed to.
+ * Journals this one replaced are read too.
  */
 export async function readReasons(client: PublicClient, journal: Address | undefined, vault: Address, from: bigint, to: bigint) {
   const reasons = new Map<string, string>();
   if (!journal) return reasons;
+  const past = DEPLOYMENTS.find((d) => d.journal?.toLowerCase() === journal.toLowerCase())?.pastJournals ?? [];
   const logs = await logsInRange(
-    (fromBlock, toBlock) => client.getContractEvents({ address: journal, abi: pilotJournalAbi, eventName: "Reason", args: { vault }, fromBlock, toBlock }),
+    (fromBlock, toBlock) => client.getContractEvents({ address: [journal, ...past], abi: pilotJournalAbi, eventName: "Reason", args: { vault }, fromBlock, toBlock }),
     from,
     to,
   ).catch(() => []);

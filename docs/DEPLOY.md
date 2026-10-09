@@ -79,4 +79,9 @@ publishes a letter to the owner in the pilot journal (`scripts/pilot-letter.ts`)
 Optionally add `ANTHROPIC_API_KEY` too, so Claude writes the letters; without it they are written plainly from the
 same onchain figures.
 
+When a contract added after the first deploy changes (the pilot journal, say), tick **Bring the add-on contracts up to
+date** when running the workflow: it runs `scripts/deploy-addons.ts` with `RELAYER_KEY` and prints each updated
+`deployments/<network>.json` to commit. Optionally add `PYTH_API_KEY` to take prices from Pyth's Hermes instead of
+Yahoo Finance.
+
 Both keys are testnet keys. Without the secrets the workflow skips its steps and succeeds.

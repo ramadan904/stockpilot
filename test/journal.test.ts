@@ -46,9 +46,10 @@ describe("PilotJournal: letters from the pilot, onchain", () => {
     await expect(asPilot.write.post([lookalike.address, 0n, 0n, LETTER])).to.be.rejectedWith("NotAStockPilotVault");
     await expect(asPilot.write.post([vault.address, 0n, 0n, ""])).to.be.rejectedWith("EmptyLetter");
     await expect(asPilot.write.post([vault.address, 0n, 0n, "x".repeat(4_001)])).to.be.rejectedWith("LetterTooLong(4001)");
-    const head = await publicClient.getBlockNumber();
     await expect(asPilot.write.post([vault.address, 5n, 4n, LETTER])).to.be.rejectedWith("BadRange");
-    await expect(asPilot.write.post([vault.address, 0n, head + 100n, LETTER])).to.be.rejectedWith("BadRange");
+    // Block numbers are the chain's own: on Arbitrum chains they run far ahead of the EVM's block.number.
+    const head = await publicClient.getBlockNumber();
+    await asPilot.write.post([vault.address, head + 300_000_000n, head + 300_000_100n, LETTER]);
     await asPilot.write.post([vault.address, 0n, 0n, "x".repeat(4_000)]);
   });
 

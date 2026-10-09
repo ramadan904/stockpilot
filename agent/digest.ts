@@ -2,6 +2,7 @@
 
 import type { Abi, Address, PublicClient } from "viem";
 import { readVault } from "./chain";
+import { logsInRange } from "./history";
 import { available, eq } from "./model";
 import { holdingsFacts, valueFacts, type ReportFacts } from "./report";
 
@@ -11,7 +12,7 @@ export async function digestFacts(client: PublicClient, vaultAbi: Abi, vault: Ad
     client.getBlockNumber(),
     client.readContract({ address: vault, abi: vaultAbi, functionName: "feeBps" }) as Promise<number>,
   ]);
-  const logs = await client.getContractEvents({ address: vault, abi: vaultAbi, eventName: "Rebalanced", fromBlock, toBlock: head });
+  const logs = await logsInRange((from, to) => client.getContractEvents({ address: vault, abi: vaultAbi, eventName: "Rebalanced", fromBlock: from, toBlock: to }), fromBlock, head);
   const sym = (t: unknown) => state.assets.find((a) => eq(a.token, String(t)))?.symbol ?? String(t).slice(0, 8);
   const trades = logs.slice(-50).map((l) => {
     const a = l.args as Record<string, unknown>;
