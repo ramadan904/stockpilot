@@ -5,11 +5,16 @@
 #   pip install kokoro-onnx==0.6.1 soundfile   # and the two model files in .kokoro/ (see scripts/narrate.py)
 #   bash scripts/pitch-video.sh                 # the 90-second pitch: media/pitch-90s.mp4 (script e2e-web/pitch-90.json)
 #   bash scripts/pitch-video.sh full            # the full pitch:      media/pitch-video.mp4 (script e2e-web/pitch.json)
+#   bash scripts/pitch-video.sh founder         # in the founder's own voice: media/pitch-founder.mp4 (script
+#                                               # e2e-web/pitch-founder.json; first cut the take with scripts/voice-lines.py
+#                                               # into media/pitch-founder/narration)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ "${1:-90}" = full ]; then
   LINES=e2e-web/pitch.json OUT=media/pitch VIDEO=media/pitch-video.mp4
+elif [ "$1" = founder ]; then
+  LINES=e2e-web/pitch-founder.json OUT=media/pitch-founder VIDEO=media/pitch-founder.mp4
 else
   LINES=e2e-web/pitch-90.json OUT=media/pitch-90 VIDEO=media/pitch-90s.mp4
 fi
@@ -41,7 +46,7 @@ clip theater 0 60.4:67.3
 clip trust 0 68:76.4 84:88
 clip proof 0 123.2:136.8
 
-python3 scripts/narrate.py --model .kokoro --lines "$LINES" --out "$OUT/narration"
+[ "${1:-90}" = founder ] || python3 scripts/narrate.py --model .kokoro --lines "$LINES" --out "$OUT/narration"
 rm -rf "$OUT/recording"
 PITCH_LINES="$PWD/$LINES" PITCH_OUT="$PWD/$OUT" npx playwright test -c e2e-web/pitch-video.config.ts --output "$OUT/recording"
 webm=$(find "$OUT/recording" -name '*.webm' | head -n 1)

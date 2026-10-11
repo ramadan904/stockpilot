@@ -1,0 +1,10 @@
+{
+  "intro": "Hi, I'm Ramadan, a university student in Nigeria, and I built StockPilot.",
+  "problem": "Stocks are coming onchain and trade around the clock. An AI could manage them, but to trade, it needs your keys, and one bug or prompt injection can drain you.",
+  "idea": "So I built StockPilot: an AI autopilot that can only trade inside the rules you sign. A vault you own checks every trade.",
+  "guard": "Even if the pilot is hacked, it can't withdraw, can't change your rules, can't pile into one stock, and can't take a bad price.",
+  "theater": "It's live on Robinhood Chain testnet. Anyone can fire nine attacks at the real contract with the pilot's own key, and every one is refused.",
+  "whyme": "Why me? I care about making AI safe to trust with real money, and I shipped this end to end: the contracts, the pilot, the app, and around three hundred tests.",
+  "business": "Owners pay their pilot a small fee onchain, pilots compete in an open marketplace, and wallets and brokerages can embed it.",
+  "cta": "Try it live, no wallet needed. Give an AI your portfolio, not your keys."
+}
